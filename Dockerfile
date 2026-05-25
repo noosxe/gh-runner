@@ -11,8 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     ca-certificates \
     git \
+    git-lfs \
     jq \
     iproute2 \
+    libatomic1 \
+    unzip \
+    zip \
+    wget \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
