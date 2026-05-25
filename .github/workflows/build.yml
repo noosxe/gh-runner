@@ -92,6 +92,9 @@ jobs:
       packages: write
 
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
       # Set up Docker Buildx to enable imagetools execution
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -127,6 +130,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
             --title "${{ github.ref_name }}" \
             --generate-notes
 
