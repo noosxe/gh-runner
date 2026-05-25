@@ -1,0 +1,23 @@
+# Sensitive environment configurations (Never commit active tokens)
+.env
+
+# Runner working directories (Local execution testing)
+_work/
+
+# Logs & temporary files
+*.log
+.tmp/
+tmp/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Developer IDE environments
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp

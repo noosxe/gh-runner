@@ -1,0 +1,22 @@
+services:
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Version of the GitHub runner agent to bake into the image
+        - RUNNER_VERSION=2.334.0
+    image: gh-runner:latest
+    container_name: github-actions-runner
+    # Use standard init process to reap zombie processes spawned by runner jobs
+    init: true
+    restart: unless-stopped
+    environment:
+      - GITHUB_REPOSITORY_URL=${GITHUB_REPOSITORY_URL}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+      - RUNNER_NAME=${RUNNER_NAME:-github-runner-local}
+      - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64}
+      - RUNNER_WORKDIR=${RUNNER_WORKDIR:-_work}
+    # Mount volumes if you want to support docker-in-docker or custom caching
+    # volumes:
+    #   - /var/run/docker.sock:/var/run/docker.sock # Uncomment to support Docker operations inside runner
