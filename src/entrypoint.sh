@@ -1,6 +1,28 @@
 #!/bin/bash
 set -euo pipefail
 
+if [ -S /var/run/docker.sock ]; then
+    # 1. Get the exact numeric GID of the host's Docker socket
+    HOST_DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+    echo "Detected host Docker socket GID: $HOST_DOCKER_GID"
+
+    # 2. Check if a group with that GID already exists inside the container
+    EXISTING_GROUP=$(getent group "$HOST_DOCKER_GID" | cut -d: -f1)
+
+    if [ -n "$EXISTING_GROUP" ]; then
+        echo "Group with GID $HOST_DOCKER_GID already exists: $EXISTING_GROUP. Adding runner to it..."
+        sudo usermod -aG "$EXISTING_GROUP" runner
+    else
+        echo "Creating internal 'host-docker' group with GID $HOST_DOCKER_GID..."
+        sudo groupadd -g "$HOST_DOCKER_GID" host-docker
+        sudo usermod -aG host-docker runner
+    fi
+    
+    # 3. Force re-evaluation of group membership for the running process
+    # This prevents needing to log out/in to recognize the new group attachment
+    exec sg "$(getent group "$HOST_DOCKER_GID" | cut -d: -f1)" "$0" "$@"
+fi
+
 # Ensure Go module cache is writable if it exists, preventing tar extraction permission errors from previous runs
 if [ -d "/home/runner/go" ]; then
     echo "Ensuring Go module cache at /home/runner/go is writable..."
