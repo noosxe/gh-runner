@@ -4,6 +4,9 @@ FROM ubuntu:22.04
 # Prevent interactive prompts during apt package configuration
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Configure Go to leave the module cache writable, preventing "File exists" / permission errors during cache restore on self-hosted runners
+ENV GOFLAGS="-modcacherw"
+
 # Install essential CLI tools required for runner setup and basic runner workflows
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
