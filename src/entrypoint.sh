@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+# Ensure Go module cache is writable if it exists, preventing tar extraction permission errors from previous runs
+if [ -d "/home/runner/go" ]; then
+    echo "Ensuring Go module cache at /home/runner/go is writable..."
+    chmod -R +w /home/runner/go || true
+fi
+
 # Ensure target configuration variables are present
 if [ -z "${GITHUB_REPOSITORY_URL:-}" ]; then
     echo "ERROR: GITHUB_REPOSITORY_URL environment variable is not defined." >&2
