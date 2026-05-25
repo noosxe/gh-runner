@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     iproute2 \
     libatomic1 \
+    make \
     unzip \
     zip \
     wget \
