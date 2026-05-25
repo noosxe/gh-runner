@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Configure Go to leave the module cache writable, preventing "File exists" / permission errors during cache restore on self-hosted runners
 ENV GOFLAGS="-modcacherw"
 
-# Install essential CLI tools required for runner setup and basic runner workflows
+# Install essential CLI tools required for runner setup, basic workflows, and Docker repository setup
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     tar \
@@ -22,6 +22,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     zip \
     wget \
+    gnupg \
+    lsb-release \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install official Docker CLI, Buildx, and Compose plugins
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        docker-ce-cli \
+        docker-buildx-plugin \
+        docker-compose-plugin \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

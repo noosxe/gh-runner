@@ -17,6 +17,9 @@ services:
       - RUNNER_NAME=${RUNNER_NAME:-github-runner-local}
       - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64}
       - RUNNER_WORKDIR=${RUNNER_WORKDIR:-_work}
-    # Mount volumes if you want to support docker-in-docker or custom caching
-    # volumes:
-    #   - /var/run/docker.sock:/var/run/docker.sock # Uncomment to support Docker operations inside runner
+    # Mount volumes to support Docker-outside-of-Docker (DooD) operations
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Add runner user to the host's docker group GID (e.g. 998 or 999) to grant access to docker.sock
+    # group_add:
+    #   - "999"
