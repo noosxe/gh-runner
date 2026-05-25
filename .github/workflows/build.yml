@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Set up Docker Buildx for advanced builder caching features
       - name: Set up Docker Buildx
