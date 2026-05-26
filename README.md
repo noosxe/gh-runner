@@ -13,34 +13,59 @@ A lightweight, secure, and self-contained self-hosted GitHub Actions Runner pack
 
 ---
 
-## 🚀 Quickstart
+## 🚀 Usage Guide
 
-Follow these steps to instantly deploy a local runner:
+This self-hosted runner can be deployed either by pulling the pre-built multi-architecture container from the **GitHub Container Registry (GHCR)** (recommended) or by compiling it locally from source.
 
-### 1. Copy Environment Configuration
-Create a local `.env` file from the provided template:
-```bash
-cp .env.example .env
+### Option A: Using the Pre-Built Image (Recommended)
+
+To run the runner without needing to download or build the source code locally, create a `compose.yml` file and a `.env` file in a directory of your choice.
+
+#### 1. Create a `compose.yml` File
+Save the following configuration as `compose.yml`:
+
+```yaml
+services:
+  runner:
+    image: ghcr.io/noosxe/gh-runner:latest
+    container_name: github-actions-runner
+    # Use standard init process to reap zombie processes spawned by runner jobs
+    init: true
+    restart: unless-stopped
+    environment:
+      - GITHUB_REPOSITORY_URL=${GITHUB_REPOSITORY_URL}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+      - RUNNER_NAME=${RUNNER_NAME:-github-runner}
+      - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64}
+      - RUNNER_WORKDIR=${RUNNER_WORKDIR:-_work}
+    # Mount volumes to support Docker-outside-of-Docker (DooD) operations
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Optional: If your jobs need to communicate with Docker outside the container,
+    # uncomment below and match "999" to your host's docker group GID (run `getent group docker`).
+    # group_add:
+    #   - "999"
 ```
 
-### 2. Configure Settings
-Go to your GitHub private repository ➡️ **Settings** ➡️ **Actions** ➡️ **Runners** ➡️ **New self-hosted runner**. 
+#### 2. Create the Environment Configuration
+Create a `.env` file in the same directory:
 
-Update your local `.env` file with your details:
 ```env
-# The full URL of the repository you want to attach the runner to
+# The full URL of the GitHub repository
 GITHUB_REPOSITORY_URL=https://github.com/owner/repo
 
-# A fresh, short-lived runner registration token from the settings page
+# A fresh, short-lived runner registration token from repository settings:
+# Settings -> Actions -> Runners -> New self-hosted runner
 RUNNER_TOKEN=your_registration_token_here
 
-# Optional configuration
-RUNNER_NAME=local-docker-runner
+# Optional Configurations
+RUNNER_NAME=prod-gh-runner
 RUNNER_LABELS=self-hosted,linux,arm64
+RUNNER_WORKDIR=_work
 ```
 
-### 3. Start the Runner
-Launch the runner in detached mode using Docker Compose:
+#### 3. Spin Up the Runner
+Deploy the container in the background:
 ```bash
 docker compose up -d
 ```
@@ -50,12 +75,64 @@ To monitor the registration and execution logs:
 docker compose logs -f
 ```
 
-### 4. Stop and De-Register
-To cleanly stop the runner, simply run:
+---
+
+### Option B: Local Build and Execution (From Source)
+
+If you have cloned this repository and want to build the container locally:
+
+#### 1. Setup Your Environment File
+Duplicate the provided example configuration:
 ```bash
+cp .env.example .env
+```
+Open `.env` and fill in your `GITHUB_REPOSITORY_URL` and `RUNNER_TOKEN`.
+
+#### 2. Start the Runner via Local Build
+Build and run the container locally:
+```bash
+docker compose up --build -d
+```
+
+To monitor logs or tear it down:
+```bash
+docker compose logs -f
 docker compose down
 ```
-*Note: This command triggers the registration cleanup hook, automatically removing the runner from the GitHub Repository Actions UI instantly.*
+
+---
+
+## ⚙️ Configuration & Environment Variables
+
+The runner container is highly customizable via environment variables defined in your `.env` file:
+
+| Variable | Type | Required | Default | Description |
+| :--- | :--- | :---: | :--- | :--- |
+| `GITHUB_REPOSITORY_URL` | String | **Yes** | — | The full repository URL to register the runner to (e.g., `https://github.com/owner/repo`). |
+| `RUNNER_TOKEN` | String | **Yes** | — | The temporary registration token obtained from GitHub runner settings (expires after 1 hour). |
+| `RUNNER_NAME` | String | No | *container-hostname* | The name displayed for this runner on the GitHub Actions dashboard. |
+| `RUNNER_LABELS` | String | No | `self-hosted,linux,arm64` | A comma-separated list of custom labels to tag the runner with. |
+| `RUNNER_WORKDIR` | String | No | `_work` | The internal working directory where workflow jobs will run. |
+
+---
+
+## 🔒 Security & Execution Features
+
+### Docker-Outside-of-Docker (DooD)
+This runner is configured to support Docker-outside-of-Docker execution. This allows workflow actions inside the runner to invoke sibling containers on the host machine.
+* The container mounts `/var/run/docker.sock` from the host.
+* **Important Permission Note:** To allow the non-root `runner` user inside the container to talk to the host's Docker socket, you may need to uncomment the `group_add` section in `compose.yml` and provide your host machine's `docker` group ID:
+  ```bash
+  # Find host docker GID
+  getent group docker | cut -d: -f3
+  ```
+
+### Graceful Lifecycle Management
+* On startup, the container registers with the GitHub API using the provided token.
+* Upon termination (`docker compose down`, `docker stop`, `SIGTERM`/`SIGINT`), a trap triggers a cleanup routine that automatically de-registers the runner from the repository. This guarantees that your runner dashboard does not get cluttered with offline zombie runners.
+
+> [!WARNING]
+> Keep your `RUNNER_TOKEN` confidential. It is short-lived, but it grants the ability to register runners capable of executing arbitrary code inside your host environment.
 
 ---
 
