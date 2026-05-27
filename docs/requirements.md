@@ -16,7 +16,8 @@ Traditional self-hosted runner setups involve running persistent runner processe
 The **AIO Supervisor** is a single, lightweight container running an optimized **Go (Golang)** daemon with an embedded **Web Control Interface**. It acts as an on-host control plane that:
 - **Maintains Dynamic Ephemeral Pools**: Configured to run ephemeral containers (using the `--ephemeral` flag), ensuring each runner container executes **exactly one job** and self-destructs immediately.
 - **Provides Multi-Repository Support**: Simultaneously manages independent runner pools for different GitHub repositories from a single host.
-- **Provides a Web Control Interface**: Serves a secure web UI to monitor pool states, adjust limits, check metrics, and review execution logs in real-time.
+- **Provides a GitHub App SSO & Setup Flow**: Features a guided onboarding wizard to configure repository pools and authenticates users securely via GitHub OAuth.
+- **Provides a Web Control Interface**: Serves a secure web UI to monitor pool states, search execution history, check success/failure statistics, analyze queue wait-time latency, and view real-time logs.
 - **Ensures Graceful Lifecycles**: Monitors runner lifetimes, dynamically obtains fresh registration tokens from the GitHub API, replaces terminated containers, and cleanly de-registers them during supervisor shutdown.
 - **Implements Secure-by-Default Isolation**: Enforces CPU/Memory constraints, runs under non-root contexts, and isolates credentials.
 
@@ -144,21 +145,52 @@ The supervisor operates a continuous control loop:
    - The supervisor control loop detects the exited container, removes the dead container, and immediately provisions a fresh idle runner container to restore the target pool count.
 5. **Deregistration**: Upon receiving a termination signal (`SIGTERM` or `SIGINT`), the supervisor halts the control loop and gracefully terminates all running runner containers, waiting for active jobs to complete (up to a timeout) or invoking deregistration APIs.
 
-### 3.4 Web Control Interface
-The Go supervisor embeds a responsive web application served on a configurable port (e.g., `:8080`).
+### 3.4 User Authentication & GitHub App Integration
+To simplify multi-tenant and multi-repository administration, the supervisor operates as an integrated **GitHub App** and supports OAuth-based Single Sign-On (SSO):
 
-- **Dashboard Visualizer**: Real-time graphical visualization of all configured pools, including:
-  - Total active runners vs. configured `min_idle_runners` and `max_concurrency` thresholds.
-  - Active runner logs and individual container health statuses (CPU, Memory, uptime).
-- **Interactive Pool Controls**:
-  - Ability to scale pools up or down manually.
-  - Toggle states to "pause" dynamic replacement during maintenance windows.
-- **Config & Logs Streamer**:
-  - Live streaming of supervisor application logs using WebSockets.
-  - An interactive YAML configuration editor with integrated syntax validation.
+1. **User Authentication (SSO)**:
+   - When users visit the homepage (e.g., `https://supervisor.example.com`), they are prompted to log in/sign up via their GitHub account.
+   - The supervisor uses standard GitHub OAuth2 protocol to authenticate the user and obtain a secure session.
+2. **Installation Mapping**:
+   - The supervisor retrieves the GitHub App installations that the authenticated user has access to.
+   - This determines which repositories and organizations the user is authorized to manage and monitor inside the dashboard.
+
+### 3.5 Interactive Onboarding & Setup Flow
+For new installations or initial configurations, the supervisor serves a guided, multi-step onboarding setup flow:
+
+- **Step 1: Choose Repositories & Organizations**:
+  - The UI lists all GitHub Organizations and Repositories where the supervisor's GitHub App is installed.
+  - The user checks the specific repositories or organizations they want to onboard for dynamic runner pooling.
+- **Step 2: Choose Global Scaling Constraints**:
+  - Configures global runner thresholds, including:
+    - **Total Allowed Runners**: Absolute maximum number of runner containers executing concurrently across all pools to prevent resource exhaustion.
+    - **Total Idle Warm Pool**: The global default count of idle runner containers kept running in a warm state to pick up queued jobs instantly.
+- **Step 3: Define Custom Per-Repo / Per-Org Constraints (Optional)**:
+  - Users can optionally override global settings on a granular level:
+    - Specific pool sizes (`min_idle_runners`, `max_concurrency`) per repository.
+    - Custom runner labels (e.g., `node-20`, `go-1.22`, `heavy-gpu`).
+    - CPU and Memory hard limits (Docker resource quotas) per repository pool.
+- **Step 4: Review & Confirmation**:
+  - Summarizes the planned configuration pools, expected system footprints, and credential setups.
+  - Upon user confirmation, the supervisor starts the control loops and dynamic pool provisioning instantly.
+
+### 3.6 Embedded Administration & Web Dashboard
+Following configuration, users are redirected to their persistent Web Dashboard containing advanced monitoring:
+
+- **Active Dynamic Pools**:
+  - Visual status of each runner pool, listing active container instances, CPU/Memory resource consumption, uptime, and runner name.
+- **Job Run Analytics & History**:
+  - **Recent Run List**: Displays details of recently executed actions jobs, with full search, filtering, and pagination capabilities.
+  - **Streaming Logs**: Live logs of individual active runners streaming using WebSockets.
+- **Success & Failure Stats**:
+  - Displays health and performance aggregates of jobs (success/failure ratio, counts, runtimes).
+- **Queue Wait Time Analytics**:
+  - *Calculation*: The supervisor hooks into GitHub's webhook events (specifically `workflow_job.queued` and `workflow_job.started`).
+  - *Formula*: It calculates the queue latency as `started_at` - `queued_at` (the precise duration a job waited in GitHub's queue before being picked up by one of our ephemeral runner containers).
+  - *Visual Output*: Graphs the average queue wait time over hours/days, indicating system capacity health and whether additional warm idle runners should be provisioned to decrease latency.
 - **Security Boundaries**:
-  - The web interface can be configured with standard Basic/Token-based authentication.
-  - Supports custom TLS certificate mounting for secure HTTPS transit.
+  - Enforces secure HTTP cookies, anti-CSRF tokens, and TLS encryption (HTTPS).
+  - Web UI can run locally or be exposed securely behind a reverse proxy.
 
 ---
 
