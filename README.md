@@ -143,3 +143,12 @@ The project integrates an automated **Parallel Native Matrix & Manifest Merger**
 - **Releases (Tag Push `v*`):** 
   1. Compiles the containers on native runners and publishes them by content-digest to the GitHub Container Registry (GHCR).
   2. Runs a downstream coordination job that merges the digests into a unified multi-architecture manifest list under the version tag (e.g. `v1.0.0`) and the `latest` tag.
+
+---
+
+## 🗺️ Roadmap
+
+The repository is actively developing the following advanced runner solutions:
+
+- **GitHub Actions Runner AIO Supervisor** `*[Design Phase]*`  
+  A containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub repositories. Formulating high-level requirements and specifications under [requirements.md](file:///workspaces/gh-runner/docs/requirements.md).
