@@ -13,9 +13,13 @@ Traditional self-hosted runner setups involve running persistent runner processe
 3. **Scaling Limitations**: Orchestrating runners across multiple repositories or scaling runner capacity dynamically requires complex custom scripting or heavy-weight orchestration tools like Kubernetes (Actions Runner Controller).
 
 ### The Solution: AIO Supervisor
-The **AIO Supervisor** is a single, lightweight container running an optimized **Go (Golang)** daemon with an embedded **Web Control Interface**. It acts as an on-host control plane that:
+The **AIO Supervisor** is a containerized **Go (Golang)** daemon and web control plane. Deployed initially via **Docker Compose** (with architecture abstractions to support **Kubernetes** later), it manages dynamic, on-demand pools of ephemeral runners by auditing docker processes and responding directly to GitHub events.
+
+Key capabilities:
+- **Containerized Daemon Deployment**: Runs inside its own dedicated container alongside a local database, communicating with the host Docker engine via the socket.
 - **Maintains Dynamic Ephemeral Pools**: Configured to run ephemeral containers (using the `--ephemeral` flag), ensuring each runner container executes **exactly one job** and self-destructs immediately.
-- **Provides Multi-Repository Support**: Simultaneously manages independent runner pools for different GitHub repositories from a single host.
+- **Database-Driven Target Configuration**: Continuously queries the active database to ensure the configured count of "ready and waiting" idle runners is maintained per user, organization, or repository.
+- **Provides Multi-Repository Support**: Simultaneously manages independent runner pools for different GitHub repositories and organizations from a single host.
 - **Provides a GitHub App SSO & Setup Flow**: Features a guided onboarding wizard to configure repository pools and authenticates users securely via GitHub OAuth.
 - **Provides a Web Control Interface**: Serves a secure web UI to monitor pool states, search execution history, check success/failure statistics, analyze queue wait-time latency, and view real-time logs.
 - **Ensures Graceful Lifecycles**: Monitors runner lifetimes, dynamically obtains fresh registration tokens from the GitHub API, replaces terminated containers, and cleanly de-registers them during supervisor shutdown.
@@ -37,37 +41,55 @@ graph TD
         GH[GitHub Actions API]
     end
 
-    subgraph Host Machine
+    subgraph Host Machine [Docker Compose Stack]
         subgraph Supervisor Container
-            SD[Go Supervisor Daemon]
+            SD[Go Supervisor Engine]
             WebUI[Web Control UI]
-            Config[yaml Config / env]
         end
 
-        subgraph Docker Daemon
-            Engine[Docker Engine / Socket]
+        subgraph Database Container
+            DB[(SQLite / PostgreSQL)]
         end
 
-        subgraph Ephemeral Runner Pools
-            R1[Runner Container - Repo A]
-            R2[Runner Container - Repo B]
-            R3[Runner Container - Repo A]
+        subgraph Host Docker Socket
+            Engine[Docker Daemon / Engine API]
+        end
+
+        subgraph Ephemeral Runner Containers
+            R1[Runner - Repo A]
+            R2[Runner - Repo B]
+            R3[Runner - Repo A]
         end
     end
 
     %% Communication Pathways
     User -->|Monitors & Configures| WebUI
-    WebUI <-->|API Calls & Metrics| SD
-    SD -->|1. Parse configuration| Config
-    SD -->|2. Request Reg Tokens| GH
-    SD -->|3. Call Docker API| Engine
-    Engine -->|4. Spawn Ephemeral Containers| R1
-    Engine -->|4. Spawn Ephemeral Containers| R2
-    Engine -->|4. Spawn Ephemeral Containers| R3
-    R1 -.->|5. Pulls & Executes Job| GH
-    R1 -->|6. Self-Terminates after 1 Job| Engine
-    SD -.->|7. Detects Exit & Replaces| Engine
+    WebUI <-->|API Calls & Sync| SD
+    SD <-->|Reads/Writes Pools Config| DB
+    SD -->|1. Request Reg Tokens| GH
+    SD -->|2. Docker API Call| Engine
+    Engine -->|3. Spawn Ephemeral Container| R1
+    Engine -->|3. Spawn Ephemeral Container| R2
+    Engine -->|3. Spawn Ephemeral Container| R3
+    R1 -.->|4. Pulls & Executes Job| GH
+    R1 -->|5. Self-Terminates after 1 Job| Engine
+    SD -.->|6. Audit & Prune| Engine
+    SD -.->|7. Maintain Target Pools| DB
 ```
+
+### 2.2 Orchestration Abstraction (Future-Proofing)
+To support future scalability beyond standalone Docker Compose hosts (e.g., deploying to **Kubernetes**), the supervisor will implement a swappable **Container Orchestrator Provider** interface in Go:
+
+```go
+type ContainerProvider interface {
+    SpawnRunner(ctx context.Context, config RunnerConfig) (string, error)
+    TerminateRunner(ctx context.Context, containerID string) error
+    AuditRunners(ctx context.Context) ([]RunnerStatus, error)
+    PruneExitedContainers(ctx context.Context) error
+}
+```
+- **Docker Compose Provider (Default)**: Utilizes the official Docker Go SDK connecting via `/var/run/docker.sock` to control sibling containers on the same host.
+- **Kubernetes Provider (Future)**: Connects via the Kubernetes client-go SDK to spawn runners as ephemeral Pods inside a target namespace.
 
 ---
 
@@ -191,6 +213,27 @@ Following configuration, users are redirected to their persistent Web Dashboard 
 - **Security Boundaries**:
   - Enforces secure HTTP cookies, anti-CSRF tokens, and TLS encryption (HTTPS).
   - Web UI can run locally or be exposed securely behind a reverse proxy.
+
+### 3.7 Core Supervisor Engine (Behind the Scenes)
+The Go-based supervisor daemon is responsible for pool alignment, container scheduling, lifecycle orchestration, and dynamic cleaning:
+
+1. **Orchestrator Architecture**:
+   - The supervisor runs inside its own Docker container within a multi-container **Docker Compose** stack (containing the supervisor service, the database service, and the network mappings).
+   - Abstractions are established to allow swap-in of Kubernetes provider backends for spawning Pods in the future.
+2. **Persistence State Sync**:
+   - Holds configuration inside a persistent database (SQLite or PostgreSQL).
+   - Tracks scopes: User, Organization, and Repository configurations.
+   - Maps the target configuration (e.g. pool sizes, labels, resources) to actual live containers running on the host.
+3. **Dual Trigger Mechanism**:
+   - **Webhook Event Listener**: Registers as a GitHub App webhook endpoint to receive real-time notifications of new jobs (`workflow_job.queued`). Spawns a runner immediately to minimize wait times.
+   - **Continuous Auditor Loop**: A periodic background worker that polls the active Docker Engine API to detect exited containers, update state, and replace missing/dead runners to keep target pools constant.
+4. **Target Pool Replenisher**:
+   - Audits the database configurations per scope.
+   - Compares the count of active, idle runners for each scope against the desired targets.
+   - If the active count drops below the target (e.g. because a runner is executing a job or has exited), it immediately issues Docker commands to spin up new idle containers to ensure adequate "ready and waiting" coverage.
+5. **Complete Runner Cleanup (Reaping)**:
+   - Runner containers utilize `--ephemeral`, causing the inner runner agent to de-register and exit immediately after completing exactly one job.
+   - Once the runner container transitions to the `exited` state, the supervisor engine intercepts this event, triggers `docker rm` to permanently delete the container write layers, and purges any temporary caches/volumes, ensuring 100% state cleanliness.
 
 ---
 
