@@ -13,9 +13,10 @@ Traditional self-hosted runner setups involve running persistent runner processe
 3. **Scaling Limitations**: Orchestrating runners across multiple repositories or scaling runner capacity dynamically requires complex custom scripting or heavy-weight orchestration tools like Kubernetes (Actions Runner Controller).
 
 ### The Solution: AIO Supervisor
-The **AIO Supervisor** is a single, lightweight container running a Python- or Bash-based supervisor daemon. It acts as an on-host control plane that:
+The **AIO Supervisor** is a single, lightweight container running an optimized **Go (Golang)** daemon with an embedded **Web Control Interface**. It acts as an on-host control plane that:
 - **Maintains Dynamic Ephemeral Pools**: Configured to run ephemeral containers (using the `--ephemeral` flag), ensuring each runner container executes **exactly one job** and self-destructs immediately.
 - **Provides Multi-Repository Support**: Simultaneously manages independent runner pools for different GitHub repositories from a single host.
+- **Provides a Web Control Interface**: Serves a secure web UI to monitor pool states, adjust limits, check metrics, and review execution logs in real-time.
 - **Ensures Graceful Lifecycles**: Monitors runner lifetimes, dynamically obtains fresh registration tokens from the GitHub API, replaces terminated containers, and cleanly de-registers them during supervisor shutdown.
 - **Implements Secure-by-Default Isolation**: Enforces CPU/Memory constraints, runs under non-root contexts, and isolates credentials.
 
@@ -27,13 +28,18 @@ The following diagram illustrates how the Supervisor manages the lifecycle of ep
 
 ```mermaid
 graph TD
+    subgraph Users
+        User[Browser / Developer]
+    end
+
     subgraph GitHub Cloud
         GH[GitHub Actions API]
     end
 
     subgraph Host Machine
         subgraph Supervisor Container
-            SD[Supervisor Daemon]
+            SD[Go Supervisor Daemon]
+            WebUI[Web Control UI]
             Config[yaml Config / env]
         end
 
@@ -49,6 +55,8 @@ graph TD
     end
 
     %% Communication Pathways
+    User -->|Monitors & Configures| WebUI
+    WebUI <-->|API Calls & Metrics| SD
     SD -->|1. Parse configuration| Config
     SD -->|2. Request Reg Tokens| GH
     SD -->|3. Call Docker API| Engine
@@ -136,6 +144,22 @@ The supervisor operates a continuous control loop:
    - The supervisor control loop detects the exited container, removes the dead container, and immediately provisions a fresh idle runner container to restore the target pool count.
 5. **Deregistration**: Upon receiving a termination signal (`SIGTERM` or `SIGINT`), the supervisor halts the control loop and gracefully terminates all running runner containers, waiting for active jobs to complete (up to a timeout) or invoking deregistration APIs.
 
+### 3.4 Web Control Interface
+The Go supervisor embeds a responsive web application served on a configurable port (e.g., `:8080`).
+
+- **Dashboard Visualizer**: Real-time graphical visualization of all configured pools, including:
+  - Total active runners vs. configured `min_idle_runners` and `max_concurrency` thresholds.
+  - Active runner logs and individual container health statuses (CPU, Memory, uptime).
+- **Interactive Pool Controls**:
+  - Ability to scale pools up or down manually.
+  - Toggle states to "pause" dynamic replacement during maintenance windows.
+- **Config & Logs Streamer**:
+  - Live streaming of supervisor application logs using WebSockets.
+  - An interactive YAML configuration editor with integrated syntax validation.
+- **Security Boundaries**:
+  - The web interface can be configured with standard Basic/Token-based authentication.
+  - Supports custom TLS certificate mounting for secure HTTPS transit.
+
 ---
 
 ## 4. Non-Functional & Security Requirements
@@ -155,17 +179,19 @@ To adhere to strict security guardrails, the supervisor and dynamic runners must
 ## 5. Development Phases
 
 ```text
-  Phase 1: Design (Current)  -->  Phase 2: Core Supervisor Daemon  -->  Phase 3: Webhook Integrations
+  Phase 1: Design (Current)  -->  Phase 2: Go Daemon & Web UI     -->  Phase 3: Webhook Integrations
   • Requirements & Schema         • Static pool scaling             • Real-time webhook scaling
-  • Threat & Security review      • App & PAT auth engine           • Dynamic scale-to-zero
+  • Threat & Security review      • Embedded Web UI & Dashboard     • Dynamic scale-to-zero
+                                  • App & PAT auth engine
 ```
 
-### Phase 2: Static Pool Manager
-In the next phase, we will implement the supervisor program (e.g., a lightweight Go or Python executable) capable of:
+### Phase 2: Core Go Daemon & Web UI
+In the next phase, we will implement the supervisor as a native, lightweight Go application capable of:
 1. Parsing the `supervisor.yaml` configuration.
 2. Obtaining registration tokens dynamically using App ID or PAT.
 3. Interacting with the Docker engine API to start, stop, and clean up ephemeral containers.
-4. Maintaining a stable, static pool of idle runners.
+4. Maintaining stable pools of dynamic runners.
+5. Serving the embedded Web Control Interface to allow visual administration, logging, and metrics.
 
 ### Phase 3: Webhook & Autoscaling (Optional Extension)
 Extend the supervisor with an HTTP receiver for GitHub Webhooks (`workflow_job.queued` and `workflow_job.completed`). This allows scaling the pool down to zero when no jobs are active, and dynamically spinning up runners specifically to match queued jobs.
