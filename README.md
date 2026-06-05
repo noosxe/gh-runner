@@ -151,4 +151,4 @@ The project integrates an automated **Parallel Native Matrix & Manifest Merger**
 The repository is actively developing the following advanced runner solutions:
 
 - **GitHub Actions Runner AIO Supervisor** `*[Design Phase]*`  
-  A containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub repositories. Formulating high-level requirements and specifications under [requirements.md](file:///workspaces/gh-runner/docs/requirements.md).
+  A database-driven and GUI-configured containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub repositories. Formulating high-level requirements and specifications under [requirements.md](docs/requirements.md).

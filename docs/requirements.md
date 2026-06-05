@@ -95,8 +95,13 @@ type ContainerProvider interface {
 
 ## 3. Functional Requirements
 
-### 3.1 Declarative Configuration Schema
-The supervisor daemon will parse a YAML file (e.g., `supervisor.yaml`) to declare the target repositories, pool sizes, and specific constraints. 
+### 3.1 GUI & Database-Driven Configuration (with Import/Export)
+
+The primary method of configuring runner pools, credentials, and scaling constraints is interactive, managed directly through the Web Control UI (GUI) and stored securely in the local database (SQLite/PostgreSQL).
+
+To support GitOps workflows, backups, migration, and automation, the supervisor also provides an API and a UI action to **Import** and **Export** the active configurations in a standardized YAML format.
+
+The following schema defines the structure for YAML configuration imports and exports:
 
 ```yaml
 version: "1.0"
@@ -156,7 +161,7 @@ Since GitHub runner registration tokens expire after **1 hour**, a long-running 
 
 ### 3.3 Dynamic Ephemeral Lifecycle Control
 The supervisor operates a continuous control loop:
-1. **Boot**: Reads the configuration file, verifies connection to the Docker engine via `/var/run/docker.sock`, and validates credentials.
+1. **Boot**: Initializes database connections, loads active runner pool configurations from the database, verifies connection to the Docker engine via `/var/run/docker.sock`, and validates credentials.
 2. **Provisioning**: For each defined pool:
    - Spawns the required number of `min_idle_runners` using the configured runner image.
    - Inject the registration token, repository URL, name, and labels as environment variables.
@@ -245,6 +250,8 @@ To adhere to strict security guardrails, the supervisor and dynamic runners must
 - **Non-Root Context**: Runner containers spawned by the supervisor must continue to execute jobs under the dedicated low-privilege system user (`runner` UID `1001`), as defined in the base `Dockerfile`.
 - **Credential Segregation**: Registration tokens must be generated on-the-fly and passed strictly via environment variables to individual containers. The private keys/PATs used by the supervisor must **never** be shared with or mounted into the ephemeral runner containers.
 - **Resource Quotas**: Every pool must allow specifying CPU and memory boundaries (e.g., `cpus: "2.0"`, `memory: "4g"`) to prevent an individual rogue workflow from consuming all host system resources and causing a denial of service.
+- **Configuration & Database Security**: Sensitive credentials (such as GitHub App private keys and Personal Access Tokens) stored in the database must be encrypted at rest (e.g., using AES-256 with an encryption key provided via a supervisor environment variable).
+- **Safe Export/Import Sanitization**: Exporting configurations via YAML must sanitize or redact raw credentials (such as raw private keys or PATs), using placeholders or reference keys (e.g., `pat_env_var: "SUPERVISOR_GITHUB_PAT"`) to prevent accidental credential leakage into version control.
 
 ### 4.2 Platform & Architecture Support
 - **Multi-Architecture Support**: The supervisor container and dynamic runner images must support **ARM64** and **AMD64** architectures out-of-the-box, ensuring seamless execution on M-series Apple Silicon, AWS Graviton instances, and traditional Intel/AMD servers.
@@ -262,7 +269,7 @@ To adhere to strict security guardrails, the supervisor and dynamic runners must
 
 ### Phase 2: Core Go Daemon & Web UI
 In the next phase, we will implement the supervisor as a native, lightweight Go application capable of:
-1. Parsing the `supervisor.yaml` configuration.
+1. Initializing from database configurations and supporting `supervisor.yaml` import/export.
 2. Obtaining registration tokens dynamically using App ID or PAT.
 3. Interacting with the Docker engine API to start, stop, and clean up ephemeral containers.
 4. Maintaining stable pools of dynamic runners.
