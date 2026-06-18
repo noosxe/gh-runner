@@ -47,7 +47,7 @@ RUN useradd -m -u 1001 runner \
 WORKDIR /actions-runner
 
 # External build arguments passed during buildx or single-arch compilation
-ARG RUNNER_VERSION=2.334.0
+ARG RUNNER_VERSION=2.335.1
 ARG TARGETARCH
 
 # Download and extract the matching actions runner agent tarball
