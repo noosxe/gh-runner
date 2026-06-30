@@ -138,7 +138,7 @@ During this phase, the user reviews the updated documentation to evaluate the pr
 ### 3. Implementation Phase
 When the user asks for the feature implementation to proceed:
 1. **Confirm Details**: Review and confirm the exact technical details and schemas established during the Design Phase.
-2. **Develop & Test**: Implement the production code and corresponding automated tests, verifying everything passes within the devcontainer.
+2. **Develop & Test**: Implement the production code and corresponding automated tests, verifying everything passes within the Nix development shell.
 3. **Update README**:
     * Remove the feature from the **Roadmap** section of `README.md`.
     * Add the feature under the appropriate section in the **Features** list of `README.md`. If no existing section fits, create a new section.
