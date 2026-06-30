@@ -4,6 +4,20 @@ Welcome, AI Agent! This document acts as your compass for contributing to this r
 
 ---
 
+## ❄️ Nix Development Shell Requirement
+
+> [!IMPORTANT]
+> **Mandatory Nix Development Shell**: You MUST execute all development tasks, environment commands, builds, testing, formatting, linting, and other tool operations strictly within the Nix development shell (`nix develop`). Do NOT run tools directly on the host system outside of this shell.
+
+### How to execute commands in the Nix shell:
+- **One-off commands**: Run your command using `nix develop --command <command>`. For example:
+  ```bash
+  nix develop --command shellcheck src/*.sh
+  ```
+- **Interactive shell**: If using a persistent terminal, run `nix develop` to enter the environment, and then run your commands inside it.
+
+---
+
 ## 📌 Core Rules & Git Workflow
 
 The `main` branch is **protected** on the remote repository. Direct push access to `main` is blocked. You must always work on separate feature, bug, or documentation branches and submit pull requests.
@@ -51,12 +65,12 @@ git checkout -b docs/agent-git-workflow
 ### 3. Make and Commit Your Changes
 While working, keep your commits clean, focused, and well-described.
 * Ensure the code compiles and tests pass before committing.
-* **Pre-Commit Verification**: You MUST run formatting, unit tests, and static checks before *every* commit:
+* **Pre-Commit Verification**: You MUST run formatting, unit tests, and static checks inside the Nix development shell before *every* commit:
   ```bash
-  # Check shell scripts using shellcheck (if available)
-  shellcheck src/*.sh || true
+  # Check shell scripts using shellcheck inside the Nix development shell
+  nix develop --command shellcheck src/*.sh
   ```
-  *(Note: Since this is a lightweight Docker and Bash repository, verify that your scripts do not have syntax or lint issues.)*
+  *(Note: Verify that your scripts do not have syntax or lint issues and conform to the project guidelines.)*
 * Write clear, concise commit messages. **Do NOT** add any "co-authored by AI/LLM Agent" statements to your commits, as this is already covered by the global notice in the repository's `README.md`.
 * ⚠️ **Preserve Your Work**: Never blindly discard changes. When in doubt, stop and ask the user. If you are sure the changes are going to be needed later, stash them using `git stash`.
 
@@ -232,7 +246,7 @@ When tasked with extending, modifying, or fixing this repository, always apply t
 
 1. **Plan Before Coding:** Discuss structural changes or design tradeoffs with the user first.
 2. **Maintain Quality:** Write robust, clear inline comments explaining *why* certain workarounds (e.g., specific environment flags for ARM64 compatibility) are utilized.
-3. **Verify Locally:** Test code by initiating building and running test containers using the `docker` and `docker compose` tools.
+3. **Verify Locally:** Test code and verify formatting/lints inside the Nix development shell. Run builds and orchestrate test containers using `docker` and `docker compose` within/through the Nix shell.
 4. **Respect Existing Guides:** Do not violate rules defined in this file. If you need to update this document, explain the rationale clearly to the user.
 5. 📥 **Never Blindly Discard Changes:** When in doubt about whether a change is needed, stop and ask the user. If the changes are going to be needed later, stash them (`git stash`).
 6. 📝 **No AI Attribution in Commits:** Do not add "co-authored by AI agent" or similar statements to your commit messages or code files, as the project's root `README.md` already contains a global notice regarding LLM co-authorship.
