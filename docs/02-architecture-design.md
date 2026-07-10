@@ -75,13 +75,12 @@ src/
 │   └── supervisor/         # Go Main entrypoint (CLI parser & daemon runner)
 ├── internal/
 │   ├── config/             # YAML config parser, validation schema
-│   ├── db/                 # DB abstraction (SQLite / PG driver, migrations)
+│   ├── db/                 # DB abstraction (Embedded SQLite, migrations)
 │   ├── provider/           # Swappable Git Provider interface
 │   │   ├── github/         # GitHub API client & authentication
 │   │   └── gitea/          # Gitea API client & authentication
-│   ├── orchestrator/       # Swappable ContainerProvider interface
-│   │   ├── docker/         # Docker Engine SDK orchestrator implementation
-│   │   └── k8s/            # Future: Kubernetes pod orchestrator implementation
+│   ├── orchestrator/       # Container orchestration abstraction
+│   │   └── docker/         # Docker Engine SDK orchestrator implementation (Primary)
 │   └── server/             # Embedded Web Server (SSO OAuth, Web Dashboard API)
 └── web/                    # Static Web UI build / templates (HTML/JS/CSS)
 ```
@@ -90,7 +89,7 @@ src/
 
 ### 3.1 Orchestration Abstraction
 
-To support multi-environment scalability (e.g., local Compose vs. Kubernetes in the future), container interactions are abstracted via a Go interface:
+To maintain a clean boundary with the host environment, container interactions are abstracted via a Go interface. Docker is the primary and only supported container engine:
 
 ```go
 package orchestrator
@@ -126,8 +125,7 @@ type ContainerProvider interface {
 }
 ```
 
-- **Local Compose Provider (Default)**: Utilizes the official Docker Go SDK via `/var/run/docker.sock` to manage sibling containers.
-- **Cluster Provider (Future)**: Uses the Kubernetes `client-go` SDK to spawn runner pods.
+- **Docker Provider**: Utilizes the official Docker Go SDK via `/var/run/docker.sock` to manage sibling containers. Podman and Kubernetes are not planned for support at this stage.
 
 ### 3.2 Git Provider Abstraction
 
@@ -154,7 +152,7 @@ type GitProvider interface {
 
 ## 4. Configuration & Database Sync
 
-The primary method of configuring runner pools and credentials is via the GUI and stored securely in the local database. For GitOps and backup, the supervisor supports YAML Import/Export.
+The primary method of configuring runner pools and credentials is via the GUI, stored securely in the embedded SQLite database. For GitOps and backup, the supervisor supports YAML Import/Export.
 
 ### Schema Definition
 ```yaml

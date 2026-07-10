@@ -31,9 +31,10 @@ Additionally, the `Total Allowed Runners` global limit acts as a circuit breaker
 
 By default, the host Docker socket (`/var/run/docker.sock`) is **not** mounted into runner containers.
 - If a repository strictly requires building Docker images or running containerized actions, the `allow_docker: true` flag must be explicitly set for that pool.
-- Gitea's `act_runner` inherently relies on Docker-in-Docker (DooD) to run workflows. Configuring `allow_docker: true` is generally required for Gitea, but it exposes the host socket to the runner. Sibling container privileges must be carefully considered for untrusted repositories.
+- Gitea's `act_runner` inherently relies on Docker-in-Docker (DooD) to run workflows. Configuring `allow_docker: true` is strictly required for Gitea. The Web UI enforces this dependency and will prevent users from saving a Gitea pool configuration without Docker access enabled. However, because this exposes the host socket to the runner, sibling container privileges must be carefully considered for untrusted repositories.
 
 ## 5. Configuration & Database Security
 
-- **Encryption at Rest**: Sensitive credentials stored in the local SQLite/PG database must be encrypted at rest (e.g., using AES-256 with an encryption key provided via a supervisor environment variable).
+- **Encryption at Rest**: Sensitive credentials stored in the local SQLite database must be encrypted at rest (e.g., using AES-256 with an encryption key provided via a supervisor environment variable).
+- **Local Administrator Hashing**: The initial local administrator password must be securely hashed (using algorithms like bcrypt or argon2) prior to storage in the SQLite database to protect against offline attacks.
 - **Export/Import Sanitization**: When exporting configurations via YAML for GitOps workflows, raw credentials must be sanitized or redacted. The export file uses placeholders or reference keys to prevent accidental credential leakage into version control.
