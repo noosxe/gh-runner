@@ -150,5 +150,8 @@ The project integrates an automated **Parallel Native Matrix & Manifest Merger**
 
 The repository is actively developing the following advanced runner solutions:
 
-- **GitHub Actions Runner AIO Supervisor** `*[Design Phase]*`  
-  A database-driven and GUI-configured containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub repositories. Formulating high-level requirements and specifications under [requirements.md](docs/requirements.md) and drafting initial design notes in [design_stub.md](docs/design_stub.md).
+- **GitHub & Gitea Actions Runner AIO Supervisor** `*[Design Phase]*`  
+  A database-driven and GUI-configured containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub and Gitea repositories. Formulating high-level requirements and specifications under [requirements.md](docs/requirements.md) and drafting initial design notes in [design_stub.md](docs/design_stub.md).
+
+- **Gitea Actions Runner Support** `*[Design Phase]*`  
+  Extend both the supervisor daemon and the core runner agent container to support Gitea Actions via `act_runner`. This includes developing a swappable `GitProvider` interface in Go for token retrieval and updating the entrypoint logic to launch `act_runner` dynamically. Detailed architectural design is under [design_gitea_support.md](file:///home/mechsoull/Projects/gh-runner/docs/design_gitea_support.md).

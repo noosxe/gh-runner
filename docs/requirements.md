@@ -1,6 +1,6 @@
-# High-Level Requirements & Specifications: GitHub Actions Runner AIO Supervisor
+# High-Level Requirements & Specifications: GitHub & Gitea Actions Runner AIO Supervisor
 
-This document outlines the high-level specifications and product requirements for the **GitHub Actions Runner All-In-One (AIO) Supervisor**. The supervisor is a containerized management service that automates the orchestration, registration, and scaling of multiple **ephemeral, self-hosted GitHub Actions runners** across arbitrary GitHub repositories on a single host.
+This document outlines the high-level specifications and product requirements for the **GitHub & Gitea Actions Runner All-In-One (AIO) Supervisor**. The supervisor is a containerized management service that automates the orchestration, registration, and scaling of multiple **ephemeral, self-hosted actions runners** across arbitrary GitHub or Gitea repositories on a single host.
 
 ---
 
@@ -13,16 +13,16 @@ Traditional self-hosted runner setups involve running persistent runner processe
 3. **Scaling Limitations**: Orchestrating runners across multiple repositories or scaling runner capacity dynamically requires complex custom scripting or heavy-weight orchestration tools like Kubernetes (Actions Runner Controller).
 
 ### The Solution: AIO Supervisor
-The **AIO Supervisor** is a containerized daemon and web control plane. It manages dynamic, on-demand pools of ephemeral runners by auditing container processes and responding directly to GitHub events.
+The **AIO Supervisor** is a containerized daemon and web control plane. It manages dynamic, on-demand pools of ephemeral runners by auditing container processes and responding directly to repository platform events.
 
 Key capabilities:
 - **Containerized Daemon Deployment**: Runs inside its own dedicated container alongside a local database, communicating with the host container engine via its socket interface.
 - **Maintains Dynamic Ephemeral Pools**: Configured to run ephemeral containers, ensuring each runner container executes **exactly one job** and self-destructs immediately.
 - **Database-Driven Target Configuration**: Continuously queries the active database to ensure the configured count of "ready and waiting" idle runners is maintained per user, organization, or repository.
-- **Provides Multi-Repository Support**: Simultaneously manages independent runner pools for different GitHub repositories and organizations from a single host.
-- **Provides a GitHub App SSO & Setup Flow**: Features a guided onboarding wizard to configure repository pools and authenticates users securely via GitHub OAuth.
+- **Provides Multi-Repository & Multi-Provider Support**: Simultaneously manages independent runner pools for different GitHub and Gitea repositories and organizations from a single host.
+- **Provides OAuth SSO & Setup Flow**: Features a guided onboarding wizard to configure repository pools and authenticates users securely via GitHub or Gitea OAuth.
 - **Provides a Web Control Interface**: Serves a secure web UI to monitor pool states, search execution history, check success/failure statistics, analyze queue wait-time latency, and view real-time logs.
-- **Ensures Graceful Lifecycles**: Monitors runner lifetimes, dynamically obtains fresh registration tokens from the GitHub API, replaces terminated containers, and cleanly de-registers them during supervisor shutdown.
+- **Ensures Graceful Lifecycles**: Monitors runner lifetimes, dynamically obtains fresh registration tokens from GitHub/Gitea APIs, replaces terminated containers, and cleanly de-registers them during supervisor shutdown.
 - **Implements Secure-by-Default Isolation**: Enforces CPU/Memory constraints, runs under non-root contexts, isolates credentials, and restricts host Docker socket access.
 
 ---
@@ -37,8 +37,9 @@ graph TD
         User[Browser / Developer]
     end
 
-    subgraph GitHub Cloud
+    subgraph Git Providers
         GH[GitHub Actions API]
+        GT[Gitea Actions API]
     end
 
     subgraph Host Machine [Container Compose Stack]
@@ -56,9 +57,9 @@ graph TD
         end
 
         subgraph Ephemeral Runner Containers
-            R1[Runner - Repo A]
-            R2[Runner - Repo B]
-            R3[Runner - Repo A]
+            R1[GitHub Runner - Repo A]
+            R2[Gitea Runner - Repo B]
+            R3[GitHub Runner - Repo A]
         end
     end
 
@@ -67,12 +68,15 @@ graph TD
     WebUI <-->|API Calls & Sync| SD
     SD <-->|Reads/Writes Pools Config| DB
     SD -->|1. Request Reg Tokens| GH
+    SD -->|1. Request Reg Tokens| GT
     SD -->|2. Container Engine API Call| Engine
     Engine -->|3. Spawn Ephemeral Container| R1
     Engine -->|3. Spawn Ephemeral Container| R2
     Engine -->|3. Spawn Ephemeral Container| R3
     R1 -.->|4. Pulls & Executes Job| GH
+    R2 -.->|4. Pulls & Executes Job| GT
     R1 -->|5. Self-Terminates after 1 Job| Engine
+    R2 -->|5. Self-Terminates after 1 Job| Engine
     SD -.->|6. Audit & Prune| Engine
     SD -.->|7. Maintain Target Pools| DB
 ```
@@ -108,33 +112,38 @@ auth_profiles:
     auth_method: github_app
     app_id: 123456
     private_key_path: "/run/secrets/gh_app_key.pem"
-  my_pat_auth:
+  my_github_pat_auth:
     auth_method: pat
     pat_env_var: "SUPERVISOR_GITHUB_PAT"
+  my_gitea_auth:
+    auth_method: gitea_token
+    gitea_token_env_var: "SUPERVISOR_GITEA_TOKEN"
 
 # Runner Pools Definitions
 pools:
   - name: "frontend-repo-runners"
+    provider: github                   # github or gitea
     repository_url: "https://github.com/my-org/frontend-project"
     auth_profile: "my_github_app"
     min_idle_runners: 2
     max_concurrency: 5
     labels: ["frontend", "node-20"]
-    runner_image: "ghcr.io/noosxe/gh-runner:latest"
+    runner_image: "ghcr.io/noosxe/runner-aio:latest"
     allow_docker: false                # Configurable Docker socket access
     max_runner_lifetime_seconds: 7200  # Max runtime for hung runners
     resources:
       cpus: "2.0"
       memory: "4g"
 
-  - name: "backend-repo-runners"
-    repository_url: "https://github.com/my-org/backend-project"
-    auth_profile: "my_pat_auth"
+  - name: "gitea-project-runners"
+    provider: gitea                    # github or gitea
+    repository_url: "https://gitea.example.com/my-org/gitea-project"
+    auth_profile: "my_gitea_auth"
     min_idle_runners: 1
     max_concurrency: 3
-    labels: ["backend", "go-1.22"]
-    runner_image: "ghcr.io/noosxe/gh-runner:latest"
-    allow_docker: true                 # Mounts host Docker socket for Docker-in-Docker workflows
+    labels: ["backend"]
+    runner_image: "ghcr.io/noosxe/runner-aio:latest"
+    allow_docker: true                 # Mounts host Docker socket for sibling container workflow executions
     max_runner_lifetime_seconds: 7200
     resources:
       cpus: "4.0"
@@ -142,17 +151,21 @@ pools:
 ```
 
 ### 3.2 Authentication Flows
-Since GitHub runner registration tokens expire after **1 hour**, a long-running supervisor cannot rely on static tokens. It must authenticate dynamically using one of two methods:
+Since GitHub and Gitea runner registration tokens expire after **1 hour**, a long-running supervisor cannot rely on static tokens. It must authenticate dynamically:
 
-#### A. GitHub App Integration (Recommended)
+#### A. GitHub App Integration (Recommended for GitHub)
 1. The supervisor loads the private key (`.pem`) and App ID.
 2. It generates a signed JSON Web Token (JWT).
 3. It requests an installation token for the target repository from the GitHub API.
 4. Using this temporary installation token, it requests a fresh Runner Registration Token.
 
-#### B. Personal Access Token (PAT) Fallback
-1. The supervisor reads the PAT from a secure environment variable.
+#### B. GitHub Personal Access Token (PAT)
+1. The supervisor reads the PAT from a secure environment variable or database entry.
 2. It directly calls the GitHub Actions registration API to retrieve a fresh Runner Registration Token for the target repository.
+
+#### C. Gitea Personal Access Token
+1. The supervisor reads the Gitea access token from a secure environment variable or database entry.
+2. It calls Gitea's actions runner token API (e.g. `POST /api/v1/repos/{owner}/{repo}/actions/runners/registration-token`) to retrieve a fresh Runner Registration Token.
 
 ### 3.3 Dynamic Ephemeral Lifecycle Control
 The supervisor operates a continuous control loop:

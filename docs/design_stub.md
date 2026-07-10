@@ -16,7 +16,9 @@ src/
 ├── internal/
 │   ├── config/             # YAML config parser, validation schema
 │   ├── db/                 # DB abstraction (SQLite / PG driver, migrations)
-│   ├── github/             # App authentication, JWT signing, Token API clients
+│   ├── provider/           # Swappable Git Provider interface
+│   │   ├── github/         # GitHub API client & authentication
+│   │   └── gitea/          # Gitea API client & authentication
 │   ├── orchestrator/       # Swappable ContainerProvider interface
 │   │   ├── docker/         # Docker Engine SDK orchestrator implementation
 │   │   └── k8s/            # Future: Kubernetes pod orchestrator implementation
@@ -110,14 +112,20 @@ Upon receiving a `SIGTERM` or `SIGINT` termination signal, the daemon executes a
 sequenceDiagram
     participant OS as Operating System
     participant SV as Supervisor Engine
-    participant GH as GitHub API
+    participant GP as Git Provider API
     participant RC as Runner Containers
     
     OS->>SV: SIGTERM / SIGINT
     SV->>SV: Pause pool replenishing loop
-    SV->>GH: Deregister & terminate IDLE runners
+    SV->>GP: Deregister & terminate IDLE runners
     SV->>RC: Allow ACTIVE runners to complete single job (up to timeout)
     Note over SV,RC: Periodically checks active count
     RC-->>SV: Container exits (job finished)
     SV->>OS: Exit cleanly
 ```
+
+---
+
+## 6. Git Provider Abstraction Definition
+
+To decouple the supervisor engine from specific VCS APIs, we implement a `GitProvider` interface as detailed in [design_gitea_support.md](file:///home/mechsoull/Projects/gh-runner/docs/design_gitea_support.md). This allows the core pool reconciliation engine to remain entirely provider-agnostic. All token retrieval and credentials validation are routed through this interface depending on the configured `provider` in `supervisor.yaml`.
