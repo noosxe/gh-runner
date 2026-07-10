@@ -20,6 +20,7 @@ graph TD
     subgraph Host Machine [Container Compose Stack]
         subgraph Supervisor Container
             SD[Supervisor Engine]
+            CS[Cron Scheduler]
             WebUI[Web Control UI]
         end
 
@@ -36,22 +37,30 @@ graph TD
             R2[Gitea Runner - Repo B]
             R3[GitHub Runner - Repo A]
         end
+
+        subgraph Ephemeral Task Containers
+            RV[Renovate Bot - Repo A]
+        end
     end
 
     %% Communication Pathways
     User -->|Monitors & Configures| WebUI
     WebUI <-->|API Calls & Sync| SD
     SD <-->|Reads/Writes Pools Config| DB
-    SD -->|1. Request Reg Tokens| GH
-    SD -->|1. Request Reg Tokens| GT
+    SD -->|1. Request Reg/Install Tokens| GH
+    SD -->|1. Request Reg/Install Tokens| GT
+    CS -.->|Triggers Scheduled Tasks| SD
     SD -->|2. Container Engine API Call| Engine
     Engine -->|3. Spawn Ephemeral Container| R1
     Engine -->|3. Spawn Ephemeral Container| R2
     Engine -->|3. Spawn Ephemeral Container| R3
+    Engine -->|3. Spawn Task Container| RV
     R1 -.->|4. Pulls & Executes Job| GH
     R2 -.->|4. Pulls & Executes Job| GT
+    RV -.->|4. Fetches Code & Creates PRs| GH
     R1 -->|5. Self-Terminates after 1 Job| Engine
     R2 -->|5. Self-Terminates after 1 Job| Engine
+    RV -->|5. Self-Terminates after Run| Engine
     SD -.->|6. Audit & Prune| Engine
     SD -.->|7. Maintain Target Pools| DB
 ```
@@ -110,6 +119,7 @@ type RunnerStatus struct {
 
 type ContainerProvider interface {
 	SpawnRunner(ctx context.Context, config RunnerConfig) (string, error)
+	SpawnTask(ctx context.Context, config RunnerConfig) (string, error) // For one-off jobs like Renovate
 	TerminateRunner(ctx context.Context, containerID string) error
 	AuditRunners(ctx context.Context) ([]RunnerStatus, error)
 	PruneExitedContainers(ctx context.Context) error
@@ -177,6 +187,10 @@ pools:
     resources:
       cpus: "2.0"
       memory: "4g"
+    renovate:
+      enabled: true
+      cron_schedule: "0 2 * * *" # Run at 2 AM daily
+      image: "renovate/renovate:latest"
 
   - name: "gitea-project-runners"
     provider: gitea

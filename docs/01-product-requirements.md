@@ -15,6 +15,7 @@ Key capabilities:
 - **Containerized Daemon Deployment**: Runs inside its own dedicated container alongside a local database, communicating with the host container engine via its socket interface.
 - **Maintains Dynamic Ephemeral Pools**: Configured to run ephemeral containers, ensuring each runner container executes **exactly one job** and self-destructs immediately.
 - **Multi-Repository & Multi-Provider Support**: Simultaneously manages independent runner pools for different GitHub and Gitea repositories and organizations from a single host.
+- **Managed Renovate Bot Integrations**: Optionally schedules and orchestrates ephemeral `renovate/renovate` containers via cron to automatically maintain repository dependencies without requiring external CI workflows.
 - **OAuth SSO & Setup Flow**: Features a guided onboarding wizard to configure repository pools and authenticates users securely via GitHub or Gitea OAuth.
 - **Web Control Interface**: Serves a secure web UI to monitor pool states, search execution history, check success/failure statistics, analyze queue wait-time latency, and view real-time logs.
 - **Graceful Lifecycles**: Monitors runner lifetimes, dynamically obtains fresh registration tokens from GitHub/Gitea APIs, replaces terminated containers, and cleanly de-registers them during supervisor shutdown.
@@ -37,6 +38,7 @@ For new installations or initial configurations, the supervisor serves a guided,
     - Specific pool sizes (`min_idle_runners`, `max_concurrency`) per repository.
     - Custom runner labels.
     - CPU and Memory hard limits per repository pool.
+    - Enable Managed Renovate Bot for the repository and configure its cron schedule.
 - **Step 4: Review & Confirmation**:
   - Summarizes the planned configuration pools, expected system footprints, and credential setups.
   - Upon user confirmation, the supervisor starts the control loops and dynamic pool provisioning instantly.
@@ -71,7 +73,7 @@ Implement the supervisor as a native, lightweight application capable of:
 1. Initializing from database configurations and supporting YAML import/export.
 2. Obtaining registration tokens dynamically using App ID or PAT.
 3. Interacting with the container engine API to start, stop, and clean up ephemeral containers.
-4. Maintaining stable pools of dynamic runners.
+4. Maintaining stable pools of dynamic runners and scheduling Renovate Bot containers.
 5. Serving the embedded Web Control Interface to allow visual administration, logging, and metrics.
 
 ### Phase 3: Webhook & Autoscaling (Optional Extension)
