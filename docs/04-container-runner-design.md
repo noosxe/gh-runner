@@ -1,0 +1,72 @@
+# Unified Container Runner Design
+
+This document covers the design of the runner container image, which acts as the execution agent. The container is designed to be highly versatile, supporting both GitHub Actions and Gitea Actions workflows.
+
+## 1. Unified Runner Image Strategy
+
+To avoid maintaining separate container images for GitHub and Gitea, we employ a unified `Dockerfile` that packages binaries for both environments.
+
+### Multi-Arch Strategy
+The image natively supports `amd64` and `arm64` via multi-stage builds. During the build process, the correct architecture of the Gitea `act_runner` and GitHub Actions runner binaries are downloaded based on `${TARGETARCH}`:
+
+```dockerfile
+# Example Downloader stage for Gitea act_runner
+ARG ACT_RUNNER_VERSION=0.2.11
+RUN set -ex; \
+    if [ "${TARGETARCH}" = "amd64" ] || [ -z "${TARGETARCH}" ]; then \
+        GITEA_ARCH="amd64"; \
+    elif [ "${TARGETARCH}" = "arm64" ]; then \
+        GITEA_ARCH="arm64"; \
+    else \
+        echo "ERROR: Unsupported Target Architecture: ${TARGETARCH}" >&2; exit 1; \
+    fi; \
+    curl -o /usr/local/bin/act_runner -L "https://gitea.com/gitea/act_runner/releases/download/v${ACT_RUNNER_VERSION}/act_runner-${ACT_RUNNER_VERSION}-linux-${GITEA_ARCH}"; \
+    chmod +x /usr/local/bin/act_runner
+```
+
+## 2. Entrypoint Orchestration (`src/entrypoint.sh`)
+
+At container runtime, the entrypoint script acts as an internal orchestrator, determining its mode (GitHub vs Gitea) based on injected environment variables.
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+# Determine provider mode
+PROVIDER_MODE="github"
+if [ -n "${GITEA_INSTANCE_URL:-}" ] || [ "${RUNNER_PROVIDER:-}" = "gitea" ]; then
+    PROVIDER_MODE="gitea"
+fi
+
+if [ "$PROVIDER_MODE" = "github" ]; then
+    # Execute GitHub Actions runner registration and startup
+    ./config.sh --url "${GITHUB_REPOSITORY_URL}" --token "${RUNNER_TOKEN}" --ephemeral ...
+    ./run.sh
+else
+    # Execute Gitea act_runner registration and startup
+    export GITEA_RUNNER_EPHEMERAL=1
+    
+    # Generate act_runner configuration
+    act_runner generate-config > /tmp/act_config.yaml
+    
+    # Register the runner
+    act_runner register \
+        --no-interactive \
+        --instance "${GITEA_INSTANCE_URL}" \
+        --token "${RUNNER_TOKEN}" \
+        --name "${RUNNER_NAME}" \
+        --labels "${RUNNER_LABELS}"
+        
+    # Start the daemon
+    act_runner --config /tmp/act_config.yaml daemon
+fi
+```
+
+## 3. Graceful Deregistration within Container
+
+While the supervisor handles host-level cleanups, the container itself ensures it de-registers from the Git provider if it receives an interrupt signal before completing a job.
+
+Traps are configured in `src/entrypoint.sh` to execute the appropriate deregistration action:
+
+- **For GitHub**: Runs `./config.sh remove --token "${RUNNER_TOKEN}"` to clear the runner from the repository's settings.
+- **For Gitea**: `act_runner` cleans itself up automatically when running in ephemeral mode (`GITEA_RUNNER_EPHEMERAL=1`), or can be manually removed via `act_runner unregister`.
