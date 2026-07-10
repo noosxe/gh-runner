@@ -34,3 +34,19 @@ The Web Control Interface is a Single Page Application (SPA) bundled and served 
 ## 3. Container & Process Management
 
 - **Init System**: **s6-overlay** is mandated as the init system and process manager inside the Supervisor Docker container. Even though the primary workload is a single Go process, utilizing s6-overlay provides robust signal handling, zombie process reaping, and standardized startup/shutdown initialization phases, ensuring the container architecture adheres to production best practices.
+
+## 4. Multi-Stage Container Build Strategy
+
+The Supervisor is packaged as a lightweight, multi-stage Docker image to keep the final footprint minimal and avoid shipping build toolchains to production.
+
+- **Stage 1: Frontend Build (`node:24-alpine`)**
+  - Installs Node dependencies and builds the Vite/React/TypeScript web application.
+- **Stage 2: Backend Build (`golang:1.26-alpine`)**
+  - The static output directory from the frontend build stage is copied into this stage.
+  - The frontend assets are embedded directly into the Go application using the native `go:embed` directive.
+  - The Go compiler builds the final standalone binary.
+- **Stage 3: Final Runtime (`alpine:latest`)**
+  - Uses a fresh, minimal Alpine Linux base image.
+  - Installs the `s6-overlay` init system.
+  - Copies the final Go binary from Stage 2 into the image.
+  - Exposes the necessary ports and volumes (e.g., for the SQLite database).
