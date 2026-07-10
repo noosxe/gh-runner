@@ -30,3 +30,7 @@ The Web Control Interface is a Single Page Application (SPA) bundled and served 
 - **Ecosystem**: The use of other available `@tanstack` libraries is highly encouraged where applicable.
 - **Styling**: **TailwindCSS** is strictly mandated. No manual CSS files or classes should be written. 
 - **Theming**: The UI must support both Light and Dark themes, with automatic selection based on the user's system preferences.
+
+## 3. Container & Process Management
+
+- **Init System**: **s6-overlay** is mandated as the init system and process manager inside the Supervisor Docker container. Even though the primary workload is a single Go process, utilizing s6-overlay provides robust signal handling, zombie process reaping, and standardized startup/shutdown initialization phases, ensuring the container architecture adheres to production best practices.
