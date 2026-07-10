@@ -55,7 +55,14 @@ For repositories configured with `renovate: enabled: true`, the supervisor exten
 - **Task Execution**: When the cron fires, the supervisor generates a fresh installation token for the repository (or Gitea instance) and spawns an ephemeral `renovate/renovate` task container instead of a runner container.
 - **Self-Termination**: The Renovate container fetches the repo, creates dependency PRs, and exits. The Reaping engine cleans it up identical to runner containers.
 
-## 6. Graceful Shutdown Protocol
+## 6. Graceful Image Updates
+
+To ensure environments are kept up-to-date securely:
+- **Periodic Update Checks**: The supervisor queries container registries to check if newer versions of the defined `runner_image` are available and alerts the admin in the Web UI.
+- **Automatic Background Updates**: Based on a configurable schedule, the supervisor triggers a background image pull.
+- **Non-Disruptive Handoff**: Image updates do not disrupt running workflows. Any active runners using the old image are allowed to finish their current job. However, any *newly* provisioned runner container for that pool will instantly use the updated image.
+
+## 7. Graceful Shutdown Protocol
 
 Upon receiving a `SIGTERM` or `SIGINT` termination signal, the daemon executes a structured shutdown to protect active workflow runs:
 

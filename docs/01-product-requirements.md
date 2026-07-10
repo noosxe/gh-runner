@@ -16,7 +16,7 @@ Key capabilities:
 - **Maintains Dynamic Ephemeral Pools**: Configured to run ephemeral containers, ensuring each runner container executes **exactly one job** and self-destructs immediately.
 - **Multi-Repository & Multi-Provider Support**: Simultaneously manages independent runner pools for different GitHub and Gitea repositories and organizations from a single host.
 - **Managed Renovate Bot Integrations**: Optionally schedules and orchestrates ephemeral `renovate/renovate` containers via cron to automatically maintain repository dependencies without requiring external CI workflows.
-- **OAuth SSO & Setup Flow**: Features a guided onboarding wizard to configure repository pools and authenticates users securely via GitHub or Gitea OAuth.
+- **Local Admin & Setup Flow**: Requires the user to set up a local administrator account securely on first UI launch. Connecting GitHub and Gitea accounts happens separately from the admin pages.
 - **Web Control Interface**: Serves a secure web UI to monitor pool states, search execution history, check success/failure statistics, analyze queue wait-time latency, and view real-time logs.
 - **Graceful Lifecycles**: Monitors runner lifetimes, dynamically obtains fresh registration tokens from GitHub/Gitea APIs, replaces terminated containers, and cleanly de-registers them during supervisor shutdown.
 - **Secure-by-Default Isolation**: Enforces CPU/Memory constraints, runs under non-root contexts, isolates credentials, and restricts host Docker socket access.
@@ -26,20 +26,23 @@ Key capabilities:
 ### 2.1 Interactive Onboarding & Setup Flow
 For new installations or initial configurations, the supervisor serves a guided, multi-step onboarding setup flow:
 
-- **Step 1: Choose Repositories & Organizations**:
-  - The UI lists all Organizations and Repositories where the supervisor's App is installed or PAT has access.
+- **Step 1: Local Admin Setup (First Launch Only)**:
+  - The UI prompts the user to create a local administrator account (username/password). These credentials are securely hashed and stored in the local SQLite database.
+- **Step 2: Connect Git Providers & Choose Repositories**:
+  - The admin links their GitHub App or Gitea PAT.
+  - The UI lists all available Organizations and Repositories.
   - The user checks the specific repositories or organizations they want to onboard for dynamic runner pooling.
-- **Step 2: Choose Global Scaling Constraints**:
+- **Step 3: Choose Global Scaling Constraints**:
   - Configures global runner thresholds, including:
     - **Total Allowed Runners**: Absolute maximum number of runner containers executing concurrently across all pools to prevent resource exhaustion.
     - **Total Idle Warm Pool**: The global default count of idle runner containers kept running in a warm state to pick up queued jobs instantly.
-- **Step 3: Define Custom Per-Repo / Per-Org Constraints (Optional)**:
+- **Step 4: Define Custom Per-Repo / Per-Org Constraints (Optional)**:
   - Users can optionally override global settings on a granular level:
     - Specific pool sizes (`min_idle_runners`, `max_concurrency`) per repository.
     - Custom runner labels.
     - CPU and Memory hard limits per repository pool.
     - Enable Managed Renovate Bot for the repository and configure its cron schedule.
-- **Step 4: Review & Confirmation**:
+- **Step 5: Review & Confirmation**:
   - Summarizes the planned configuration pools, expected system footprints, and credential setups.
   - Upon user confirmation, the supervisor starts the control loops and dynamic pool provisioning instantly.
 
@@ -58,6 +61,12 @@ Following configuration, users are redirected to their persistent Web Dashboard 
   - *Calculation*: The supervisor hooks into webhook events (e.g., `workflow_job.queued` and `workflow_job.started`).
   - *Formula*: It calculates the queue latency as `started_at` - `queued_at`.
   - *Visual Output*: Graphs the average queue wait time over hours/days, indicating system capacity health and whether additional warm idle runners should be provisioned to decrease latency.
+
+### 2.3 Periodic Runner Image Updates
+To keep runner environments secure and up-to-date:
+- **Update Checks**: The system periodically checks for new versions of the configured runner images and notifies the admin inside the Web UI when updates are available.
+- **Automatic Background Updates**: The admin can configure a schedule for automatic image updates. 
+- **Graceful Handoff**: Image updates happen gracefully without disrupting running workflows. Active runners are allowed to finish their current jobs, while all newly provisioned runners automatically spawn using the newly pulled image.
 
 ## 3. Development Phases
 
