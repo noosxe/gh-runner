@@ -11,10 +11,15 @@ The `act_runner` process (for Gitea) and the `run.sh` process (for GitHub) must 
 
 Since runner registration tokens expire quickly (typically 1 hour), a long-running supervisor cannot rely on static tokens. It must authenticate dynamically:
 
-- **GitHub App / PAT**: The supervisor loads the private key or PAT. It requests an installation token, and then requests a fresh **Runner Registration Token** via the GitHub API.
+- **GitHub App / PAT**: The supervisor loads the private key or PAT. It requests an installation token, and then requests a fresh **Runner Registration Token** via the GitHub API. If spawning a Renovate task container, it simply passes the short-lived installation token itself.
 - **Gitea PAT**: The supervisor calls Gitea's actions runner token API to retrieve a fresh Runner Registration Token.
 
-**Strict Segregation**: Registration tokens are generated on-the-fly and passed strictly via environment variables to individual ephemeral containers. The master credentials (private keys, supervisor PATs) are **never** shared with or mounted into the ephemeral runner containers.
+**Strict Segregation**: Tokens are generated on-the-fly and passed strictly via environment variables (`RUNNER_TOKEN` or `RENOVATE_TOKEN`) to individual ephemeral containers. The master credentials (private keys, supervisor PATs) are **never** shared with or mounted into the ephemeral containers.
+
+### GitHub App Scopes
+To support the AIO Supervisor *and* Renovate Bot, the GitHub App must be provisioned with the following permissions:
+- **Runner Registration**: `Administration: read`, `Metadata: read`
+- **Renovate Execution**: `Contents: write`, `Pull requests: write`, `Workflows: write` (if updating actions)
 
 ## 3. Resource Quotas & Saturation
 

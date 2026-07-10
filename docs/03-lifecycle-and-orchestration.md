@@ -48,7 +48,14 @@ Upon receiving a `"die"` or `"destroy"` event for a container matching the super
 - **Complete Runner Cleanup (Reaping)**: The supervisor deletes the container write layers and any temporary volumes of exited containers.
 - **Hung Runner Auto-Termination**: The supervisor monitors run times and force-terminates any container that exceeds the pool's `max_runner_lifetime_seconds`.
 
-## 5. Graceful Shutdown Protocol
+## 5. Managed Renovate Cron Scheduler
+
+For repositories configured with `renovate: enabled: true`, the supervisor extends its lifecycle capabilities beyond listening for runner jobs:
+- **Cron Ticking**: The supervisor parses the configured `cron_schedule` and registers it in its internal job ticker.
+- **Task Execution**: When the cron fires, the supervisor generates a fresh installation token for the repository (or Gitea instance) and spawns an ephemeral `renovate/renovate` task container instead of a runner container.
+- **Self-Termination**: The Renovate container fetches the repo, creates dependency PRs, and exits. The Reaping engine cleans it up identical to runner containers.
+
+## 6. Graceful Shutdown Protocol
 
 Upon receiving a `SIGTERM` or `SIGINT` termination signal, the daemon executes a structured shutdown to protect active workflow runs:
 
