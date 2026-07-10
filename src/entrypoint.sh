@@ -57,8 +57,7 @@ echo "Configuring the runner..."
 	--work "${RUNNER_WORKDIR}" \
 	--labels "${RUNNER_LABELS}" \
 	--unattended \
-	--replace \
-	--ephemeral
+	--replace
 
 # Start the runner in the background and wait on its process ID
 echo "Starting the GitHub Actions Runner agent..."
