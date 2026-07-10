@@ -72,17 +72,18 @@ To support clean architecture and swappable components, the Go-based supervisor 
 ```text
 src/
 ├── cmd/
-│   └── supervisor/         # Go Main entrypoint (CLI parser & daemon runner)
+│   └── supervisor/         # Go Main entrypoint (Cobra CLI & daemon runner)
 ├── internal/
-│   ├── config/             # YAML config parser, validation schema
-│   ├── db/                 # DB abstraction (Embedded SQLite, migrations)
+│   ├── config/             # Koanf config parser (YAML/TOML/ENV/Flags)
+│   ├── db/                 # DB abstraction (sqlc, goose migrations, modernc.org/sqlite)
 │   ├── provider/           # Swappable Git Provider interface
 │   │   ├── github/         # GitHub API client & authentication
 │   │   └── gitea/          # Gitea API client & authentication
 │   ├── orchestrator/       # Container orchestration abstraction
 │   │   └── docker/         # Docker Engine SDK orchestrator implementation (Primary)
-│   └── server/             # Embedded Web Server (SSO OAuth, Web Dashboard API)
-└── web/                    # Static Web UI build / templates (HTML/JS/CSS)
+│   └── server/             # Echo v5 Web Server (Static UI serving, ConnectRPC API)
+proto/                      # ConnectRPC Protobuf schemas (api.proto)
+web/                        # Vite/React/TS Frontend (TanStack Router & Query, TailwindCSS)
 ```
 
 ## 3. Abstractions
