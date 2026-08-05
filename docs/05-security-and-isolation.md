@@ -1,18 +1,18 @@
 # Security & Isolation Guardrails
 
-GitHub and Gitea runners execute untrusted workflow code. Security is our absolute priority. The supervisor and dynamic runners incorporate strict isolation features to minimize the attack surface.
+GitHub, Gitea, and Forgejo runners execute untrusted workflow code. Security is our absolute priority. The supervisor and dynamic runners incorporate strict isolation features to minimize the attack surface.
 
 ## 1. Non-Root Context
 
 Runner containers spawned by the supervisor must execute jobs under a dedicated low-privilege system user (e.g., `runner` UID `1001`), as defined in the base `Dockerfile`. 
-The `act_runner` process (for Gitea) and the `run.sh` process (for GitHub) must not be executed as `root`.
+The `act_runner` process (for Gitea), `forgejo-runner` process (for Forgejo), and the `run.sh` process (for GitHub) must not be executed as `root`.
 
 ## 2. Credential Segregation & Token Generation
 
 Since runner registration tokens expire quickly (typically 1 hour), a long-running supervisor cannot rely on static tokens. It must authenticate dynamically:
 
 - **GitHub App / PAT**: The supervisor loads the private key or PAT. It requests an installation token, and then requests a fresh **Runner Registration Token** via the GitHub API. If spawning a Renovate task container, it simply passes the short-lived installation token itself.
-- **Gitea PAT**: The supervisor calls Gitea's actions runner token API to retrieve a fresh Runner Registration Token.
+- **Gitea / Forgejo PAT**: The supervisor calls Gitea's / Forgejo's actions runner token API to retrieve a fresh Runner Registration Token.
 
 **Strict Segregation**: Tokens are generated on-the-fly and passed strictly via environment variables (`RUNNER_TOKEN` or `RENOVATE_TOKEN`) to individual ephemeral containers. The master credentials (private keys, supervisor PATs) are **never** shared with or mounted into the ephemeral containers.
 
@@ -31,7 +31,7 @@ Additionally, the `Total Allowed Runners` global limit acts as a circuit breaker
 
 By default, the host Docker socket (`/var/run/docker.sock`) is **not** mounted into runner containers.
 - If a repository strictly requires building Docker images or running containerized actions, the `allow_docker: true` flag must be explicitly set for that pool.
-- Gitea's `act_runner` inherently relies on Docker-in-Docker (DooD) to run workflows. Configuring `allow_docker: true` is strictly required for Gitea. The Web UI enforces this dependency and will prevent users from saving a Gitea pool configuration without Docker access enabled. However, because this exposes the host socket to the runner, sibling container privileges must be carefully considered for untrusted repositories.
+- Gitea's `act_runner` and Forgejo's `forgejo-runner` inherently rely on Docker-in-Docker (DooD) to run workflows. Configuring `allow_docker: true` is strictly required for Gitea and Forgejo. The Web UI enforces this dependency and will prevent users from saving a Gitea or Forgejo pool configuration without Docker access enabled. However, because this exposes the host socket to the runner, sibling container privileges must be carefully considered for untrusted repositories.
 
 ## 5. Configuration & Database Security
 

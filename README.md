@@ -150,8 +150,8 @@ The project integrates an automated **Parallel Native Matrix & Manifest Merger**
 
 The repository is actively developing the following advanced runner solutions:
 
-- **GitHub & Gitea Actions Runner AIO Supervisor** `*[Design Phase]*`  
-  A database-driven and GUI-configured containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub and Gitea repositories. High-level requirements and architecture specifications can be found in the [docs/](docs/) directory (see [01-product-requirements.md](docs/01-product-requirements.md) and [02-architecture-design.md](docs/02-architecture-design.md)).
+- **GitHub, Gitea & Forgejo Actions Runner AIO Supervisor** `*[Design Phase]*`  
+  A database-driven and GUI-configured containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub, Gitea, and Forgejo repositories. High-level requirements and architecture specifications can be found in the [docs/](docs/) directory (see [01-product-requirements.md](docs/01-product-requirements.md) and [02-architecture-design.md](docs/02-architecture-design.md)).
 
-- **Gitea Actions Runner Support** `*[Design Phase]*`  
-  Extend both the supervisor daemon and the core runner agent container to support Gitea Actions via `act_runner`. This includes developing a swappable `GitProvider` interface in Go for token retrieval and updating the entrypoint logic to launch `act_runner` dynamically. Design specifics are detailed in [04-container-runner-design.md](docs/04-container-runner-design.md).
+- **Gitea & Forgejo Actions Runner Support** `*[Design Phase]*`  
+  Extend both the supervisor daemon and the core runner agent container to support Gitea Actions (via `act_runner`) and Forgejo Actions (via `forgejo-runner`). This includes developing a swappable `GitProvider` interface in Go for token retrieval and updating the entrypoint logic to launch the appropriate runner dynamically. Design specifics are detailed in [04-container-runner-design.md](docs/04-container-runner-design.md).
