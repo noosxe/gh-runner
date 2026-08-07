@@ -29,6 +29,7 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 
 ## 7. Multi-Admin & RBAC Model
 - The `admin_users` table supports multiple rows and `GetSessionResponse` includes `is_admin`, implying multiple roles exist. Do we support multiple admin accounts? Are there non-admin viewer roles? If yes, what permissions does each role have? If not, should we simplify the schema and proto to remove `is_admin`?
+> **✅ Resolved**: For MVP, all users in `admin_users` are admins by definition — the table name implies it. The `is_admin` proto field in `GetSessionResponse` is kept for future RBAC extensibility but always returns `true` at the service layer. No schema change needed; the value is derived, not stored. Full RBAC design deferred to post-MVP.
 
 ## 8. Password Reset / Recovery Flow
 - There's no external auth (no email, no OAuth for the admin UI). If the local administrator forgets their password, what's the recovery path? Options: CLI reset command (`supervisor reset-password`), direct DB manipulation, or environment-variable-based recovery key?

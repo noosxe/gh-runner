@@ -208,9 +208,8 @@ pools:
     runner_image: "ghcr.io/noosxe/runner-aio:latest"
     allow_docker: false
     max_runner_lifetime_seconds: 7200
-    resources:
-      cpus: "2.0"
-      memory: "4g"
+    cpu_limit: "2.0"
+    memory_limit: "4g"
     renovate:
       enabled: true
       cron_schedule: "0 2 * * *" # Run at 2 AM daily
@@ -226,9 +225,8 @@ pools:
     runner_image: "ghcr.io/noosxe/runner-aio:latest"
     allow_docker: true
     max_runner_lifetime_seconds: 7200
-    resources:
-      cpus: "4.0"
-      memory: "8g"
+    cpu_limit: "4.0"
+    memory_limit: "8g"
 
   - name: "forgejo-project-runners"
     provider: forgejo
@@ -240,7 +238,6 @@ pools:
     runner_image: "ghcr.io/noosxe/runner-aio:latest"
     allow_docker: true
     max_runner_lifetime_seconds: 7200
-    resources:
-      cpus: "2.0"
-      memory: "4g"
+    cpu_limit: "2.0"
+    memory_limit: "4g"
 ```

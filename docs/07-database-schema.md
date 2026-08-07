@@ -101,7 +101,8 @@ CREATE TABLE app_settings (
 INSERT INTO app_settings (key, value) VALUES
     ('total_allowed_runners', '20'),
     ('total_idle_warm_pool', '5'),
-    ('shutdown_timeout_seconds', '300');
+    ('shutdown_timeout_seconds', '300'),
+    ('job_retention_days', '30');
 
 -- +goose StatementEnd
 
