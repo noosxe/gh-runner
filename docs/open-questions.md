@@ -4,9 +4,11 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 
 ## 1. Gitea & Forgejo Webhooks & Scale-to-Zero
 - Phase 3 proposes Webhook integrations (`workflow_job.queued`) for real-time scaling and scale-to-zero for GitHub. Does Gitea or Forgejo provide an equivalent reliable webhook payload for job queuing that we can ingest? If not, do we rely strictly on the periodic auditor loop for Gitea/Forgejo pools?
+> **✅ Resolved**: Gitea supports `workflow_job` webhooks (`queued`, `in_progress`, `completed` actions) — use event-driven scaling via an internal webhook endpoint. Forgejo does not support `workflow_job` webhooks — use API polling via the existing ~10s audit loop as a fallback. See updated sections in `02-architecture-design.md` and `03-lifecycle-and-orchestration.md`.
 
 ## 2. YAML vs. Database Reconciliation
 - We mention both YAML import/export and the SQLite DB. We need to define the exact source of truth on boot. If a user mounts a static `config.yml` to the container, does it overwrite the SQLite state? Does it run in a "read-only GitOps mode" where the UI disables editing?
+> **✅ Resolved**: Database is authoritative at runtime. YAML serves as an import/export format: imported as seed data on first boot (empty DB), ignored on subsequent boots. Export via UI/CLI for backup. Re-import via explicit `supervisor import --config config.yml` CLI command. See updated `02-architecture-design.md` section 4.
 
 ## 3. Environment Variable Specification
 - We need to define the formal list of environment variables the Supervisor container itself requires or supports to boot (e.g., `PORT`, `DB_PATH`, `DB_ENCRYPTION_KEY`, `LOG_LEVEL`).
@@ -23,6 +25,7 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 
 ## 6. Session Token Mechanism
 - `AuthService.Login` returns a `token` and `GetSession` validates it, but the docs never specify: JWT vs opaque session tokens? Token expiry duration and refresh strategy? Cookie-based vs `Authorization` header transport? How does ConnectRPC binary mode carry authentication context per-request (interceptors, metadata)?
+> **✅ Resolved**: JWT tokens transported via `HttpOnly` secure cookies with `SameSite=Strict`. 24h expiry, configurable. Sessions tracked in the `sessions` database table for audit and forced revocation. ConnectRPC interceptors read the cookie automatically. See updated `08-rpc-protocols.md` and `07-database-schema.md`.
 
 ## 7. Multi-Admin & RBAC Model
 - The `admin_users` table supports multiple rows and `GetSessionResponse` includes `is_admin`, implying multiple roles exist. Do we support multiple admin accounts? Are there non-admin viewer roles? If yes, what permissions does each role have? If not, should we simplify the schema and proto to remove `is_admin`?
@@ -36,15 +39,19 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 
 ## 9. Missing `scope` Column on `runner_pools`
 - The `GitProvider` interface defines `RegistrationScope` with values `repo`, `org`, and `global`, but the `runner_pools` table has no `scope` column. Org-level and global-level runner pools cannot be persisted or distinguished. Should we add a `scope TEXT NOT NULL CHECK(scope IN ('repo', 'org', 'global'))` column?
+> **✅ Resolved**: Added `scope TEXT NOT NULL DEFAULT 'repo' CHECK(scope IN ('repo', 'org', 'global'))` column to `runner_pools` table. When scope is `org`, `repository_url` holds the org URL. When `global`, it holds the instance base URL. See updated `07-database-schema.md`.
 
 ## 10. Global Settings Keys & Defaults
 - The `app_settings` table is a generic key/value store. The product requirements define `Total Allowed Runners` and `Total Idle Warm Pool` as global settings (Onboarding Step 3). We need to formalize: what are all expected keys, their value types, validation constraints, and default values? Should this be documented in the schema migration as seed data?
+> **✅ Resolved**: Default global settings seeded on first boot via the initial migration: `total_allowed_runners` (20), `total_idle_warm_pool` (5), `shutdown_timeout_seconds` (300). See updated `07-database-schema.md`.
 
 ## 11. Session / Token Storage Table
 - If admin login produces session tokens, there's no `sessions` table in the schema for tracking active sessions, token expiry, or revocation. Is session state managed in-memory only (lost on restart)? If so, is that acceptable for production use?
+> **✅ Resolved**: Added `sessions` table with `id`, `user_id`, `token_hash` (SHA-256), `expires_at`, and `created_at` columns. See updated `07-database-schema.md`.
 
 ## 12. Audit Log Table
 - For a security-sensitive system managing runner infrastructure and storing encrypted credentials, should we add an `audit_log` table to track admin actions (pool CRUD, credential changes, manual runner terminations, login attempts)? This has compliance and debugging implications.
+> **✅ Resolved**: Added `audit_logs` table with `id`, `user_id`, `action`, `resource_type`, `resource_id`, `details` (JSON), and `created_at` columns. See updated `07-database-schema.md`.
 
 ---
 
@@ -52,18 +59,21 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 
 ## 13. Auth Profile Management RPCs
 - The `auth_profiles` table stores GitHub App, Gitea PAT, and Forgejo PAT credentials, and the Onboarding Step 2 requires creating/selecting them. However, `08-rpc-protocols.md` defines no CRUD service for auth profiles (e.g., `AuthProfileService` with `Create`, `List`, `Update`, `Delete`). These RPCs need to be defined.
+> **✅ Resolved**: Added `AuthProfileService` with `ListAuthProfiles`, `CreateAuthProfile`, and `DeleteAuthProfile` RPCs. Sensitive fields (private keys, tokens) are write-only on create and exposed only as boolean indicators (`has_private_key`, `has_token`) on read. See updated `08-rpc-protocols.md`.
 
 ## 14. Streaming Log RPC
 - Product requirements specify "Streaming Logs: Live logs of individual active runners." ConnectRPC supports `server-streaming` RPCs. We need to define an endpoint like `StreamRunnerLogs(StreamRunnerLogsRequest) returns (stream LogChunk)`. This also requires deciding the log capture mechanism (Docker log driver API, volume mounts, etc. — see Question 20).
 
 ## 15. Onboarding State RPC
 - The 5-step setup wizard needs backend state to determine whether setup is complete (show wizard vs. dashboard). Should there be a `GetOnboardingStatus` RPC? What state does it check — presence of an admin user, at least one auth profile, at least one pool?
+> **✅ Resolved**: Added `OnboardingService` with `GetOnboardingStatus` RPC. Returns boolean flags: `admin_created`, `auth_profile_exists`, `pool_exists`, and `setup_complete` (all-true aggregate). See updated `08-rpc-protocols.md`.
 
 ## 16. Image Update Management RPCs
 - Docs 01 and 03 describe periodic image update checks and admin notifications. We need RPCs to: list available image updates, trigger a manual pull, configure the automatic update schedule, and dismiss update notifications.
 
 ## 17. Missing Resource Fields in Pool Proto
 - The `Pool` proto message is missing `cpu_limit`, `memory_limit`, `max_runner_lifetime_seconds`, and `auth_profile_id` fields, even though these exist in the DB schema and YAML config. The frontend cannot configure resource limits without these fields.
+> **✅ Resolved**: Added `auth_profile_id`, `scope`, `cpu_limit`, `memory_limit`, and `max_runner_lifetime_seconds` fields to the `Pool` proto message. Changed `labels` from `string` to `repeated string`. See updated `08-rpc-protocols.md`.
 
 ## 18. Renovate Trigger & Status RPCs
 - Renovate has a DB table and cron scheduling, but no RPCs to manually trigger a Renovate run, view the last run status, or check upcoming scheduled runs. Should we add these to a `RenovateService` or extend `PoolService`?
@@ -89,6 +99,7 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 
 ## 24. Graceful Shutdown Timeout
 - The shutdown sequence diagram shows the supervisor waiting for active runners to finish, but doesn't define: what's the maximum wait duration? What happens if a runner is stuck and never exits? Is there a configurable `shutdown_timeout_seconds` with a force-kill fallback?
+> **✅ Resolved**: Added configurable `shutdown_timeout_seconds` (default: 300s) to `app_settings`. Shutdown behavior is signal-dependent: `SIGTERM` = graceful wait up to timeout then force-kill; `SIGINT` = immediate drain with Docker's default 10s stop grace period. See updated `03-lifecycle-and-orchestration.md`.
 
 ---
 
