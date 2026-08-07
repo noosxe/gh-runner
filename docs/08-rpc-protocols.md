@@ -51,7 +51,7 @@ message GetSessionRequest {}
 
 message GetSessionResponse {
   string username = 1;
-  bool is_admin = 2;
+  bool is_admin = 2;  // Derived: always true for users in admin_users table (no DB column)
 }
 
 // ----------------------------------------
@@ -223,5 +223,10 @@ message GetSystemStatsResponse {
   int32 total_active_runners = 1;
   int32 total_idle_runners = 2;
   double average_queue_time_seconds = 3;
+  int32 total_jobs_24h = 4;
+  int32 successful_jobs_24h = 5;
+  int32 failed_jobs_24h = 6;
+  double average_runtime_seconds = 7;
+  double success_rate_percent = 8;
 }
 ```
