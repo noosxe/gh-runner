@@ -1,6 +1,6 @@
 # Architecture Design
 
-This document describes the high-level architecture, directory structure, and core backend abstractions for the GitHub & Gitea Actions Runner AIO Supervisor.
+This document describes the high-level architecture, directory structure, and core backend abstractions for the GitHub, Gitea & Forgejo Actions Runner AIO Supervisor.
 
 ## 1. System Architecture
 
@@ -15,6 +15,7 @@ graph TD
     subgraph Git Providers
         GH[GitHub Actions API]
         GT[Gitea Actions API]
+        FJ[Forgejo Actions API]
     end
 
     subgraph Host Machine [Container Compose Stack]
@@ -35,7 +36,7 @@ graph TD
         subgraph Ephemeral Runner Containers
             R1[GitHub Runner - Repo A]
             R2[Gitea Runner - Repo B]
-            R3[GitHub Runner - Repo A]
+            R3[Forgejo Runner - Repo C]
         end
 
         subgraph Ephemeral Task Containers
@@ -49,6 +50,7 @@ graph TD
     SD <-->|Reads/Writes Pools Config| DB
     SD -->|1. Request Reg/Install Tokens| GH
     SD -->|1. Request Reg/Install Tokens| GT
+    SD -->|1. Request Reg/Install Tokens| FJ
     CS -.->|Triggers Scheduled Tasks| SD
     SD -->|2. Container Engine API Call| Engine
     Engine -->|3. Spawn Ephemeral Container| R1
@@ -57,6 +59,7 @@ graph TD
     Engine -->|3. Spawn Task Container| RV
     R1 -.->|4. Pulls & Executes Job| GH
     R2 -.->|4. Pulls & Executes Job| GT
+    R3 -.->|4. Pulls & Executes Job| FJ
     RV -.->|4. Fetches Code & Creates PRs| GH
     R1 -->|5. Self-Terminates after 1 Job| Engine
     R2 -->|5. Self-Terminates after 1 Job| Engine
@@ -78,7 +81,8 @@ src/
 │   ├── db/                 # DB abstraction (sqlc, goose migrations, modernc.org/sqlite)
 │   ├── provider/           # Swappable Git Provider interface
 │   │   ├── github/         # GitHub API client & authentication
-│   │   └── gitea/          # Gitea API client & authentication
+│   │   ├── gitea/          # Gitea API client & authentication
+│   │   └── forgejo/        # Forgejo API client & authentication
 │   ├── orchestrator/       # Container orchestration abstraction
 │   │   └── docker/         # Docker Engine SDK orchestrator implementation (Primary)
 │   └── server/             # Echo v5 Web Server (Static UI serving, ConnectRPC API)
@@ -130,7 +134,7 @@ type ContainerProvider interface {
 
 ### 3.2 Git Provider Abstraction
 
-To decouple the supervisor engine from specific VCS APIs (GitHub vs Gitea), we implement a `GitProvider` interface:
+To decouple the supervisor engine from specific VCS APIs (GitHub vs Gitea vs Forgejo), we implement a `GitProvider` interface:
 
 ```go
 package provider
@@ -171,6 +175,9 @@ auth_profiles:
   my_gitea_token:
     auth_method: gitea_token
     gitea_token_env_var: "SUPERVISOR_GITEA_TOKEN"
+  my_forgejo_token:
+    auth_method: forgejo_token
+    forgejo_token_env_var: "SUPERVISOR_FORGEJO_TOKEN"
 
 pools:
   - name: "frontend-repo-runners"
@@ -204,4 +211,18 @@ pools:
     resources:
       cpus: "4.0"
       memory: "8g"
+
+  - name: "forgejo-project-runners"
+    provider: forgejo
+    repository_url: "https://code.forgejo.org/my-org/forgejo-project"
+    auth_profile: "my_forgejo_token"
+    min_idle_runners: 1
+    max_concurrency: 3
+    labels: ["backend", "forgejo"]
+    runner_image: "ghcr.io/noosxe/runner-aio:latest"
+    allow_docker: true
+    max_runner_lifetime_seconds: 7200
+    resources:
+      cpus: "2.0"
+      memory: "4g"
 ```

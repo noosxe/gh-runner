@@ -1,11 +1,11 @@
-# Product Requirements: GitHub & Gitea Actions Runner AIO Supervisor
+# Product Requirements: GitHub, Gitea & Forgejo Actions Runner AIO Supervisor
 
 ## 1. Executive Summary & Goals
 
 ### The Problem
 Traditional self-hosted runner setups involve running persistent runner processes. This poses major security and maintenance challenges:
 1. **State Persistence**: Successive jobs run in the same container, leading to directory clutter, leftover processes, and potential cross-job data leakage.
-2. **Dashboard Clutter**: Static runners that go offline are marked as "offline ghost runners" on GitHub/Gitea, cluttering repository and organization settings.
+2. **Dashboard Clutter**: Static runners that go offline are marked as "offline ghost runners" on GitHub/Gitea/Forgejo, cluttering repository and organization settings.
 3. **Scaling Limitations**: Orchestrating runners across multiple repositories or scaling runner capacity dynamically requires complex custom scripting or heavy-weight orchestration tools like Kubernetes (e.g., Actions Runner Controller).
 
 ### The Solution: AIO Supervisor
@@ -14,11 +14,11 @@ The **AIO Supervisor** is a containerized daemon and web control plane. It manag
 Key capabilities:
 - **Containerized Daemon Deployment**: Runs inside its own dedicated container alongside a local database, communicating with the host container engine via its socket interface.
 - **Maintains Dynamic Ephemeral Pools**: Configured to run ephemeral containers, ensuring each runner container executes **exactly one job** and self-destructs immediately.
-- **Multi-Repository & Multi-Provider Support**: Simultaneously manages independent runner pools for different GitHub and Gitea repositories and organizations from a single host.
+- **Multi-Repository & Multi-Provider Support**: Simultaneously manages independent runner pools for different GitHub, Gitea, and Forgejo repositories and organizations from a single host.
 - **Managed Renovate Bot Integrations**: Optionally schedules and orchestrates ephemeral `renovate/renovate` containers via cron to automatically maintain repository dependencies without requiring external CI workflows.
-- **Local Admin & Setup Flow**: Requires the user to set up a local administrator account securely on first UI launch. Connecting GitHub and Gitea accounts happens separately from the admin pages.
+- **Local Admin & Setup Flow**: Requires the user to set up a local administrator account securely on first UI launch. Connecting GitHub, Gitea, and Forgejo accounts happens separately from the admin pages.
 - **Web Control Interface**: Serves a secure web UI to monitor pool states, search execution history, check success/failure statistics, analyze queue wait-time latency, and view real-time logs.
-- **Graceful Lifecycles**: Monitors runner lifetimes, dynamically obtains fresh registration tokens from GitHub/Gitea APIs, replaces terminated containers, and cleanly de-registers them during supervisor shutdown.
+- **Graceful Lifecycles**: Monitors runner lifetimes, dynamically obtains fresh registration tokens from GitHub/Gitea/Forgejo APIs, replaces terminated containers, and cleanly de-registers them during supervisor shutdown.
 - **Secure-by-Default Isolation**: Enforces CPU/Memory constraints, runs under non-root contexts, isolates credentials, and restricts host Docker socket access.
 
 ## 2. Functional Requirements
@@ -29,7 +29,7 @@ For new installations or initial configurations, the supervisor serves a guided,
 - **Step 1: Local Admin Setup (First Launch Only)**:
   - The UI prompts the user to create a local administrator account (username/password). These credentials are securely hashed and stored in the local SQLite database.
 - **Step 2: Connect Git Providers & Choose Repositories**:
-  - The admin links their GitHub App or Gitea PAT.
+  - The admin links their GitHub App, Gitea PAT, or Forgejo PAT.
   - The UI lists all available Organizations and Repositories.
   - The user checks the specific repositories or organizations they want to onboard for dynamic runner pooling.
 - **Step 3: Choose Global Scaling Constraints**:
