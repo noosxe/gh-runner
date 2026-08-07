@@ -6,7 +6,7 @@ This document details the dynamic control loops, state management, and orchestra
 
 The supervisor operates a continuous control loop to maintain its ephemeral runner pools:
 
-1. **Boot**: Initializes database connections, loads active runner pool configurations, verifies connection to the host container engine, and validates credentials.
+1. **Boot**: Initializes database connections. If the database is empty and a `config.yml` file is mounted, imports it as seed data. Loads active runner pool configurations from the database, verifies connection to the host container engine, and validates credentials.
 2. **Provisioning**: For each defined pool:
    - Spawns the required number of `min_idle_runners` using the configured runner image.
    - Injects the registration token, repository URL, name, and labels as environment variables.
@@ -41,6 +41,30 @@ messages, errs := cli.Events(ctx, types.EventsOptions{})
 
 Upon receiving a `"die"` or `"destroy"` event for a container matching the supervisor labels, the supervisor immediately triggers the provisioning of a replacement runner, keeping pool latency low.
 
+## 3b. Dual-Mode Scaling Engine
+
+The supervisor supports two scaling modes, determined by each pool's `GitProvider.ScalingMode()`:
+
+### Webhook-Driven Scaling (GitHub, Gitea)
+
+For providers that emit `workflow_job` webhook events, the supervisor exposes an internal HTTP endpoint (`POST /hooks/{provider}`) to receive these events. When a `workflow_job` event with `action: "queued"` is received:
+
+1. The supervisor identifies the target pool by matching the repository URL.
+2. If the pool has available capacity (`active_runners < max_concurrency`), a new ephemeral runner is provisioned immediately.
+3. If the global `Total Allowed Runners` limit is saturated, the request is queued internally until capacity is available.
+
+This provides near-instant job pickup with no polling overhead.
+
+### Polling-Based Scaling (Forgejo)
+
+Forgejo does not currently support `workflow_job` webhooks. For Forgejo pools, the existing periodic audit loop (Section 3) doubles as the scaling trigger:
+
+1. Every ~10 seconds, the audit loop calls `PollQueuedJobs()` on the Forgejo provider for each configured Forgejo pool.
+2. If `queued_jobs > idle_runners`, the replenisher provisions additional runners up to `max_concurrency`.
+3. This introduces an artificial latency of ~10–15 seconds before a queued job is picked up.
+
+Both scaling paths converge into the same Target Pool Replenisher and Quota Saturation logic described in Section 4.
+
 ## 4. Target Pool Replenisher & Quota Saturation
 
 - **Replenisher**: Compares the count of active, idle runners for each pool against desired targets. If the active count drops below the target, it schedules new idle containers.
@@ -64,7 +88,11 @@ To ensure environments are kept up-to-date securely:
 
 ## 7. Graceful Shutdown Protocol
 
-Upon receiving a `SIGTERM` or `SIGINT` termination signal, the daemon executes a structured shutdown to protect active workflow runs:
+Upon receiving a termination signal, the daemon executes a structured shutdown. The behavior depends on the signal received:
+
+### Graceful Shutdown (`SIGTERM`)
+
+Triggered by `docker stop`, orchestrator updates, or planned maintenance. The supervisor allows active runners time to complete their current job:
 
 ```mermaid
 sequenceDiagram
@@ -73,11 +101,30 @@ sequenceDiagram
     participant GP as Git Provider API
     participant RC as Runner Containers
     
-    OS->>SV: SIGTERM / SIGINT
+    OS->>SV: SIGTERM
     SV->>SV: Pause pool replenishing loop
     SV->>GP: Deregister & terminate IDLE runners
-    SV->>RC: Allow ACTIVE runners to complete single job (up to timeout)
-    Note over SV,RC: Periodically checks active count
-    RC-->>SV: Container exits (job finished)
-    SV->>OS: Exit cleanly
+    SV->>RC: Allow ACTIVE runners to complete (up to shutdown_timeout_seconds)
+    Note over SV,RC: Default: 300s, configurable via app_settings
+    loop Check every 5s
+        SV->>RC: Poll active container count
+        RC-->>SV: Container exits (job finished)
+    end
+    alt All runners exited
+        SV->>OS: Exit cleanly (code 0)
+    else Timeout exceeded
+        SV->>RC: Force-terminate remaining containers
+        SV->>OS: Exit cleanly (code 0)
+    end
 ```
+
+### Immediate Shutdown (`SIGINT`)
+
+Triggered by `Ctrl+C` or emergency stop. The supervisor drains immediately without waiting for active jobs:
+
+1. Pause the pool replenishing loop.
+2. Deregister and terminate all IDLE runners immediately.
+3. Send `SIGTERM` to all ACTIVE runner containers (Docker's default 10s stop grace period applies).
+4. Exit.
+
+> **Note**: The per-pool `max_runner_lifetime_seconds` continues to apply independently during normal operation — a job exceeding its lifetime is force-killed regardless of shutdown state. The `shutdown_timeout_seconds` setting only governs the maximum wait during a graceful `SIGTERM` shutdown.

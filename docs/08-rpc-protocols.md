@@ -40,8 +40,11 @@ message LoginRequest {
   string password = 2;
 }
 
+// Note: The JWT session token is set via Set-Cookie header (HttpOnly, Secure,
+// SameSite=Strict), not returned in the response body.
 message LoginResponse {
-  string token = 1;
+  bool success = 1;
+  string username = 2;
 }
 
 message GetSessionRequest {}
@@ -69,15 +72,21 @@ message Pool {
   string repository_url = 4;
   int32 min_idle_runners = 5;
   int32 max_concurrency = 6;
-  string labels = 7;
+  repeated string labels = 7;
   string runner_image = 8;
   bool allow_docker = 9;
-  
   RenovateConfig renovate = 10;
-  
-  // Runtime stats
+
+  // Runtime stats (read-only, populated by server)
   int32 active_runners = 11;
   int32 idle_runners = 12;
+
+  // Resource configuration
+  int64 auth_profile_id = 13;
+  string scope = 14;              // "repo", "org", or "global"
+  string cpu_limit = 15;
+  string memory_limit = 16;
+  int32 max_runner_lifetime_seconds = 17;
 }
 
 message RenovateConfig {
@@ -114,6 +123,68 @@ message DeletePoolRequest {
 
 message DeletePoolResponse {
   bool success = 1;
+}
+
+// ----------------------------------------
+// Auth Profile Management Service
+// ----------------------------------------
+
+service AuthProfileService {
+  rpc ListAuthProfiles (ListAuthProfilesRequest) returns (ListAuthProfilesResponse);
+  rpc CreateAuthProfile (CreateAuthProfileRequest) returns (CreateAuthProfileResponse);
+  rpc DeleteAuthProfile (DeleteAuthProfileRequest) returns (DeleteAuthProfileResponse);
+}
+
+message AuthProfile {
+  int64 id = 1;
+  string name = 2;
+  string auth_method = 3;         // "github_app", "gitea_token", "forgejo_token", "pat"
+  int64 app_id = 4;               // GitHub App only
+  bool has_private_key = 5;       // Read-only indicator (never exposes raw key)
+  bool has_token = 6;             // Read-only indicator (never exposes raw token)
+}
+
+message ListAuthProfilesRequest {}
+
+message ListAuthProfilesResponse {
+  repeated AuthProfile profiles = 1;
+}
+
+message CreateAuthProfileRequest {
+  string name = 1;
+  string auth_method = 2;
+  int64 app_id = 3;               // GitHub App only
+  bytes private_key = 4;          // GitHub App private key PEM (write-only)
+  string token = 5;               // PAT or Gitea/Forgejo token (write-only)
+}
+
+message CreateAuthProfileResponse {
+  AuthProfile profile = 1;
+}
+
+message DeleteAuthProfileRequest {
+  int64 id = 1;
+}
+
+message DeleteAuthProfileResponse {
+  bool success = 1;
+}
+
+// ----------------------------------------
+// Onboarding Service
+// ----------------------------------------
+
+service OnboardingService {
+  rpc GetOnboardingStatus (GetOnboardingStatusRequest) returns (GetOnboardingStatusResponse);
+}
+
+message GetOnboardingStatusRequest {}
+
+message GetOnboardingStatusResponse {
+  bool admin_created = 1;
+  bool auth_profile_exists = 2;
+  bool pool_exists = 3;
+  bool setup_complete = 4;        // true when all above are true
 }
 
 // ----------------------------------------

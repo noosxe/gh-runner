@@ -149,15 +149,33 @@ const (
 	ScopeGlobal   RegistrationScope = "global"
 )
 
+type ScalingMode string
+
+const (
+	ScalingWebhook ScalingMode = "webhook"  // GitHub, Gitea
+	ScalingPolling ScalingMode = "polling"   // Forgejo
+)
+
 type GitProvider interface {
 	GetRegistrationToken(ctx context.Context, scope RegistrationScope, targetURL string) (string, error)
 	ValidateCredentials(ctx context.Context) error
+	ScalingMode() ScalingMode
+	// Polling-only: check for queued jobs via forge API (used when ScalingMode() == ScalingPolling)
+	PollQueuedJobs(ctx context.Context, targetURL string) (int, error)
 }
 ```
 
+- **Scaling Mode**: Each provider declares its scaling strategy. GitHub and Gitea support `workflow_job` webhooks for event-driven scaling. Forgejo lacks webhook support for job events and uses API polling as a fallback.
+- **`PollQueuedJobs`**: Only called for providers with `ScalingPolling` mode. Queries the forge's API for jobs in a `queued` state, returning the count to the orchestrator.
+
 ## 4. Configuration & Database Sync
 
-The primary method of configuring runner pools and credentials is via the GUI, stored securely in the embedded SQLite database. For GitOps and backup, the supervisor supports YAML Import/Export.
+> **Database is authoritative at runtime.** The embedded SQLite database is the single source of truth for all configuration during normal operation. YAML serves as an import/export format for seeding and backup:
+>
+> - **First boot** (empty DB): If a `config.yml` is mounted at the expected path, it is imported into the database as seed data. The YAML file is not re-read on subsequent boots.
+> - **Running system**: All configuration changes flow through the Web UI → Database. The YAML file is ignored at runtime.
+> - **Export**: Administrators can export the current database state as sanitized YAML for backup or GitOps versioning via the Web UI or CLI.
+> - **Re-import**: An explicit CLI command (`supervisor import --config config.yml`) can merge or overwrite database state from YAML. This is a destructive operation requiring confirmation.
 
 ### Schema Definition
 ```yaml

@@ -33,8 +33,13 @@ By default, the host Docker socket (`/var/run/docker.sock`) is **not** mounted i
 - If a repository strictly requires building Docker images or running containerized actions, the `allow_docker: true` flag must be explicitly set for that pool.
 - Gitea's `act_runner` and Forgejo's `forgejo-runner` inherently rely on Docker-in-Docker (DooD) to run workflows. Configuring `allow_docker: true` is strictly required for Gitea and Forgejo. The Web UI enforces this dependency and will prevent users from saving a Gitea or Forgejo pool configuration without Docker access enabled. However, because this exposes the host socket to the runner, sibling container privileges must be carefully considered for untrusted repositories.
 
+> **Current Scope & Trust Boundary**: Gitea and Forgejo integrations are designed for **private/internal** instances only. The mandatory `allow_docker: true` requirement for these providers is an accepted trade-off within this trust boundary — untrusted third-party workflow code is not expected to run on these pools. Public GitHub is the only provider expected to handle untrusted workflow code, and Docker socket access remains opt-in for GitHub pools.
+>
+> **Future Mitigation** *(deferred)*: Rootless Docker, Podman support, and Sysbox runtime integration are tracked as future enhancements to reduce socket exposure for all providers.
+
 ## 5. Configuration & Database Security
 
 - **Encryption at Rest**: Sensitive credentials stored in the local SQLite database must be encrypted at rest (e.g., using AES-256 with an encryption key provided via a supervisor environment variable).
 - **Local Administrator Hashing**: The initial local administrator password must be securely hashed (using algorithms like bcrypt or argon2) prior to storage in the SQLite database to protect against offline attacks.
 - **Export/Import Sanitization**: When exporting configurations via YAML for GitOps workflows, raw credentials must be sanitized or redacted. The export file uses placeholders or reference keys to prevent accidental credential leakage into version control.
+- **Session Tokens**: Admin session tokens are JWTs transported exclusively via `HttpOnly` secure cookies with `SameSite=Strict` policy. Raw tokens are never exposed to client-side JavaScript, mitigating XSS-based token theft. Session state is tracked in the database for audit and forced revocation capabilities.
