@@ -25,7 +25,7 @@ confirmation before writing.`,
 // runImport is a stub. Later milestones parse the YAML file, diff it
 // against database state, and apply it behind an interactive confirmation.
 func runImport(cmd *cobra.Command, args []string) error {
-	configPath := k.String("config")
+	configPath := cfg.ConfigFile
 	if configPath == "" {
 		return errors.New("import: the --config flag is required (path to a YAML configuration file)")
 	}

@@ -18,10 +18,11 @@ func newDaemonCommand() *cobra.Command {
 	}
 }
 
-// runDaemon is a stub. Later milestones boot the real daemon here: config
-// validation (RUN-7), database migrations, provider and orchestrator
-// wiring, the pool reconciler loop, and the Echo web server.
+// runDaemon is a stub. Later milestones boot the real daemon here: database
+// migrations, provider and orchestrator wiring, the pool reconciler loop,
+// and the Echo web server. Configuration loading and validation (RUN-7)
+// already ran in the root command's PersistentPreRunE.
 func runDaemon(cmd *cobra.Command, args []string) error {
-	slog.Info("supervisor daemon starting", "version", version, "data_dir", k.String("data-dir"))
+	slog.Info("supervisor daemon starting", "version", version, "data_dir", cfg.DataDir, "db_path", cfg.DBPath)
 	return fmt.Errorf("daemon: %w", errNotImplemented)
 }
