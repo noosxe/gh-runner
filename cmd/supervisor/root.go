@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/knadh/koanf/providers/posflag"
-	"github.com/knadh/koanf/v2"
 	"github.com/spf13/cobra"
+
+	"github.com/noosxe/gh-runner/internal/config"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
@@ -20,21 +20,10 @@ var version = "dev"
 // replace the stubs and drop this sentinel.
 var errNotImplemented = errors.New("not implemented yet")
 
-// k is the shared koanf instance. RUN-6 layers only the parsed CLI flags
-// into it; RUN-7 extends the loader with YAML/TOML files and environment
-// variables while keeping flags the highest-precedence source.
-var k = koanf.New(".")
-
-// Persistent flag variables, bound in NewRootCommand and layered into k in
-// bindFlagsToConfig.
-var (
-	flagConfig     string
-	flagLogLevel   string
-	flagDataDir    string
-	flagDBPath     string
-	flagPort       int
-	flagDockerHost string
-)
+// cfg holds the fully merged and validated configuration once the root
+// command's PersistentPreRunE has run. Every subcommand reads its
+// settings from here instead of touching flags or the environment.
+var cfg *config.Config
 
 // NewRootCommand builds the `supervisor` root command with all subcommands
 // and persistent flags attached.
@@ -56,6 +45,11 @@ Run it with no subcommand to start the daemon.`,
 		},
 	}
 
+	// Flag values are bound to throwaway locals: everything flows through
+	// the typed config.Config produced by internal/config, which loads
+	// these flags as the highest-precedence layer (RUN-7).
+	var flagConfig, flagLogLevel, flagDataDir, flagDBPath, flagDockerHost string
+	var flagPort int
 	f := root.PersistentFlags()
 	f.StringVarP(&flagConfig, "config", "c", "", "path to the configuration file (YAML or TOML)")
 	f.StringVar(&flagLogLevel, "log-level", "info", "log level (debug, info, warn, error)")
@@ -79,13 +73,16 @@ func Execute() error {
 	return NewRootCommand().Execute()
 }
 
-// bindFlagsToConfig layers the parsed persistent flags into the shared
-// koanf instance and installs the process-wide logger.
+// bindFlagsToConfig loads the full configuration stack (defaults, config
+// file, SUPERVISOR_* environment, CLI flags) via internal/config, which
+// also validates the result, and installs the process-wide logger.
 func bindFlagsToConfig(cmd *cobra.Command, _ []string) error {
-	if err := k.Load(posflag.Provider(cmd.Root().PersistentFlags(), ".", k), nil); err != nil {
-		return fmt.Errorf("loading CLI flags into configuration: %w", err)
+	loaded, err := config.Load(config.Options{Flags: cmd.Root().PersistentFlags()})
+	if err != nil {
+		return err
 	}
-	return initLogger(k.String("log-level"))
+	cfg = loaded
+	return initLogger(cfg.LogLevel)
 }
 
 // initLogger installs the default slog logger. RUN-8 replaces this with

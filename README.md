@@ -10,6 +10,7 @@ A lightweight, secure, and self-contained self-hosted GitHub Actions Runner pack
 - **Graceful Lifecycle Management:** Intercepts system termination signals (`SIGTERM`/`SIGINT`) to cleanly de-register the runner from the GitHub repository before container teardown, preventing "offline ghost runners" in your dashboard.
 - **Secure Non-Root Isolation:** The runner agent and jobs execute under a dedicated, low-privilege `runner` system user rather than `root`.
 - **Fast Build Times:** Pre-bakes dotnet runtimes and core operating system dependencies into the container layer to minimize boot latency.
+- **Layered Supervisor Configuration:** The `supervisor` daemon merges built-in defaults, an optional YAML/TOML settings file, `SUPERVISOR_*` environment variables, and CLI flags (in increasing precedence), with typed validation that refuses to start without a strong `SUPERVISOR_DB_ENCRYPTION_KEY`.
 
 ---
 
@@ -113,6 +114,27 @@ The runner container is highly customizable via environment variables defined in
 | `RUNNER_NAME` | String | No | *container-hostname* | The name displayed for this runner on the GitHub Actions dashboard. |
 | `RUNNER_LABELS` | String | No | `self-hosted,linux,arm64` | A comma-separated list of custom labels to tag the runner with. |
 | `RUNNER_WORKDIR` | String | No | `_work` | The internal working directory where workflow jobs will run. |
+
+### Supervisor Daemon Configuration
+
+The `supervisor` daemon layers its configuration, lowest to highest precedence:
+
+1. built-in defaults,
+2. an optional settings file (`--config` / `SUPERVISOR_CONFIG`; YAML or TOML, keys spelled like the flags below, e.g. `data-dir: /data`),
+3. `SUPERVISOR_*` environment variables,
+4. CLI flags (only flags you actually pass override lower layers).
+
+| Variable | Type | Required | Default | Description |
+| :--- | :--- | :---: | :--- | :--- |
+| `SUPERVISOR_DB_ENCRYPTION_KEY` | String | **Yes** | — | Master key encrypting credentials in the database (AES-256) and deriving the JWT signing secret. Must be at least 32 bytes (`openssl rand -base64 32`); the daemon refuses to start without it. |
+| `SUPERVISOR_PORT` | Int | No | `8080` | HTTP port for the API and web control interface. |
+| `SUPERVISOR_DB_PATH` | String | No | `<data-dir>/supervisor.db` | Path to the SQLite database file. |
+| `SUPERVISOR_LOG_LEVEL` | String | No | `info` | One of `debug`, `info`, `warn`, `error`. |
+| `SUPERVISOR_DOCKER_HOST` | String | No | `unix:///var/run/docker.sock` | Docker daemon endpoint used to launch runner containers. |
+| `SUPERVISOR_DATA_DIR` | String | No | `/data` | Data directory holding the database, backups, and runner logs. |
+| `SUPERVISOR_BACKUP_INTERVAL_HOURS` | Int | No | `6` | Hours between automated SQLite snapshot backups. |
+| `SUPERVISOR_BACKUP_RETENTION_COUNT` | Int | No | `7` | Number of snapshot backups to retain. |
+| `SUPERVISOR_CONFIG` | String | No | — | Path to a YAML/TOML settings file (overridden by `--config`). |
 
 ---
 
