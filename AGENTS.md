@@ -183,18 +183,30 @@ When creating new files, structure the repository logically as follows:
 │   └── workflows/
 │       ├── build.yml         # CI/CD: Multi-arch Docker build & push (via Buildx)
 │       └── lint.yml          # CI/CD: Automated shell and Docker linter checks
+├── cmd/
+│   └── supervisor/           # Go entrypoint (Cobra CLI & daemon runner)
+├── internal/
+│   ├── config/               # Koanf config parser (YAML/TOML/ENV/Flags)
+│   ├── db/                   # DB abstraction (sqlc, goose migrations, modernc.org/sqlite)
+│   ├── provider/             # Swappable Git Provider interface (github/, gitea/, forgejo/)
+│   ├── orchestrator/         # Container orchestration abstraction (docker/)
+│   └── server/               # Echo v5 web server (ConnectRPC API, embedded UI)
+├── proto/                    # ConnectRPC Protobuf schemas (api.proto)
+├── web/                      # Vite/React/TS frontend (TanStack Router & Query, TailwindCSS)
 ├── src/
-│   ├── entrypoint.sh         # Main orchestration script: setup, registration, execution, and cleanup
+│   ├── entrypoint.sh         # Runner-image orchestration script: setup, registration, execution, and cleanup
 │   └── register.sh           # Helper script for registering the runner with GitHub APIs
 ├── tests/
 │   ├── integration/          # Integration tests using local mock APIs or running Docker
-│   └── unit/                 # Script unit tests (e.g., using BATS or ShellSpec)
+│   └── unit/                 # Unit tests (Go tests + BATS/ShellSpec for scripts)
 ├── Dockerfile                # Multi-stage, multi-arch Dockerfile (arm64 & amd64)
 ├── docker-compose.yml        # Standard compose file for instant local deployment
 ├── .env.example              # Template file for environment variable settings
 ├── README.md                 # User instructions, quickstart, and configuration guides
 └── AGENTS.md                 # This file
 ```
+
+> **Note:** The Go module (`go.mod`, `github.com/noosxe/gh-runner`) lives at the repository root — Go packages import as `github.com/noosxe/gh-runner/internal/...`. The `src/` directory contains only the runner-image shell scripts and is intentionally outside the Go module.
 
 ---
 
