@@ -73,7 +73,7 @@ graph TD
 To support clean architecture and swappable components, the Go-based supervisor daemon is structured as follows:
 
 ```text
-src/
+.
 ├── cmd/
 │   └── supervisor/         # Go Main entrypoint (Cobra CLI & daemon runner)
 ├── internal/
@@ -86,9 +86,12 @@ src/
 │   ├── orchestrator/       # Container orchestration abstraction
 │   │   └── docker/         # Docker Engine SDK orchestrator implementation (Primary)
 │   └── server/             # Echo v5 Web Server (Static UI serving, ConnectRPC API)
-proto/                      # ConnectRPC Protobuf schemas (api.proto)
-web/                        # Vite/React/TS Frontend (TanStack Router & Query, TailwindCSS)
+├── proto/                  # ConnectRPC Protobuf schemas (api.proto)
+├── web/                    # Vite/React/TS Frontend (TanStack Router & Query, TailwindCSS)
+└── src/                    # Runner-image shell scripts (entrypoint.sh, register.sh) — not part of the Go module
 ```
+
+> The Go module (`go.mod`, `github.com/noosxe/gh-runner`) lives at the **repository root** — packages import as `github.com/noosxe/gh-runner/internal/...`. The `src/` directory retains only the runner-image shell scripts.
 
 ## 3. Abstractions
 
