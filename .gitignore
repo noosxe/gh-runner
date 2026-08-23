@@ -21,3 +21,6 @@ Thumbs.db
 *.njsproj
 *.sln
 *.swp
+
+# Go build artifacts
+bin/
