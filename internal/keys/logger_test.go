@@ -1,0 +1,31 @@
+package keys
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+
+	"github.com/noosxe/gh-runner/internal/logging"
+)
+
+// TestModuleLoggerTagged proves this package instantiates its module
+// logger (RUN-8 acceptance pattern): records carry module="keys", and
+// level filtering applies — the debug record below stays suppressed at
+// info, so derivation stays silent outside debug mode.
+func TestModuleLoggerTagged(t *testing.T) {
+	var buf bytes.Buffer
+	if err := logging.Setup(logging.Options{Level: "info", Writer: &buf}); err != nil {
+		t.Fatalf("Setup(info) failed: %v", err)
+	}
+
+	logger.Info("beacon")
+	logger.Debug("suppressed beacon")
+
+	out := buf.String()
+	if !strings.Contains(out, "\"module\":\"keys\"") || !strings.Contains(out, "\"msg\":\"beacon\"") {
+		t.Errorf("record missing module tag or message:\n%s", out)
+	}
+	if strings.Contains(out, "suppressed beacon") {
+		t.Error("debug record leaked through the info-level filter")
+	}
+}
