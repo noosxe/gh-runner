@@ -40,11 +40,9 @@ Run it with no subcommand to start the daemon.`,
 		Version:           version,
 		SilenceUsage:      true, // runtime errors should not repeat the usage text
 		PersistentPreRunE: bindFlagsToConfig,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			// The daemon is the default: a bare `supervisor` (optionally
-			// with persistent flags) starts it.
-			return runDaemon(cmd, args)
-		},
+		// The daemon is the default: a bare `supervisor` (optionally with
+		// persistent flags) starts it.
+		RunE: runDaemon,
 	}
 
 	// Flag values are bound to throwaway locals: everything flows through
