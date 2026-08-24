@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/spf13/cobra"
 )
@@ -24,6 +23,6 @@ used by the automated periodic snapshots.`,
 // runBackup is a stub. Later milestones snapshot the SQLite database via
 // its online backup API and prune old snapshots per the retention settings.
 func runBackup(cmd *cobra.Command, args []string) error {
-	slog.Info("backup: snapshotting not implemented yet", "data_dir", cfg.DataDir)
+	logger.Info("backup: snapshotting not implemented yet", "data_dir", cfg.DataDir)
 	return fmt.Errorf("backup: %w", errNotImplemented)
 }

@@ -129,7 +129,7 @@ The `supervisor` daemon layers its configuration, lowest to highest precedence:
 | `SUPERVISOR_DB_ENCRYPTION_KEY` | String | **Yes** | — | Master key encrypting credentials in the database (AES-256) and deriving the JWT signing secret. Must be at least 32 bytes (`openssl rand -base64 32`); the daemon refuses to start without it. |
 | `SUPERVISOR_PORT` | Int | No | `8080` | HTTP port for the API and web control interface. |
 | `SUPERVISOR_DB_PATH` | String | No | `<data-dir>/supervisor.db` | Path to the SQLite database file. |
-| `SUPERVISOR_LOG_LEVEL` | String | No | `info` | One of `debug`, `info`, `warn`, `error`. |
+| `SUPERVISOR_LOG_LEVEL` | String | No | `info` | One of `debug`, `info`, `warn`, `error`. Selecting `debug` is explicit debug mode: it also unlocks trace output. Logs are structured JSON on stdout, one record per module (`module` field). |
 | `SUPERVISOR_DOCKER_HOST` | String | No | `unix:///var/run/docker.sock` | Docker daemon endpoint used to launch runner containers. |
 | `SUPERVISOR_DATA_DIR` | String | No | `/data` | Data directory holding the database, backups, and runner logs. |
 | `SUPERVISOR_BACKUP_INTERVAL_HOURS` | Int | No | `6` | Hours between automated SQLite snapshot backups. |

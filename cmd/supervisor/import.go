@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/spf13/cobra"
 )
@@ -29,6 +28,6 @@ func runImport(cmd *cobra.Command, args []string) error {
 	if configPath == "" {
 		return errors.New("import: the --config flag is required (path to a YAML configuration file)")
 	}
-	slog.Info("importing configuration", "config", configPath)
+	logger.Info("importing configuration", "config", configPath)
 	return fmt.Errorf("import: %w", errNotImplemented)
 }
