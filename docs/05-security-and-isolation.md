@@ -39,7 +39,7 @@ By default, the host Docker socket (`/var/run/docker.sock`) is **not** mounted i
 
 ## 5. Configuration & Database Security
 
-- **Encryption at Rest**: Sensitive credentials stored in the local SQLite database must be encrypted at rest (e.g., using AES-256 with an encryption key provided via a supervisor environment variable).
+- **Encryption at Rest & Secret Derivation**: Sensitive credentials stored in the local SQLite database must be encrypted at rest using AES-256. The AES key and the JWT signing secret are both deterministically derived from the single required `SUPERVISOR_DB_ENCRYPTION_KEY` master key via HKDF-SHA256, each under its own context label, so the two secrets are cryptographically independent while operators manage exactly one secret (implemented in `internal/keys`, RUN-9).
 - **Local Administrator Hashing**: The initial local administrator password must be securely hashed (using algorithms like bcrypt or argon2) prior to storage in the SQLite database to protect against offline attacks.
 - **Export/Import Sanitization**: When exporting configurations via YAML for GitOps workflows, raw credentials must be sanitized or redacted. The export file uses placeholders or reference keys to prevent accidental credential leakage into version control.
 - **Session Tokens**: Admin session tokens are JWTs transported exclusively via `HttpOnly` secure cookies with `SameSite=Strict` policy. Raw tokens are never exposed to client-side JavaScript, mitigating XSS-based token theft. Session state is tracked in the database for audit and forced revocation capabilities.

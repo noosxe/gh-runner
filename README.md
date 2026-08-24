@@ -11,6 +11,7 @@ A lightweight, secure, and self-contained self-hosted GitHub Actions Runner pack
 - **Secure Non-Root Isolation:** The runner agent and jobs execute under a dedicated, low-privilege `runner` system user rather than `root`.
 - **Fast Build Times:** Pre-bakes dotnet runtimes and core operating system dependencies into the container layer to minimize boot latency.
 - **Layered Supervisor Configuration:** The `supervisor` daemon merges built-in defaults, an optional YAML/TOML settings file, `SUPERVISOR_*` environment variables, and CLI flags (in increasing precedence), with typed validation that refuses to start without a strong `SUPERVISOR_DB_ENCRYPTION_KEY`.
+- **Single Master Key, Derived Secrets:** The one required `SUPERVISOR_DB_ENCRYPTION_KEY` is expanded via HKDF-SHA256 (`internal/keys`) into two independent runtime secrets — the AES-256 database encryption key and the JWT signing secret — each under its own context label, so there is no separate `JWT_SECRET` to configure or leak, and both remain stable across restarts.
 
 ---
 
