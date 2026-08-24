@@ -1,0 +1,75 @@
+name: Go CI
+
+# Build, vet, and test the Go module (repo root) on every PR and on pushes
+# to main. Cheap path filtering skips docs/image-only changes, mirroring the
+# gating strategy of build.yml — but this workflow always includes itself so
+# changes to the CI definition are validated by the CI they define.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - '.github/workflows/go.yml'
+  pull_request:
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - '.github/workflows/go.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: these jobs only read the repository (AGENTS.md security rules)
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & Test (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # Report failures on both architectures instead of cancelling the
+      # sibling leg; the matrix uses native runners (no QEMU), same mapping
+      # as the image build in build.yml.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      # The supervisor is strictly CGO-free (docs/06 §1, Makefile): pure-Go
+      # stack for seamless ARM64/AMD64 builds without a C toolchain.
+      CGO_ENABLED: "0"
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          # Resolve the toolchain from go.mod so CI never drifts from the
+          # module definition. Module/build cache is keyed on go.sum.
+          go-version-file: go.mod
+          cache: true
+
+      # Command parity with the Makefile targets run inside `nix develop`
+      # (make build/vet/test): kept inline here so CI does not depend on
+      # make being present on the runner image.
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...

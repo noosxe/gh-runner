@@ -1,0 +1,60 @@
+name: Lint
+
+# Automated shell and Docker linter checks (AGENTS.md repository architecture).
+# Path-filtered so docs/Go-only changes do not spin up lint runners; the
+# workflow always includes itself so lint-definition changes are self-checked.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/lint.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/lint.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: these jobs only read the repository (AGENTS.md security rules)
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck (src/*.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      # shellcheck ships with the ubuntu runner image; identical to the local
+      # mandated check `nix develop --command shellcheck src/*.sh` (AGENTS.md).
+      - name: Run ShellCheck
+        run: shellcheck src/*.sh
+
+  hadolint:
+    name: Hadolint (Dockerfile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          # The runner image currently carries pre-existing style warnings
+          # (DL3008 unpinned apt packages, DL4006 pipefail, DL3059 RUN
+          # consolidation). They surface as PR annotations but do not fail CI
+          # until the image-hardening pass pins them; error-severity findings
+          # still fail the job.
+          failure-threshold: error
