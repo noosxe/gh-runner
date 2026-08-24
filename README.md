@@ -160,13 +160,27 @@ This runner is configured to support Docker-outside-of-Docker execution. This al
 
 ---
 
-## 🛠️ CI/CD Build Pipeline
+## 🛠️ CI/CD Pipelines
 
-The project integrates an automated **Parallel Native Matrix & Manifest Merger** workflow:
-- **Pull Requests and Push to main:** Triggers a native dry-run compilation on parallel AMD64 and ARM64 GitHub runners to ensure code and Docker layer compatibility.
+### Go CI (`go.yml`)
+
+Builds, vets, and tests the Go module (`cmd/`, `internal/`) on every PR and push to `main` touching Go inputs:
+- **Native AMD64 + ARM64 matrix:** `go build ./...`, `go vet ./...`, and `go test ./...` run on native runners (`ubuntu-latest` / `ubuntu-24.04-arm`) with `CGO_ENABLED=0`, matching the pure-Go stack mandate (docs/06 §1) and the local `nix develop` Makefile targets.
+- **Toolchain pinned to `go.mod`:** CI resolves the Go version from `go-version-file: go.mod` so it never drifts from the module definition.
+
+### Lint (`lint.yml`)
+
+Automated shell and Docker linter checks on PRs and pushes to `main` touching image inputs:
+- **ShellCheck:** validates `src/*.sh` — identical to the mandated local check `nix develop --command shellcheck src/*.sh`.
+- **Hadolint:** validates the runner `Dockerfile`; error-severity findings fail the job, style warnings surface as annotations.
+
+### Multi-Arch Image Build (`build.yml`)
+
+The **Parallel Native Matrix & Manifest Merger** workflow:
+- **Pull Requests and Push to main:** Triggers a native dry-run compilation on parallel AMD64 and ARM64 GitHub runners to ensure code and Docker layer compatibility (only when image inputs change).
 - **Releases (Tag Push `v*`):** 
   1. Compiles the containers on native runners and publishes them by content-digest to the GitHub Container Registry (GHCR).
-  2. Runs a downstream coordination job that merges the digests into a unified multi-architecture manifest list under the version tag (e.g. `v1.0.0`) and the `latest` tag.
+  2. Runs a downstream coordination job that merges the digests into a unified multi-architecture manifest list under the version tag (e.g., `v1.0.0`) and the `latest` tag.
 
 ---
 
