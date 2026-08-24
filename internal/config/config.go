@@ -110,16 +110,16 @@ func Load(opts Options) (*Config, error) {
 		return nil, fmt.Errorf("loading default configuration: %w", err)
 	}
 
-	if path := configFileFrom(opts.Flags); path != "" {
-		parser, err := fileParser(path)
+	configPath := configFileFrom(opts.Flags)
+	if configPath != "" {
+		parser, err := fileParser(configPath)
 		if err != nil {
 			return nil, err
 		}
-		if err := ko.Load(file.Provider(path), parser); err != nil {
-			return nil, fmt.Errorf("loading config file %q: %w", path, err)
+		if err := ko.Load(file.Provider(configPath), parser); err != nil {
+			return nil, fmt.Errorf("loading config file %q: %w", configPath, err)
 		}
 	}
-
 	if err := ko.Load(env.Provider(EnvPrefix, ".", func(name string) string {
 		// Map only the variables in the supervisor contract; unrelated
 		// SUPERVISOR_* variables (e.g. pool tokens like
@@ -150,6 +150,14 @@ func Load(opts Options) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	// Debug-only and strictly non-secret fields: the encryption key must
+	// never appear in any log record.
+	logger.Debug("configuration loaded",
+		"config_file", configPath,
+		"data_dir", cfg.DataDir,
+		"db_path", cfg.DBPath,
+		"port", cfg.Port,
+	)
 	return &cfg, nil
 }
 

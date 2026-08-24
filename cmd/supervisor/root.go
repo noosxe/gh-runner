@@ -2,14 +2,11 @@ package main
 
 import (
 	"errors"
-	"fmt"
-	"log/slog"
-	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/noosxe/gh-runner/internal/config"
+	"github.com/noosxe/gh-runner/internal/logging"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
@@ -24,6 +21,11 @@ var errNotImplemented = errors.New("not implemented yet")
 // command's PersistentPreRunE has run. Every subcommand reads its
 // settings from here instead of touching flags or the environment.
 var cfg *config.Config
+
+// logger is the CLI module logger (docs/06 §1): command-level startup
+// and stub messages flow through it; daemon subsystems derive their own
+// via logging.For as they land in later milestones.
+var logger = logging.For("cli")
 
 // NewRootCommand builds the `supervisor` root command with all subcommands
 // and persistent flags attached.
@@ -82,26 +84,5 @@ func bindFlagsToConfig(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	cfg = loaded
-	return initLogger(cfg.LogLevel)
-}
-
-// initLogger installs the default slog logger. RUN-8 replaces this with
-// per-module loggers and debug gating; the CLI skeleton only needs level
-// selection.
-func initLogger(level string) error {
-	var lvl slog.Level
-	switch strings.ToLower(level) {
-	case "debug":
-		lvl = slog.LevelDebug
-	case "info":
-		lvl = slog.LevelInfo
-	case "warn", "warning":
-		lvl = slog.LevelWarn
-	case "error":
-		lvl = slog.LevelError
-	default:
-		return fmt.Errorf("invalid --log-level %q (want debug, info, warn, or error)", level)
-	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
-	return nil
+	return logging.Setup(logging.Options{Level: cfg.LogLevel})
 }

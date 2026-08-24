@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/spf13/cobra"
 )
@@ -27,6 +26,6 @@ inside the supervisor container, e.g.
 // runResetPassword is a stub. Later milestones add the interactive
 // username and password prompts (hidden input, with confirmation).
 func runResetPassword(cmd *cobra.Command, args []string) error {
-	slog.Info("reset-password: prompting not implemented yet")
+	logger.Info("reset-password: prompting not implemented yet")
 	return fmt.Errorf("reset-password: %w", errNotImplemented)
 }
