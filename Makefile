@@ -13,7 +13,7 @@ export CGO_ENABLED := 0
 BINARY := supervisor
 PKG     := ./...
 
-.PHONY: build test lint fmt vet tidy clean generate
+.PHONY: build test test-scripts lint fmt vet tidy clean generate
 
 ## generate: run code generation tools (sqlc)
 generate:
@@ -26,6 +26,10 @@ build:
 ## test: run the Go test suite
 test:
 	go test $(PKG)
+
+## test-scripts: run unit tests for runner image scripts
+test-scripts:
+	bash tests/unit/entrypoint_test.sh
 
 ## lint: static analysis via golangci-lint
 lint:
