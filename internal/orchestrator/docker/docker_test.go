@@ -367,3 +367,88 @@ func TestParseLimits(t *testing.T) {
 		t.Errorf("expected error for negative memory limit")
 	}
 }
+
+func TestDockerClient_AuditRunners(t *testing.T) {
+	ctx := context.Background()
+
+	var filterUsed filters.Args
+	mockAPI := &mockDockerAPI{
+		containerListFn: func(ctx context.Context, options container.ListOptions) ([]container.Summary, error) {
+			filterUsed = options.Filters
+			return []container.Summary{
+				{
+					ID:    "cnt-1",
+					Names: []string{"/ghrs-pool-a-abcdef"},
+					State: "running",
+					Labels: map[string]string{
+						orchestrator.LabelManaged:   "true",
+						orchestrator.LabelPoolName:  "pool-a",
+						orchestrator.LabelID:        "ghrs-pool-a-abcdef",
+						orchestrator.LabelSpawnedAt: "2026-09-03T12:00:00Z",
+					},
+					NetworkSettings: &container.NetworkSettingsSummary{
+						Networks: map[string]*network.EndpointSettings{
+							"bridge": {IPAddress: "172.17.0.2"},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	statuses, err := cli.AuditRunners(ctx)
+	if err != nil {
+		t.Fatalf("AuditRunners failed: %v", err)
+	}
+
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 runner status, got %d", len(statuses))
+	}
+	s := statuses[0]
+	if s.ID != "cnt-1" || s.Name != "ghrs-pool-a-abcdef" || s.PoolName != "pool-a" || s.State != "running" || s.IPAddress != "172.17.0.2" {
+		t.Errorf("unexpected mapped runner status: %+v", s)
+	}
+
+	// Verify label filter
+	labels := filterUsed.Get("label")
+	if len(labels) == 0 || labels[0] != orchestrator.LabelManaged+"=true" {
+		t.Errorf("expected managed label filter, got %+v", labels)
+	}
+}
+
+func TestDockerClient_TerminateRunner(t *testing.T) {
+	ctx := context.Background()
+
+	var stoppedID string
+	var removedID string
+	var forceRemoved bool
+
+	mockAPI := &mockDockerAPI{
+		containerStopFn: func(ctx context.Context, containerID string, options container.StopOptions) error {
+			stoppedID = containerID
+			return nil
+		},
+		containerRemoveFn: func(ctx context.Context, containerID string, options container.RemoveOptions) error {
+			removedID = containerID
+			forceRemoved = options.Force
+			return nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	if err := cli.TerminateRunner(ctx, "cnt-to-terminate"); err != nil {
+		t.Fatalf("TerminateRunner failed: %v", err)
+	}
+	if stoppedID != "cnt-to-terminate" || removedID != "cnt-to-terminate" || !forceRemoved {
+		t.Errorf("terminate failed: stopped=%q removed=%q force=%v", stoppedID, removedID, forceRemoved)
+	}
+}
