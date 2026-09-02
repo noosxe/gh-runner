@@ -3,6 +3,7 @@ package docker_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/docker/docker/api/types"
@@ -124,5 +125,245 @@ func TestDockerClient_BootstrapAndPing(t *testing.T) {
 	// 3. Close
 	if err := cli.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestDockerClient_SpawnRunner(t *testing.T) {
+	ctx := context.Background()
+
+	var createdConfig *container.Config
+	var createdHostConfig *container.HostConfig
+	var createdName string
+	var startedID string
+
+	mockAPI := &mockDockerAPI{
+		containerCreateFn: func(ctx context.Context, cfg *container.Config, hostCfg *container.HostConfig, netCfg *network.NetworkingConfig, platform *v1.Platform, name string) (container.CreateResponse, error) {
+			createdConfig = cfg
+			createdHostConfig = hostCfg
+			createdName = name
+			return container.CreateResponse{ID: "c-123456"}, nil
+		},
+		containerStartFn: func(ctx context.Context, id string, options container.StartOptions) error {
+			startedID = id
+			return nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	config := orchestrator.RunnerConfig{
+		PoolName:    "arm64-pool",
+		RepoURL:     "https://github.com/my-org/my-repo",
+		Token:       "runner-ephemeral-tok",
+		Labels:      []string{"self-hosted", "arm64"},
+		WorkDir:     "_custom_work",
+		CPULimit:    "1.5",
+		MemoryLimit: "2g",
+		AllowDocker: true,
+	}
+
+	id, err := cli.SpawnRunner(ctx, config)
+	if err != nil {
+		t.Fatalf("SpawnRunner failed: %v", err)
+	}
+	if id != "c-123456" || startedID != "c-123456" {
+		t.Fatalf("expected container c-123456 created and started, got %q / %q", id, startedID)
+	}
+
+	// Verify Naming
+	if !strings.HasPrefix(createdName, "ghrs-arm64-pool-") {
+		t.Errorf("unexpected container name: %q", createdName)
+	}
+
+	// Verify Labels
+	if createdConfig.Labels[orchestrator.LabelManaged] != "true" {
+		t.Errorf("missing managed label")
+	}
+	if createdConfig.Labels[orchestrator.LabelPoolName] != "arm64-pool" {
+		t.Errorf("unexpected pool label: %v", createdConfig.Labels[orchestrator.LabelPoolName])
+	}
+	if createdConfig.Labels[orchestrator.LabelTaskType] != orchestrator.TaskTypeRunner {
+		t.Errorf("unexpected task-type label: %v", createdConfig.Labels[orchestrator.LabelTaskType])
+	}
+	if createdConfig.Labels[orchestrator.LabelSpawnedAt] == "" {
+		t.Errorf("missing spawned-at label")
+	}
+
+	// Verify Limits
+	if createdHostConfig.NanoCPUs != 1500000000 {
+		t.Errorf("expected 1.5e9 NanoCPUs, got %d", createdHostConfig.NanoCPUs)
+	}
+	if createdHostConfig.Memory != 2*1024*1024*1024 {
+		t.Errorf("expected 2GiB memory, got %d", createdHostConfig.Memory)
+	}
+
+	// Verify Docker socket mount
+	foundDockerSock := false
+	for _, bind := range createdHostConfig.Binds {
+		if bind == "/var/run/docker.sock:/var/run/docker.sock" {
+			foundDockerSock = true
+			break
+		}
+	}
+	if !foundDockerSock {
+		t.Errorf("expected /var/run/docker.sock mount in binds: %+v", createdHostConfig.Binds)
+	}
+
+	// Verify Environment Variables
+	envMap := make(map[string]string)
+	for _, e := range createdConfig.Env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+	if envMap["RUNNER_TOKEN"] != "runner-ephemeral-tok" {
+		t.Errorf("unexpected token in env: %v", envMap["RUNNER_TOKEN"])
+	}
+	if envMap["GITHUB_REPOSITORY_URL"] != "https://github.com/my-org/my-repo" {
+		t.Errorf("unexpected repo URL in env: %v", envMap["GITHUB_REPOSITORY_URL"])
+	}
+	if envMap["RUNNER_WORKDIR"] != "_custom_work" {
+		t.Errorf("unexpected workdir: %v", envMap["RUNNER_WORKDIR"])
+	}
+	if envMap["RUNNER_EPHEMERAL"] != "true" {
+		t.Errorf("missing RUNNER_EPHEMERAL=true")
+	}
+}
+
+func TestDockerClient_SpawnTask(t *testing.T) {
+	ctx := context.Background()
+
+	var createdConfig *container.Config
+	mockAPI := &mockDockerAPI{
+		containerCreateFn: func(ctx context.Context, cfg *container.Config, hostCfg *container.HostConfig, netCfg *network.NetworkingConfig, platform *v1.Platform, name string) (container.CreateResponse, error) {
+			createdConfig = cfg
+			return container.CreateResponse{ID: "task-999"}, nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	config := orchestrator.RunnerConfig{
+		PoolName: "renovate-pool",
+		RepoURL:  "https://github.com/org/repo",
+		Token:    "renovate-short-lived-tok",
+		Image:    "renovate/renovate:latest",
+	}
+
+	id, err := cli.SpawnTask(ctx, config)
+	if err != nil {
+		t.Fatalf("SpawnTask failed: %v", err)
+	}
+	if id != "task-999" {
+		t.Fatalf("unexpected id: %q", id)
+	}
+
+	if createdConfig.Labels[orchestrator.LabelTaskType] != orchestrator.TaskTypeJob {
+		t.Errorf("expected task-type job, got %v", createdConfig.Labels[orchestrator.LabelTaskType])
+	}
+	if createdConfig.Image != "renovate/renovate:latest" {
+		t.Errorf("unexpected image: %q", createdConfig.Image)
+	}
+
+	envMap := make(map[string]string)
+	for _, e := range createdConfig.Env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+	if envMap["RENOVATE_TOKEN"] != "renovate-short-lived-tok" {
+		t.Errorf("unexpected renovate token: %v", envMap["RENOVATE_TOKEN"])
+	}
+}
+
+func TestDockerClient_SpawnFailureCleanup(t *testing.T) {
+	ctx := context.Background()
+
+	var removedID string
+	var forceRemoved bool
+
+	mockAPI := &mockDockerAPI{
+		containerCreateFn: func(ctx context.Context, cfg *container.Config, hostCfg *container.HostConfig, netCfg *network.NetworkingConfig, platform *v1.Platform, name string) (container.CreateResponse, error) {
+			return container.CreateResponse{ID: "doomed-container"}, nil
+		},
+		containerStartFn: func(ctx context.Context, id string, options container.StartOptions) error {
+			return errors.New("cannot start: port conflict")
+		},
+		containerRemoveFn: func(ctx context.Context, id string, options container.RemoveOptions) error {
+			removedID = id
+			forceRemoved = options.Force
+			return nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	_, err = cli.SpawnRunner(ctx, orchestrator.RunnerConfig{PoolName: "test-pool"})
+	if err == nil || !strings.Contains(err.Error(), "starting container") {
+		t.Fatalf("expected start container error, got: %v", err)
+	}
+	if removedID != "doomed-container" || !forceRemoved {
+		t.Errorf("expected doomed-container to be force removed, got %q (force=%v)", removedID, forceRemoved)
+	}
+}
+
+func TestParseLimits(t *testing.T) {
+	// 1. CPU Limits
+	nano, err := docker.ParseCPULimit("2.5")
+	if err != nil || nano != 2500000000 {
+		t.Errorf("expected 2.5e9 nano cpus, got %d (err=%v)", nano, err)
+	}
+	nano, err = docker.ParseCPULimit("")
+	if err != nil || nano != 0 {
+		t.Errorf("expected 0 for empty cpu, got %d", nano)
+	}
+	_, err = docker.ParseCPULimit("-1")
+	if err == nil {
+		t.Errorf("expected error for negative cpu limit")
+	}
+	_, err = docker.ParseCPULimit("invalid")
+	if err == nil {
+		t.Errorf("expected error for invalid cpu limit")
+	}
+
+	// 2. Memory Limits
+	memTests := []struct {
+		input    string
+		expected int64
+	}{
+		{"4g", 4 * 1024 * 1024 * 1024},
+		{"512m", 512 * 1024 * 1024},
+		{"1024k", 1024 * 1024},
+		{"1000b", 1000},
+		{"", 0},
+	}
+	for _, tc := range memTests {
+		bytes, err := docker.ParseMemoryLimit(tc.input)
+		if err != nil {
+			t.Errorf("ParseMemoryLimit(%q) failed: %v", tc.input, err)
+		}
+		if bytes != tc.expected {
+			t.Errorf("ParseMemoryLimit(%q) = %d, expected %d", tc.input, bytes, tc.expected)
+		}
+	}
+
+	_, err = docker.ParseMemoryLimit("bad-mem")
+	if err == nil {
+		t.Errorf("expected error for bad memory limit")
+	}
+	_, err = docker.ParseMemoryLimit("-100m")
+	if err == nil {
+		t.Errorf("expected error for negative memory limit")
 	}
 }

@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -161,15 +163,159 @@ func (c *Client) Close() error {
 }
 
 // SpawnRunner creates and starts an ephemeral runner container.
-// Full implementation delivered in RUN-31.
 func (c *Client) SpawnRunner(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
-	return "", errors.New("SpawnRunner not yet implemented")
+	return c.spawn(ctx, config, orchestrator.TaskTypeRunner)
 }
 
 // SpawnTask creates and starts a one-off task container (e.g. Renovate bot).
-// Full implementation delivered in RUN-31.
 func (c *Client) SpawnTask(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
-	return "", errors.New("SpawnTask not yet implemented")
+	return c.spawn(ctx, config, orchestrator.TaskTypeJob)
+}
+
+func (c *Client) spawn(ctx context.Context, config orchestrator.RunnerConfig, taskType string) (string, error) {
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		return "", ErrNilClient
+	}
+
+	containerName := config.Name
+	if containerName == "" {
+		containerName = orchestrator.GenerateContainerName(config.PoolName)
+	}
+
+	image := config.Image
+	if image == "" {
+		image = orchestrator.DefaultRunnerImage
+	}
+
+	labels := map[string]string{
+		orchestrator.LabelManaged:   "true",
+		orchestrator.LabelPoolName:  config.PoolName,
+		orchestrator.LabelID:        containerName,
+		orchestrator.LabelSpawnedAt: time.Now().UTC().Format(time.RFC3339),
+		orchestrator.LabelTaskType:  taskType,
+	}
+
+	env := config.Env
+	if len(env) == 0 {
+		if taskType == orchestrator.TaskTypeRunner {
+			workDir := config.WorkDir
+			if workDir == "" {
+				workDir = "_work"
+			}
+			env = []string{
+				"RUNNER_NAME=" + containerName,
+				"RUNNER_TOKEN=" + config.Token,
+				"RUNNER_WORKDIR=" + workDir,
+				"RUNNER_LABELS=" + strings.Join(config.Labels, ","),
+				"RUNNER_EPHEMERAL=true",
+			}
+			if config.RepoURL != "" {
+				if strings.Contains(config.RepoURL, "gitea") {
+					env = append(env, "GITEA_INSTANCE_URL="+config.RepoURL)
+				} else if strings.Contains(config.RepoURL, "forgejo") {
+					env = append(env, "FORGEJO_INSTANCE_URL="+config.RepoURL)
+				} else {
+					env = append(env, "GITHUB_REPOSITORY_URL="+config.RepoURL)
+				}
+			}
+		} else {
+			env = []string{
+				"RENOVATE_TOKEN=" + config.Token,
+				"RENOVATE_ENDPOINT=" + config.RepoURL,
+			}
+		}
+	}
+
+	hostConfig := &container.HostConfig{}
+
+	if config.AllowDocker {
+		hostConfig.Binds = append(hostConfig.Binds, "/var/run/docker.sock:/var/run/docker.sock")
+	}
+
+	if config.CPULimit != "" {
+		nanoCPUs, err := ParseCPULimit(config.CPULimit)
+		if err != nil {
+			return "", err
+		}
+		hostConfig.NanoCPUs = nanoCPUs
+	}
+
+	if config.MemoryLimit != "" {
+		memBytes, err := ParseMemoryLimit(config.MemoryLimit)
+		if err != nil {
+			return "", err
+		}
+		hostConfig.Memory = memBytes
+	}
+
+	containerConfig := &container.Config{
+		Image:  image,
+		Env:    env,
+		Labels: labels,
+	}
+
+	createResp, err := docker.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerName)
+	if err != nil {
+		return "", fmt.Errorf("creating container %q: %w", containerName, err)
+	}
+
+	if err := docker.ContainerStart(ctx, createResp.ID, container.StartOptions{}); err != nil {
+		_ = docker.ContainerRemove(ctx, createResp.ID, container.RemoveOptions{Force: true})
+		return "", fmt.Errorf("starting container %q (%s): %w", containerName, createResp.ID, err)
+	}
+
+	return createResp.ID, nil
+}
+
+// ParseCPULimit converts CPU limits like "2.0", "0.5", "1" to NanoCPUs (int64).
+func ParseCPULimit(cpu string) (int64, error) {
+	trimmed := strings.TrimSpace(cpu)
+	if trimmed == "" {
+		return 0, nil
+	}
+	val, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid cpu limit %q: %w", cpu, err)
+	}
+	if val <= 0 {
+		return 0, fmt.Errorf("cpu limit must be positive: %q", cpu)
+	}
+	return int64(val * 1e9), nil
+}
+
+// ParseMemoryLimit parses strings like "4g", "512m", "1024k" to byte count (int64).
+func ParseMemoryLimit(mem string) (int64, error) {
+	s := strings.TrimSpace(strings.ToLower(mem))
+	if s == "" {
+		return 0, nil
+	}
+	multiplier := int64(1)
+	switch {
+	case strings.HasSuffix(s, "g") || strings.HasSuffix(s, "gb"):
+		multiplier = 1024 * 1024 * 1024
+		s = strings.TrimSuffix(strings.TrimSuffix(s, "b"), "g")
+	case strings.HasSuffix(s, "m") || strings.HasSuffix(s, "mb"):
+		multiplier = 1024 * 1024
+		s = strings.TrimSuffix(strings.TrimSuffix(s, "b"), "m")
+	case strings.HasSuffix(s, "k") || strings.HasSuffix(s, "kb"):
+		multiplier = 1024
+		s = strings.TrimSuffix(strings.TrimSuffix(s, "b"), "k")
+	case strings.HasSuffix(s, "b"):
+		s = strings.TrimSuffix(s, "b")
+	}
+
+	val, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid memory limit %q: %w", mem, err)
+	}
+	if val <= 0 {
+		return 0, fmt.Errorf("memory limit must be positive: %q", mem)
+	}
+	return int64(val * float64(multiplier)), nil
 }
 
 // TerminateRunner gracefully stops and removes a runner container.
