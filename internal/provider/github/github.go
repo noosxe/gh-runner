@@ -1,0 +1,417 @@
+package github
+
+import (
+	"bytes"
+	"context"
+	"crypto/rsa"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/noosxe/gh-runner/internal/db"
+	"github.com/noosxe/gh-runner/internal/provider"
+)
+
+const (
+	// DefaultBaseURL is the standard public GitHub API root.
+	DefaultBaseURL = "https://api.github.com"
+	// GitHubAPIVersion is the recommended GitHub API version header.
+	GitHubAPIVersion = "2022-11-28"
+)
+
+var (
+	// ErrInvalidTargetURL is returned when target URL cannot be parsed into owner/repo.
+	ErrInvalidTargetURL = errors.New("invalid GitHub target URL: must specify owner or owner/repo")
+	// ErrInstallationNotFound is returned when no GitHub App installation is found for the target.
+	ErrInstallationNotFound = errors.New("github app installation not found for target")
+)
+
+type cachedToken struct {
+	token     string
+	expiresAt time.Time
+}
+
+// Client implements provider.GitProvider and provider.RenovateTokenProvider for GitHub.
+type Client struct {
+	baseURL    string
+	authMethod provider.AuthMethod
+	appID      int64
+	privateKey *rsa.PrivateKey
+	pat        string
+	httpClient *http.Client
+
+	mu         sync.Mutex
+	tokenCache map[string]cachedToken
+}
+
+// ClientOption configures a GitHub Client.
+type ClientOption func(*Client)
+
+// WithBaseURL overrides the GitHub API base URL (useful for testing and GHE).
+func WithBaseURL(rawURL string) ClientOption {
+	return func(c *Client) {
+		if rawURL != "" {
+			c.baseURL = strings.TrimRight(rawURL, "/")
+		}
+	}
+}
+
+// WithHTTPClient overrides the default HTTP client.
+func WithHTTPClient(client *http.Client) ClientOption {
+	return func(c *Client) {
+		if client != nil {
+			c.httpClient = client
+		}
+	}
+}
+
+// NewAppProvider creates a GitHub provider using GitHub App authentication.
+func NewAppProvider(appID int64, pemPrivateKey string, opts ...ClientOption) (*Client, error) {
+	key, err := ParseRSAPrivateKey([]byte(pemPrivateKey))
+	if err != nil {
+		return nil, fmt.Errorf("parsing GitHub App private key: %w", err)
+	}
+
+	c := &Client{
+		baseURL:    DefaultBaseURL,
+		authMethod: provider.AuthMethodGitHubApp,
+		appID:      appID,
+		privateKey: key,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		tokenCache: make(map[string]cachedToken),
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
+}
+
+// NewPATProvider creates a GitHub provider using Personal Access Token authentication.
+func NewPATProvider(pat string, opts ...ClientOption) (*Client, error) {
+	if strings.TrimSpace(pat) == "" {
+		return nil, fmt.Errorf("%w: PAT cannot be empty", provider.ErrMissingCredentials)
+	}
+
+	c := &Client{
+		baseURL:    DefaultBaseURL,
+		authMethod: provider.AuthMethodPAT,
+		pat:        pat,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		tokenCache: make(map[string]cachedToken),
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
+}
+
+// ScalingMode returns ScalingWebhook because GitHub uses workflow_job webhooks.
+func (c *Client) ScalingMode() provider.ScalingMode {
+	return provider.ScalingWebhook
+}
+
+// PollQueuedJobs is a no-op for GitHub since scaling is webhook-driven.
+func (c *Client) PollQueuedJobs(ctx context.Context, targetURL string) (int, error) {
+	return 0, nil
+}
+
+// ValidateCredentials verifies the credentials against the GitHub API.
+func (c *Client) ValidateCredentials(ctx context.Context) error {
+	var req *http.Request
+	var err error
+
+	if c.authMethod == provider.AuthMethodGitHubApp {
+		jwt, err := GenerateAppJWT(c.appID, c.privateKey, time.Now())
+		if err != nil {
+			return fmt.Errorf("generating app JWT: %w", err)
+		}
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/app", nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+jwt)
+	} else {
+		req, err = http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/user", nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.pat)
+	}
+
+	c.setCommonHeaders(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("calling GitHub API: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("GitHub credentials validation failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// GetRegistrationToken retrieves a short-lived runner registration token.
+func (c *Client) GetRegistrationToken(ctx context.Context, scope provider.RegistrationScope, targetURL string) (string, error) {
+	owner, repo, err := parseTargetURL(targetURL)
+	if err != nil {
+		return "", err
+	}
+
+	authToken, err := c.getAuthBearerToken(ctx, owner, repo)
+	if err != nil {
+		return "", err
+	}
+
+	var endpoint string
+	switch scope {
+	case provider.ScopeRepo:
+		if repo == "" {
+			return "", fmt.Errorf("%w: repository name required for repo scope", ErrInvalidTargetURL)
+		}
+		endpoint = fmt.Sprintf("%s/repos/%s/%s/actions/runners/registration-token", c.baseURL, owner, repo)
+	case provider.ScopeOrg:
+		endpoint = fmt.Sprintf("%s/orgs/%s/actions/runners/registration-token", c.baseURL, owner)
+	case provider.ScopeGlobal:
+		endpoint = fmt.Sprintf("%s/enterprises/%s/actions/runners/registration-token", c.baseURL, owner)
+	default:
+		return "", fmt.Errorf("unsupported registration scope: %q", scope)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	c.setCommonHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("requesting runner registration token: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to get runner registration token (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var tokenResp struct {
+		Token     string `json:"token"`
+		ExpiresAt string `json:"expires_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("decoding registration token response: %w", err)
+	}
+	if tokenResp.Token == "" {
+		return "", errors.New("empty registration token received from GitHub API")
+	}
+	return tokenResp.Token, nil
+}
+
+// GetRenovateToken returns an installation access token (for Apps) or the PAT directly.
+func (c *Client) GetRenovateToken(ctx context.Context, targetURL string) (string, error) {
+	if c.authMethod == provider.AuthMethodPAT {
+		return c.pat, nil
+	}
+
+	owner, repo, err := parseTargetURL(targetURL)
+	if err != nil {
+		return "", err
+	}
+	return c.getInstallationToken(ctx, owner, repo)
+}
+
+func (c *Client) getAuthBearerToken(ctx context.Context, owner, repo string) (string, error) {
+	if c.authMethod == provider.AuthMethodPAT {
+		return c.pat, nil
+	}
+	return c.getInstallationToken(ctx, owner, repo)
+}
+
+func (c *Client) getInstallationToken(ctx context.Context, owner, repo string) (string, error) {
+	cacheKey := owner + "/" + repo
+
+	c.mu.Lock()
+	if cached, ok := c.tokenCache[cacheKey]; ok && time.Now().Before(cached.expiresAt) {
+		c.mu.Unlock()
+		return cached.token, nil
+	}
+	c.mu.Unlock()
+
+	installationID, err := c.findInstallationID(ctx, owner, repo)
+	if err != nil {
+		return "", err
+	}
+
+	jwt, err := GenerateAppJWT(c.appID, c.privateKey, time.Now())
+	if err != nil {
+		return "", err
+	}
+
+	url := fmt.Sprintf("%s/app/installations/%d/access_tokens", c.baseURL, installationID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBufferString("{}"))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	c.setCommonHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("requesting installation access token: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to create installation token (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var res struct {
+		Token     string    `json:"token"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", fmt.Errorf("decoding installation token response: %w", err)
+	}
+
+	c.mu.Lock()
+	// Cache until 2 minutes before actual expiry
+	c.tokenCache[cacheKey] = cachedToken{
+		token:     res.Token,
+		expiresAt: res.ExpiresAt.Add(-2 * time.Minute),
+	}
+	c.mu.Unlock()
+
+	return res.Token, nil
+}
+
+func (c *Client) findInstallationID(ctx context.Context, owner, repo string) (int64, error) {
+	jwt, err := GenerateAppJWT(c.appID, c.privateKey, time.Now())
+	if err != nil {
+		return 0, err
+	}
+
+	// 1. If repo is specified, query /repos/{owner}/{repo}/installation
+	if repo != "" {
+		id, err := c.queryInstallationEndpoint(ctx, jwt, fmt.Sprintf("%s/repos/%s/%s/installation", c.baseURL, owner, repo))
+		if err == nil {
+			return id, nil
+		}
+	}
+
+	// 2. Query /orgs/{owner}/installation
+	id, err := c.queryInstallationEndpoint(ctx, jwt, fmt.Sprintf("%s/orgs/%s/installation", c.baseURL, owner))
+	if err == nil {
+		return id, nil
+	}
+
+	// 3. Query /users/{owner}/installation
+	id, err = c.queryInstallationEndpoint(ctx, jwt, fmt.Sprintf("%s/users/%s/installation", c.baseURL, owner))
+	if err == nil {
+		return id, nil
+	}
+
+	return 0, fmt.Errorf("%w for target %s/%s", ErrInstallationNotFound, owner, repo)
+}
+
+func (c *Client) queryInstallationEndpoint(ctx context.Context, jwt, url string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	c.setCommonHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	var res struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return 0, err
+	}
+	if res.ID <= 0 {
+		return 0, errors.New("empty or invalid installation id")
+	}
+	return res.ID, nil
+}
+
+func (c *Client) setCommonHeaders(req *http.Request) {
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", GitHubAPIVersion)
+	req.Header.Set("User-Agent", "gh-runner-supervisor")
+}
+
+func parseTargetURL(rawURL string) (owner, repo string, err error) {
+	clean := strings.TrimSpace(rawURL)
+	clean = strings.TrimSuffix(clean, ".git")
+	clean = strings.TrimSuffix(clean, "/")
+
+	// Handle git@github.com:owner/repo
+	if strings.HasPrefix(clean, "git@") {
+		parts := strings.Split(clean, ":")
+		if len(parts) == 2 {
+			subParts := strings.Split(parts[1], "/")
+			if len(subParts) >= 2 {
+				return subParts[0], subParts[1], nil
+			}
+			if len(subParts) == 1 {
+				return subParts[0], "", nil
+			}
+		}
+	}
+
+	parsed, err := url.Parse(clean)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %v", ErrInvalidTargetURL, err)
+	}
+
+	pathParts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(pathParts) == 0 || pathParts[0] == "" {
+		return "", "", ErrInvalidTargetURL
+	}
+
+	owner = pathParts[0]
+	if len(pathParts) > 1 {
+		repo = pathParts[1]
+	}
+	return owner, repo, nil
+}
+
+func init() {
+	provider.DefaultRegistry.Register(provider.AuthMethodGitHubApp, func(ctx context.Context, profile db.DecryptedAuthProfile) (provider.GitProvider, error) {
+		if !profile.AppID.Valid || profile.AppID.Int64 <= 0 {
+			return nil, fmt.Errorf("%w: app_id is required for github_app", provider.ErrMissingCredentials)
+		}
+		if profile.PrivateKey == "" {
+			return nil, fmt.Errorf("%w: private_key is required for github_app", provider.ErrMissingCredentials)
+		}
+		return NewAppProvider(profile.AppID.Int64, profile.PrivateKey)
+	})
+
+	provider.DefaultRegistry.Register(provider.AuthMethodPAT, func(ctx context.Context, profile db.DecryptedAuthProfile) (provider.GitProvider, error) {
+		if profile.Token == "" {
+			return nil, fmt.Errorf("%w: token is required for pat auth", provider.ErrMissingCredentials)
+		}
+		return NewPATProvider(profile.Token)
+	})
+}

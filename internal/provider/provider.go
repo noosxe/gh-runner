@@ -52,3 +52,9 @@ type GitProvider interface {
 	// PollQueuedJobs queries the forge's API for queued jobs (used when ScalingMode() == ScalingPolling).
 	PollQueuedJobs(ctx context.Context, targetURL string) (int, error)
 }
+
+// RenovateTokenProvider is optionally implemented by GitProviders that supply tokens for Renovate bot tasks.
+type RenovateTokenProvider interface {
+	// GetRenovateToken retrieves a short-lived token suitable for Renovate bot operations on the target URL.
+	GetRenovateToken(ctx context.Context, targetURL string) (string, error)
+}
