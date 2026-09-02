@@ -9,12 +9,14 @@ on:
       - main
     paths:
       - 'src/**'
+      - 'tests/**'
       - 'Dockerfile'
       - '.dockerignore'
       - '.github/workflows/lint.yml'
   pull_request:
     paths:
       - 'src/**'
+      - 'tests/**'
       - 'Dockerfile'
       - '.dockerignore'
       - '.github/workflows/lint.yml'
@@ -30,7 +32,7 @@ permissions:
 
 jobs:
   shellcheck:
-    name: ShellCheck (src/*.sh)
+    name: ShellCheck & Tests (src/*.sh)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -40,6 +42,9 @@ jobs:
       # mandated check `nix develop --command shellcheck src/*.sh` (AGENTS.md).
       - name: Run ShellCheck
         run: shellcheck src/*.sh
+
+      - name: Run Script Unit Tests
+        run: bash tests/unit/entrypoint_test.sh
 
   hadolint:
     name: Hadolint (Dockerfile)
