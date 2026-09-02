@@ -8,6 +8,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -25,6 +26,7 @@ type mockDockerAPI struct {
 	containerRemoveFn func(ctx context.Context, containerID string, options container.RemoveOptions) error
 	containerListFn   func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
 	containersPruneFn func(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
+	eventsFn          func(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
 }
 
 func (m *mockDockerAPI) Ping(ctx context.Context) (types.Ping, error) {
@@ -81,6 +83,13 @@ func (m *mockDockerAPI) ContainersPrune(ctx context.Context, pruneFilters filter
 		return m.containersPruneFn(ctx, pruneFilters)
 	}
 	return container.PruneReport{}, nil
+}
+
+func (m *mockDockerAPI) Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error) {
+	if m.eventsFn != nil {
+		return m.eventsFn(ctx, options)
+	}
+	return nil, nil
 }
 
 func TestDockerClient_BootstrapAndPing(t *testing.T) {
@@ -450,5 +459,57 @@ func TestDockerClient_TerminateRunner(t *testing.T) {
 	}
 	if stoppedID != "cnt-to-terminate" || removedID != "cnt-to-terminate" || !forceRemoved {
 		t.Errorf("terminate failed: stopped=%q removed=%q force=%v", stoppedID, removedID, forceRemoved)
+	}
+}
+
+func TestDockerClient_PruneExitedContainers(t *testing.T) {
+	ctx := context.Background()
+
+	var pruneFiltersUsed filters.Args
+	mockAPI := &mockDockerAPI{
+		containersPruneFn: func(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error) {
+			pruneFiltersUsed = pruneFilters
+			return container.PruneReport{
+				ContainersDeleted: []string{"c-dead-1", "c-dead-2"},
+				SpaceReclaimed:    1024,
+			}, nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	if err := cli.PruneExitedContainers(ctx); err != nil {
+		t.Fatalf("PruneExitedContainers failed: %v", err)
+	}
+
+	labels := pruneFiltersUsed.Get("label")
+	if len(labels) == 0 || labels[0] != orchestrator.LabelManaged+"=true" {
+		t.Errorf("expected managed label in prune filters: %+v", labels)
+	}
+}
+
+func TestDockerClient_Events(t *testing.T) {
+	ctx := context.Background()
+
+	msgChan := make(chan events.Message, 1)
+	errChan := make(chan error, 1)
+
+	mockAPI := &mockDockerAPI{
+		eventsFn: func(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error) {
+			return msgChan, errChan
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	outMsg, outErr := cli.Events(ctx, events.ListOptions{})
+	if outMsg == nil || outErr == nil {
+		t.Fatalf("expected non-nil event channels")
 	}
 }
