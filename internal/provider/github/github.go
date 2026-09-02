@@ -83,7 +83,7 @@ func NewAppProvider(appID int64, pemPrivateKey string, opts ...ClientOption) (*C
 		authMethod: provider.AuthMethodGitHubApp,
 		appID:      appID,
 		privateKey: key,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: provider.NewRateLimitTransport("github", http.DefaultTransport)},
 		tokenCache: make(map[string]cachedToken),
 	}
 
@@ -103,7 +103,7 @@ func NewPATProvider(pat string, opts ...ClientOption) (*Client, error) {
 		baseURL:    DefaultBaseURL,
 		authMethod: provider.AuthMethodPAT,
 		pat:        pat,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: provider.NewRateLimitTransport("github", http.DefaultTransport)},
 		tokenCache: make(map[string]cachedToken),
 	}
 

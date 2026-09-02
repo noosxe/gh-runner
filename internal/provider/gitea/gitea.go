@@ -61,7 +61,7 @@ func NewClient(pat string, opts ...ClientOption) (*Client, error) {
 
 	c := &Client{
 		pat:        strings.TrimSpace(pat),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: provider.NewRateLimitTransport("gitea", http.DefaultTransport)},
 	}
 
 	for _, opt := range opts {
