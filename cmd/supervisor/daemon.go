@@ -13,6 +13,7 @@ import (
 
 	"github.com/noosxe/gh-runner/internal/db"
 	"github.com/noosxe/gh-runner/internal/keys"
+	_ "github.com/noosxe/gh-runner/internal/provider/forgejo"
 	_ "github.com/noosxe/gh-runner/internal/provider/gitea"
 	_ "github.com/noosxe/gh-runner/internal/provider/github"
 	"github.com/noosxe/gh-runner/internal/server"
