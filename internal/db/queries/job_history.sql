@@ -44,3 +44,9 @@ SELECT COUNT(*) FROM job_history;
 -- name: CountJobHistoryByPoolId :one
 SELECT COUNT(*) FROM job_history
 WHERE pool_id = ?;
+
+-- name: PruneJobHistoryOlderThan :many
+DELETE FROM job_history
+WHERE (completed_at IS NOT NULL AND completed_at < ?)
+   OR (completed_at IS NULL AND created_at < ?)
+RETURNING id, log_retention_path;

@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 const countJobHistory = `-- name: CountJobHistory :one
@@ -191,6 +192,46 @@ func (q *Queries) ListJobHistoryByPoolId(ctx context.Context, arg ListJobHistory
 			&i.LogRetentionPath,
 			&i.CreatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pruneJobHistoryOlderThan = `-- name: PruneJobHistoryOlderThan :many
+DELETE FROM job_history
+WHERE (completed_at IS NOT NULL AND completed_at < ?)
+   OR (completed_at IS NULL AND created_at < ?)
+RETURNING id, log_retention_path
+`
+
+type PruneJobHistoryOlderThanParams struct {
+	CompletedAt sql.NullTime `json:"completed_at"`
+	CreatedAt   time.Time    `json:"created_at"`
+}
+
+type PruneJobHistoryOlderThanRow struct {
+	ID               int64          `json:"id"`
+	LogRetentionPath sql.NullString `json:"log_retention_path"`
+}
+
+func (q *Queries) PruneJobHistoryOlderThan(ctx context.Context, arg PruneJobHistoryOlderThanParams) ([]PruneJobHistoryOlderThanRow, error) {
+	rows, err := q.db.QueryContext(ctx, pruneJobHistoryOlderThan, arg.CompletedAt, arg.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PruneJobHistoryOlderThanRow{}
+	for rows.Next() {
+		var i PruneJobHistoryOlderThanRow
+		if err := rows.Scan(&i.ID, &i.LogRetentionPath); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

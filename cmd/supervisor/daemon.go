@@ -73,6 +73,9 @@ func runDaemonContext(ctx context.Context) error {
 	backupMgr := db.NewBackupManager(database, cfg.DataDir, cfg.BackupIntervalHours, cfg.BackupRetentionCount)
 	go backupMgr.Start(ctx)
 
+	retentionScheduler := db.NewRetentionScheduler(database, nil)
+	go retentionScheduler.Start(ctx)
+
 	health := server.NewHealth()
 	registerHealthChecks(health, database)
 	srv := server.New(server.Options{Port: cfg.Port, Health: health})
