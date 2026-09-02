@@ -88,3 +88,41 @@ func (d *DB) Version(ctx context.Context, fsys fs.FS) (int64, error) {
 
 	return provider.GetDBVersion(ctx)
 }
+
+// Rollback rolls back the most recent database migration.
+// If fsys is nil, default embedded migrations from internal/db/migrations are used.
+func (d *DB) Rollback(ctx context.Context, fsys fs.FS) error {
+	if fsys == nil {
+		sub, err := fs.Sub(defaultMigrationsFS, "migrations")
+		if err != nil {
+			logger.Error("failed to resolve embedded migrations directory", "err", err)
+			return fmt.Errorf("%w: failed to read embedded migrations: %v", ErrMigration, err)
+		}
+		fsys = sub
+	}
+
+	provider, err := goose.NewProvider(
+		goose.DialectSQLite3,
+		d.sqlDB,
+		fsys,
+		goose.WithSlog(logger),
+	)
+	if err != nil {
+		if errors.Is(err, goose.ErrNoMigrations) {
+			return nil
+		}
+		logger.Error("failed to initialize goose provider", "err", err)
+		return fmt.Errorf("%w: failed to create provider: %v", ErrMigration, err)
+	}
+
+	res, err := provider.Down(ctx)
+	if err != nil {
+		logger.Error("database rollback failed", "err", err)
+		return fmt.Errorf("%w: %v", ErrMigration, err)
+	}
+
+	if res != nil && res.Source != nil {
+		logger.Info("database migration rolled back", "path", res.Source.Path, "version", res.Source.Version)
+	}
+	return nil
+}
