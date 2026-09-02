@@ -14,6 +14,7 @@ A lightweight, secure, and self-contained self-hosted GitHub Actions Runner pack
 - **Single Master Key, Derived Secrets:** The one required `SUPERVISOR_DB_ENCRYPTION_KEY` is expanded via HKDF-SHA256 (`internal/keys`) into two independent runtime secrets — the AES-256 database encryption key and the JWT signing secret — each under its own context label, so there is no separate `JWT_SECRET` to configure or leak, and both remain stable across restarts.
 - **Health Endpoints:** The daemon serves `GET /healthz` (liveness: process alive + DB accessible) and `GET /readyz` (readiness: DB + auditor/control loop; Docker unreachable reports `degraded` but stays ready) on `SUPERVISOR_PORT`, answering JSON with per-check detail — e.g. `{ "status": "ready", "checks": { "db": "ok", "docker": "degraded", "auditor": "ok" } }` — for compose healthchecks, load balancers, and monitoring probes.
 - **Embedded SQLite & Auto-Migration Runner:** Pure-Go SQLite persistence via `modernc.org/sqlite` (strictly CGO-free for seamless ARM64/AMD64 cross-compilation) with automatic Goose migrations at startup, strict migration error logging, and startup refusal on corrupted databases directing administrators to backup snapshots (OQ #21).
+- **Unified Multi-Provider Runner Image (`runner-aio`):** A single multi-stage, multi-architecture (`amd64` and `arm64`) container image packaging GitHub Actions runner, Gitea `act_runner`, and Forgejo `forgejo-runner` with version-pinned downloads, SHA256 checksum verification, automatic provider detection (`RUNNER_PROVIDER`, `GITEA_INSTANCE_URL`, `FORGEJO_INSTANCE_URL`), ephemeral one-job execution semantics, non-root hardening (`UID/GID 1001`), and automatic interrupt de-registration traps. Published to GHCR as `ghcr.io/noosxe/runner-aio:latest`.
 
 ---
 
@@ -31,15 +32,15 @@ Save the following configuration as `compose.yml`:
 ```yaml
 services:
   runner:
-    image: ghcr.io/noosxe/gh-runner:latest
-    container_name: github-actions-runner
+    image: ghcr.io/noosxe/runner-aio:latest
+    container_name: runner-aio
     # Use standard init process to reap zombie processes spawned by runner jobs
     init: true
     restart: unless-stopped
     environment:
       - GITHUB_REPOSITORY_URL=${GITHUB_REPOSITORY_URL}
       - RUNNER_TOKEN=${RUNNER_TOKEN}
-      - RUNNER_NAME=${RUNNER_NAME:-github-runner}
+      - RUNNER_NAME=${RUNNER_NAME:-runner-aio}
       - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64}
       - RUNNER_WORKDIR=${RUNNER_WORKDIR:-_work}
     # Mount volumes to support Docker-outside-of-Docker (DooD) operations
@@ -180,7 +181,7 @@ Automated shell and Docker linter checks on PRs and pushes to `main` touching im
 The **Parallel Native Matrix & Manifest Merger** workflow:
 - **Pull Requests and Push to main:** Triggers a native dry-run compilation on parallel AMD64 and ARM64 GitHub runners to ensure code and Docker layer compatibility (only when image inputs change).
 - **Releases (Tag Push `v*`):** 
-  1. Compiles the containers on native runners and publishes them by content-digest to the GitHub Container Registry (GHCR).
+  1. Compiles the containers on native runners and publishes them by content-digest to the GitHub Container Registry (GHCR) as `ghcr.io/<owner>/runner-aio`.
   2. Runs a downstream coordination job that merges the digests into a unified multi-architecture manifest list under the version tag (e.g., `v1.0.0`) and the `latest` tag.
 
 ---
@@ -191,6 +192,3 @@ The repository is actively developing the following advanced runner solutions:
 
 - **GitHub, Gitea & Forgejo Actions Runner AIO Supervisor** `*[Design Phase]*`  
   A database-driven and GUI-configured containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub, Gitea, and Forgejo repositories. High-level requirements and architecture specifications can be found in the [docs/](docs/) directory (see [01-product-requirements.md](docs/01-product-requirements.md) and [02-architecture-design.md](docs/02-architecture-design.md)).
-
-- **Gitea & Forgejo Actions Runner Support** `*[Design Phase]*`  
-  Extend both the supervisor daemon and the core runner agent container to support Gitea Actions (via `act_runner`) and Forgejo Actions (via `forgejo-runner`). This includes developing a swappable `GitProvider` interface in Go for token retrieval and updating the entrypoint logic to launch the appropriate runner dynamically. Design specifics are detailed in [04-container-runner-design.md](docs/04-container-runner-design.md).
