@@ -4,11 +4,13 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/noosxe/gh-runner/internal/db"
+	"github.com/noosxe/gh-runner/internal/keys"
 )
 
 // newBackupCommand creates the `supervisor backup` subcommand: an on-demand
-// SQLite snapshot alongside the automated periodic ones (open questions
-// #21).
+// SQLite snapshot alongside the automated periodic ones (open questions #21).
 func newBackupCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "backup",
@@ -20,9 +22,28 @@ used by the automated periodic snapshots.`,
 	}
 }
 
-// runBackup is a stub. Later milestones snapshot the SQLite database via
-// its online backup API and prune old snapshots per the retention settings.
-func runBackup(cmd *cobra.Command, args []string) error {
-	logger.Info("backup: snapshotting not implemented yet", "data_dir", cfg.DataDir)
-	return fmt.Errorf("backup: %w", errNotImplemented)
+func runBackup(cmd *cobra.Command, _ []string) error {
+	derivedKeys, err := keys.Derive(cfg.DBEncryptionKey)
+	if err != nil {
+		return fmt.Errorf("backup: deriving encryption keys: %w", err)
+	}
+
+	database, err := db.Open(db.Options{
+		Path:          cfg.DBPath,
+		EncryptionKey: derivedKeys.DBEncryptionKey,
+	})
+	if err != nil {
+		return fmt.Errorf("backup: opening database: %w", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	bm := db.NewBackupManager(database, cfg.DataDir, cfg.BackupIntervalHours, cfg.BackupRetentionCount)
+	snapshotPath, err := bm.Snapshot(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("backup: creating snapshot: %w", err)
+	}
+
+	logger.Info("database snapshot created", "path", snapshotPath)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Successfully created backup snapshot at %s\n", snapshotPath)
+	return nil
 }
