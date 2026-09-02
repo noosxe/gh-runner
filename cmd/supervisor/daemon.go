@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -63,6 +64,11 @@ func runDaemonContext(ctx context.Context) error {
 			logger.Error("closing database", "err", err)
 		}
 	}()
+
+	if err := checkAndImportSeed(ctx, database); err != nil {
+		logger.Error("failed to import seed configuration on first boot", "err", err)
+		return fmt.Errorf("daemon: seed import: %w", err)
+	}
 
 	health := server.NewHealth()
 	registerHealthChecks(health, database)
@@ -125,4 +131,60 @@ func registerHealthChecks(h *server.Health, database *db.DB) {
 	h.RegisterReadiness(dbCheck)
 	h.RegisterReadiness(stubCheck{name: "docker", status: server.StatusOK})
 	h.RegisterReadiness(stubCheck{name: "auditor", status: server.StatusOK})
+}
+
+// checkAndImportSeed handles the first-boot YAML seed import (docs/02 §4, OQ #2):
+// if the database is empty and a configuration file exists at candidate locations,
+// it is imported as seed data into the database. Once evaluated or imported,
+// YAML is never re-read on subsequent boots.
+func checkAndImportSeed(ctx context.Context, database *db.DB) error {
+	should, err := database.ShouldAutoImportSeed(ctx)
+	if err != nil {
+		return fmt.Errorf("evaluating seed status: %w", err)
+	}
+	if !should {
+		return nil
+	}
+
+	var candidatePaths []string
+	if cfg.ConfigFile != "" {
+		candidatePaths = append(candidatePaths, cfg.ConfigFile)
+	}
+	candidatePaths = append(candidatePaths,
+		filepath.Join(cfg.DataDir, "config.yml"),
+		filepath.Join(cfg.DataDir, "config.yaml"),
+		"/config.yml",
+		"/config.yaml",
+	)
+
+	var seedPath string
+	for _, p := range candidatePaths {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			seedPath = p
+			break
+		}
+	}
+
+	if seedPath == "" {
+		// No seed config file mounted; mark evaluated so future boots skip
+		return database.MarkSeedImported(ctx)
+	}
+
+	logger.Info("first boot detected with seed configuration; importing seed data", "path", seedPath)
+	data, err := os.ReadFile(seedPath)
+	if err != nil {
+		return fmt.Errorf("reading seed file %q: %w", seedPath, err)
+	}
+
+	seedCfg, err := db.ParseSeedConfig(data)
+	if err != nil {
+		return fmt.Errorf("parsing seed file %q: %w", seedPath, err)
+	}
+
+	if err := database.ImportSeedConfig(ctx, seedCfg, db.ImportModeMerge); err != nil {
+		return fmt.Errorf("importing seed config from %q: %w", seedPath, err)
+	}
+
+	logger.Info("seed configuration imported successfully on first boot", "path", seedPath)
+	return nil
 }
