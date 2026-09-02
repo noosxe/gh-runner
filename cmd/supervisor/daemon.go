@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/noosxe/gh-runner/internal/db"
 	"github.com/noosxe/gh-runner/internal/server"
 )
 
@@ -50,8 +51,18 @@ func runDaemonContext(ctx context.Context) error {
 		"port", cfg.Port,
 	)
 
+	database, err := db.Open(db.Options{Path: cfg.DBPath})
+	if err != nil {
+		return fmt.Errorf("daemon: database: %w", err)
+	}
+	defer func() {
+		if err := database.Close(); err != nil {
+			logger.Error("closing database", "err", err)
+		}
+	}()
+
 	health := server.NewHealth()
-	registerHealthChecks(health)
+	registerHealthChecks(health, database)
 	srv := server.New(server.Options{Port: cfg.Port, Health: health})
 
 	// Start blocks, so serve from a goroutine and surface fatal errors
@@ -90,19 +101,25 @@ type stubCheck struct {
 func (c stubCheck) Name() string                          { return c.name }
 func (c stubCheck) Check(_ context.Context) server.Status { return c.status }
 
-// registerHealthChecks wires the daemon's initial probe set (OQ #19):
-// the database backs both liveness and readiness; Docker and the auditor /
-// control loop back readiness only, because the supervisor stays ready to
-// serve while a degraded Docker socket blocks only pool reconciliation.
-// All three are optimistic stubs until their owners land:
+// registerHealthChecks wires the daemon's probe set (OQ #19):
+// the database backs both liveness and readiness via a real SQLite ping (RUN-12);
+// Docker and the auditor / control loop back readiness only, because the
+// supervisor stays ready to serve while a degraded Docker socket blocks only
+// pool reconciliation. Docker and auditor remain optimistic stubs until their
+// owners land:
 //
 //   - db: SQLite ping via internal/db (M2, RUN-12)
 //   - docker: Docker daemon ping, unreachable = degraded (M5, RUN-30/RUN-35)
 //   - auditor: audit + control-loop heartbeat (M5/M6, RUN-32/RUN-37)
-func registerHealthChecks(h *server.Health) {
-	db := stubCheck{name: "db", status: server.StatusOK}
-	h.RegisterLiveness(db)
-	h.RegisterReadiness(db)
+func registerHealthChecks(h *server.Health, database *db.DB) {
+	dbCheck := server.NewCheck("db", func(ctx context.Context) server.Status {
+		if database == nil || database.Ping(ctx) != nil {
+			return server.StatusFail
+		}
+		return server.StatusOK
+	})
+	h.RegisterLiveness(dbCheck)
+	h.RegisterReadiness(dbCheck)
 	h.RegisterReadiness(stubCheck{name: "docker", status: server.StatusOK})
 	h.RegisterReadiness(stubCheck{name: "auditor", status: server.StatusOK})
 }

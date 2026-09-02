@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -133,14 +135,15 @@ func getHealth(t *testing.T, url string) healthBody {
 func TestDaemonServesHealthEndpoints(t *testing.T) {
 	validKeyEnv(t)
 	port := freePort(t)
-	t.Setenv("SUPERVISOR_DATA_DIR", "/env-data")
+	dataDir := t.TempDir()
+	t.Setenv("SUPERVISOR_DATA_DIR", dataDir)
 	t.Setenv("SUPERVISOR_PORT", strconv.Itoa(port))
 
 	root := NewRootCommand()
 	if err := bindFlagsToConfig(root, nil); err != nil {
 		t.Fatalf("loading configuration: %v", err)
 	}
-	if cfg.DataDir != "/env-data" || cfg.Port != port {
+	if cfg.DataDir != dataDir || cfg.Port != port {
 		t.Fatalf("environment did not reach the daemon configuration: %+v", cfg)
 	}
 
@@ -167,5 +170,38 @@ func TestDaemonServesHealthEndpoints(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("daemon did not shut down after context cancellation")
+	}
+}
+
+// TestDaemonRefusesToStartOnCorruptedDatabase verifies the RUN-12 and OQ #21
+// acceptance criterion: when the database file is corrupted, the daemon
+// refuses to start with an actionable error directing the admin to backups.
+func TestDaemonRefusesToStartOnCorruptedDatabase(t *testing.T) {
+	validKeyEnv(t)
+	port := freePort(t)
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "corrupted.db")
+	if err := os.WriteFile(dbPath, []byte("NOT_A_VALID_SQLITE_DATABASE_GARBAGE"), 0644); err != nil {
+		t.Fatalf("writing corrupted file: %v", err)
+	}
+
+	t.Setenv("SUPERVISOR_DATA_DIR", dataDir)
+	t.Setenv("SUPERVISOR_DB_PATH", dbPath)
+	t.Setenv("SUPERVISOR_PORT", strconv.Itoa(port))
+
+	root := NewRootCommand()
+	if err := bindFlagsToConfig(root, nil); err != nil {
+		t.Fatalf("loading configuration: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := runDaemonContext(ctx)
+	if err == nil {
+		t.Fatal("expected daemon to fail on corrupted database, got nil")
+	}
+	if !strings.Contains(err.Error(), "corrupted") || !strings.Contains(err.Error(), "backup") {
+		t.Fatalf("expected error mentioning corrupted and backup, got %v", err)
 	}
 }
