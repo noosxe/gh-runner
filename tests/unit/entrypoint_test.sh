@@ -187,4 +187,164 @@ else
 	exit 1
 fi
 
+# ------------------------------------------------------------------------------
+# Test 6: GitHub Interrupt Trap Triggers De-Registration
+# ------------------------------------------------------------------------------
+echo -n "Test 6: GitHub interrupt trap triggers de-registration... "
+WORK_DIR_GH_TRAP="${TEST_TMP}/work_github_trap"
+mkdir -p "${WORK_DIR_GH_TRAP}"
+
+cat << 'EOF' > "${WORK_DIR_GH_TRAP}/run.sh"
+#!/usr/bin/env bash
+trap 'exit 0' SIGTERM SIGINT
+sleep 30 &
+wait $!
+EOF
+chmod +x "${WORK_DIR_GH_TRAP}/run.sh"
+cp "${MOCK_BIN}/config.sh" "${WORK_DIR_GH_TRAP}/config.sh"
+
+LOG_GH_TRAP="${TEST_TMP}/gh_trap.log"
+
+(
+	cd "${WORK_DIR_GH_TRAP}" && \
+	exec env -i PATH="${PATH}" \
+		MOCK_LOG_GH_CONFIG="${LOG_GH_TRAP}" \
+		GITHUB_REPOSITORY_URL="https://github.com/my-org/my-repo" \
+		RUNNER_TOKEN="gh_trap_token" \
+		RUNNER_NAME="trap-gh-runner" \
+		bash "${ENTRYPOINT}" > /dev/null 2>&1
+) &
+ENTRYPOINT_PID=$!
+
+for _ in {1..50}; do
+	if grep -q -- "--url https://github.com/my-org/my-repo" "${LOG_GH_TRAP}" 2>/dev/null; then
+		break
+	fi
+	sleep 0.05
+done
+
+kill -TERM "${ENTRYPOINT_PID}" 2>/dev/null || true
+wait "${ENTRYPOINT_PID}" 2>/dev/null || true
+
+if grep -q -- "remove --token gh_trap_token" "${LOG_GH_TRAP}"; then
+	echo "PASSED"
+else
+	echo "FAILED: GitHub runner de-registration was not triggered on interrupt"
+	cat "${LOG_GH_TRAP}" 2>/dev/null || true
+	exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Test 7: Gitea Interrupt Trap Triggers De-Registration
+# ------------------------------------------------------------------------------
+echo -n "Test 7: Gitea interrupt trap triggers de-registration... "
+WORK_DIR_GITEA_TRAP="${TEST_TMP}/work_gitea_trap"
+mkdir -p "${WORK_DIR_GITEA_TRAP}"
+LOG_GITEA_TRAP="${TEST_TMP}/gitea_trap.log"
+
+MOCK_BIN_GITEA_TRAP="${TEST_TMP}/bin_gitea_trap"
+mkdir -p "${MOCK_BIN_GITEA_TRAP}"
+cat << 'EOF' > "${MOCK_BIN_GITEA_TRAP}/act_runner"
+#!/usr/bin/env bash
+trap 'exit 0' SIGTERM SIGINT
+echo "$@" >> "${MOCK_LOG_ACT_RUNNER:-/tmp/mock_act_runner.log}"
+if [ "${1:-}" = "generate-config" ]; then
+    echo "runner: dummy_config"
+    exit 0
+fi
+if [ "${3:-}" = "daemon" ] || [ "${1:-}" = "daemon" ]; then
+    sleep 30 &
+    wait $!
+    exit 0
+fi
+exit 0
+EOF
+chmod +x "${MOCK_BIN_GITEA_TRAP}/act_runner"
+
+(
+	cd "${WORK_DIR_GITEA_TRAP}" && \
+	exec env -i PATH="${MOCK_BIN_GITEA_TRAP}:${PATH}" \
+		MOCK_LOG_ACT_RUNNER="${LOG_GITEA_TRAP}" \
+		RUNNER_PROVIDER="gitea" \
+		GITEA_INSTANCE_URL="https://gitea.example.com" \
+		RUNNER_TOKEN="gitea_trap_token" \
+		RUNNER_NAME="trap-gitea-runner" \
+		bash "${ENTRYPOINT}" > /dev/null 2>&1
+) &
+ENTRYPOINT_PID=$!
+
+for _ in {1..50}; do
+	if grep -q -- "register" "${LOG_GITEA_TRAP}" 2>/dev/null; then
+		break
+	fi
+	sleep 0.05
+done
+
+kill -TERM "${ENTRYPOINT_PID}" 2>/dev/null || true
+wait "${ENTRYPOINT_PID}" 2>/dev/null || true
+
+if grep -q -- "unregister" "${LOG_GITEA_TRAP}"; then
+	echo "PASSED"
+else
+	echo "FAILED: Gitea act_runner unregister was not triggered on interrupt"
+	cat "${LOG_GITEA_TRAP}" 2>/dev/null || true
+	exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Test 8: Forgejo Interrupt Trap Triggers De-Registration
+# ------------------------------------------------------------------------------
+echo -n "Test 8: Forgejo interrupt trap triggers de-registration... "
+WORK_DIR_FORGEJO_TRAP="${TEST_TMP}/work_forgejo_trap"
+mkdir -p "${WORK_DIR_FORGEJO_TRAP}"
+LOG_FORGEJO_TRAP="${TEST_TMP}/forgejo_trap.log"
+
+MOCK_BIN_FORGEJO_TRAP="${TEST_TMP}/bin_forgejo_trap"
+mkdir -p "${MOCK_BIN_FORGEJO_TRAP}"
+cat << 'EOF' > "${MOCK_BIN_FORGEJO_TRAP}/forgejo-runner"
+#!/usr/bin/env bash
+trap 'exit 0' SIGTERM SIGINT
+echo "$@" >> "${MOCK_LOG_FORGEJO_RUNNER:-/tmp/mock_forgejo_runner.log}"
+if [ "${1:-}" = "generate-config" ]; then
+    echo "runner: dummy_config"
+    exit 0
+fi
+if [ "${3:-}" = "daemon" ] || [ "${1:-}" = "daemon" ]; then
+    sleep 30 &
+    wait $!
+    exit 0
+fi
+exit 0
+EOF
+chmod +x "${MOCK_BIN_FORGEJO_TRAP}/forgejo-runner"
+
+(
+	cd "${WORK_DIR_FORGEJO_TRAP}" && \
+	exec env -i PATH="${MOCK_BIN_FORGEJO_TRAP}:${PATH}" \
+		MOCK_LOG_FORGEJO_RUNNER="${LOG_FORGEJO_TRAP}" \
+		FORGEJO_INSTANCE_URL="https://forgejo.example.com" \
+		RUNNER_TOKEN="forgejo_trap_token" \
+		RUNNER_NAME="trap-forgejo-runner" \
+		bash "${ENTRYPOINT}" > /dev/null 2>&1
+) &
+ENTRYPOINT_PID=$!
+
+for _ in {1..50}; do
+	if grep -q -- "register" "${LOG_FORGEJO_TRAP}" 2>/dev/null; then
+		break
+	fi
+	sleep 0.05
+done
+
+kill -TERM "${ENTRYPOINT_PID}" 2>/dev/null || true
+wait "${ENTRYPOINT_PID}" 2>/dev/null || true
+
+if grep -q -- "unregister" "${LOG_FORGEJO_TRAP}"; then
+	echo "PASSED"
+else
+	echo "FAILED: Forgejo runner unregister was not triggered on interrupt"
+	cat "${LOG_FORGEJO_TRAP}" 2>/dev/null || true
+	exit 1
+fi
+
 echo "All entrypoint unit tests passed successfully!"

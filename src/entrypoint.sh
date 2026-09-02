@@ -39,20 +39,25 @@ cleanup() {
 	echo "======================================================="
 	if [ -n "${RUNNER_PID:-}" ]; then
 		kill -TERM "${RUNNER_PID}" 2>/dev/null || true
+		wait "${RUNNER_PID}" 2>/dev/null || true
 	fi
 	if [ "${PROVIDER_MODE}" = "github" ]; then
 		if [ -f "./config.sh" ]; then
+			echo "De-registering GitHub Actions runner..."
 			./config.sh remove --token "${RUNNER_TOKEN}" 2>/dev/null || true
 		fi
 	elif [ "${PROVIDER_MODE}" = "gitea" ]; then
+		echo "De-registering Gitea act_runner..."
 		if [ -n "${CONFIG_PATH:-}" ] && [ -f "${CONFIG_PATH}" ]; then
 			act_runner unregister --config "${CONFIG_PATH}" 2>/dev/null || true
 		fi
 	elif [ "${PROVIDER_MODE}" = "forgejo" ]; then
+		echo "De-registering Forgejo runner..."
 		if [ -n "${CONFIG_PATH:-}" ] && [ -f "${CONFIG_PATH}" ]; then
 			forgejo-runner unregister --config "${CONFIG_PATH}" 2>/dev/null || true
 		fi
 	fi
+	echo "Runner de-registration complete."
 	exit 0
 }
 
