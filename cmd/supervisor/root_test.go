@@ -374,3 +374,38 @@ pools:
 	}
 }
 
+// TestBackupCommand verifies that the `supervisor backup` CLI command
+// creates a snapshot in DATA_DIR/backups.
+func TestBackupCommand(t *testing.T) {
+	validKeyEnv(t)
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "supervisor.db")
+	t.Setenv("SUPERVISOR_DATA_DIR", dataDir)
+	t.Setenv("SUPERVISOR_DB_PATH", dbPath)
+
+	// Create DB with initial schema
+	database, err := db.Open(db.Options{Path: dbPath})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	_ = database.Close()
+
+	root := NewRootCommand()
+	root.SetArgs([]string{"backup"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("supervisor backup failed: %v", err)
+	}
+
+	backups, err := filepath.Glob(filepath.Join(dataDir, "backups", "supervisor-*.db"))
+	if err != nil || len(backups) != 1 {
+		t.Fatalf("expected 1 backup file, got %d (err: %v)", len(backups), err)
+	}
+
+	backupDB, err := db.Open(db.Options{Path: backups[0]})
+	if err != nil {
+		t.Fatalf("opening backup snapshot failed: %v", err)
+	}
+	_ = backupDB.Close()
+}
+
+

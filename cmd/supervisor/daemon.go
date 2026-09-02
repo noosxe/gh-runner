@@ -70,6 +70,9 @@ func runDaemonContext(ctx context.Context) error {
 		return fmt.Errorf("daemon: seed import: %w", err)
 	}
 
+	backupMgr := db.NewBackupManager(database, cfg.DataDir, cfg.BackupIntervalHours, cfg.BackupRetentionCount)
+	go backupMgr.Start(ctx)
+
 	health := server.NewHealth()
 	registerHealthChecks(health, database)
 	srv := server.New(server.Options{Port: cfg.Port, Health: health})
