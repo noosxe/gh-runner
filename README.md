@@ -13,6 +13,7 @@ A lightweight, secure, and self-contained self-hosted GitHub Actions Runner pack
 - **Layered Supervisor Configuration:** The `supervisor` daemon merges built-in defaults, an optional YAML/TOML settings file, `SUPERVISOR_*` environment variables, and CLI flags (in increasing precedence), with typed validation that refuses to start without a strong `SUPERVISOR_DB_ENCRYPTION_KEY`.
 - **Single Master Key, Derived Secrets:** The one required `SUPERVISOR_DB_ENCRYPTION_KEY` is expanded via HKDF-SHA256 (`internal/keys`) into two independent runtime secrets — the AES-256 database encryption key and the JWT signing secret — each under its own context label, so there is no separate `JWT_SECRET` to configure or leak, and both remain stable across restarts.
 - **Health Endpoints:** The daemon serves `GET /healthz` (liveness: process alive + DB accessible) and `GET /readyz` (readiness: DB + auditor/control loop; Docker unreachable reports `degraded` but stays ready) on `SUPERVISOR_PORT`, answering JSON with per-check detail — e.g. `{ "status": "ready", "checks": { "db": "ok", "docker": "degraded", "auditor": "ok" } }` — for compose healthchecks, load balancers, and monitoring probes.
+- **Embedded SQLite & Auto-Migration Runner:** Pure-Go SQLite persistence via `modernc.org/sqlite` (strictly CGO-free for seamless ARM64/AMD64 cross-compilation) with automatic Goose migrations at startup, strict migration error logging, and startup refusal on corrupted databases directing administrators to backup snapshots (OQ #21).
 
 ---
 
