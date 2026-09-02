@@ -13,6 +13,7 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -38,6 +39,7 @@ type APIClient interface {
 	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
 	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
 	ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
+	Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
 }
 
 // Client implements orchestrator.ContainerProvider using the Docker Engine API.
@@ -417,9 +419,41 @@ func (c *Client) AuditRunners(ctx context.Context) ([]orchestrator.RunnerStatus,
 }
 
 // PruneExitedContainers removes containers that have finished executing.
-// Full implementation delivered in RUN-33.
 func (c *Client) PruneExitedContainers(ctx context.Context) error {
-	return errors.New("PruneExitedContainers not yet implemented")
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		return ErrNilClient
+	}
+
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("label", orchestrator.LabelManaged+"=true")
+
+	_, err := docker.ContainersPrune(ctx, filterArgs)
+	if err != nil {
+		return fmt.Errorf("pruning exited containers: %w", err)
+	}
+	return nil
+}
+
+// Events streams events from the Docker daemon matching the supplied options.
+func (c *Client) Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error) {
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		errCh := make(chan error, 1)
+		errCh <- ErrNilClient
+		close(errCh)
+		msgCh := make(chan events.Message)
+		close(msgCh)
+		return msgCh, errCh
+	}
+
+	return docker.Events(ctx, options)
 }
 
 // DockerHostID returns the configured Docker host identifier.
