@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/noosxe/gh-runner/internal/db"
 )
 
 // validKeyEnv returns t.Setenv for a strong placeholder encryption key so
@@ -205,3 +207,170 @@ func TestDaemonRefusesToStartOnCorruptedDatabase(t *testing.T) {
 		t.Fatalf("expected error mentioning corrupted and backup, got %v", err)
 	}
 }
+
+// TestImportAndExportCommands tests the CLI commands `supervisor import` and `supervisor export`.
+func TestImportAndExportCommands(t *testing.T) {
+	validKeyEnv(t)
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "supervisor.db")
+	t.Setenv("SUPERVISOR_DATA_DIR", dataDir)
+	t.Setenv("SUPERVISOR_DB_PATH", dbPath)
+	t.Setenv("TEST_CLI_TOKEN", "secret_cli_token_123")
+
+	yamlContent := `version: "1.0"
+auth_profiles:
+  cli_pat:
+    auth_method: pat
+    token_env_var: "TEST_CLI_TOKEN"
+pools:
+  - name: "cli-pool"
+    provider: github
+    repository_url: "https://github.com/org/cli-repo"
+    auth_profile: "cli_pat"
+    labels: ["self-hosted"]
+    runner_image: "ghcr.io/noosxe/gh-runner:latest"
+`
+	importFile := filepath.Join(dataDir, "import.yml")
+	if err := os.WriteFile(importFile, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("writing import.yml: %v", err)
+	}
+
+	// 1. Run import command
+	root := NewRootCommand()
+	root.SetArgs([]string{"import", "--config", importFile, "--yes"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("supervisor import failed: %v", err)
+	}
+
+	// Verify database was populated
+	database, err := db.Open(db.Options{Path: dbPath})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	pools, err := database.ListRunnerPools(context.Background())
+	_ = database.Close()
+	if err != nil || len(pools) != 1 || pools[0].Name != "cli-pool" {
+		t.Fatalf("expected 1 pool named cli-pool, got: %+v (err: %v)", pools, err)
+	}
+
+	// 2. Run export command
+	exportFile := filepath.Join(dataDir, "export.yml")
+	rootExport := NewRootCommand()
+	rootExport.SetArgs([]string{"export", "--output", exportFile})
+	if err := rootExport.Execute(); err != nil {
+		t.Fatalf("supervisor export failed: %v", err)
+	}
+
+	exportedBytes, err := os.ReadFile(exportFile)
+	if err != nil {
+		t.Fatalf("reading exported file: %v", err)
+	}
+	exportedStr := string(exportedBytes)
+	if strings.Contains(exportedStr, "secret_cli_token_123") {
+		t.Fatal("SECURITY VIOLATION: Exported YAML contains plaintext token!")
+	}
+	if !strings.Contains(exportedStr, "cli-pool") {
+		t.Fatal("Exported YAML missing cli-pool")
+	}
+}
+
+// TestDaemonFirstBootSeedImport verifies that the daemon imports config.yml on first boot
+// and ignores YAML on subsequent boots (docs/02 §4, OQ #2).
+func TestDaemonFirstBootSeedImport(t *testing.T) {
+	validKeyEnv(t)
+	port := freePort(t)
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "firstboot.db")
+	t.Setenv("SUPERVISOR_DATA_DIR", dataDir)
+	t.Setenv("SUPERVISOR_DB_PATH", dbPath)
+	t.Setenv("SUPERVISOR_PORT", strconv.Itoa(port))
+
+	configFile := filepath.Join(dataDir, "config.yml")
+	yamlContent := `version: "1.0"
+auth_profiles:
+  fb_prof:
+    auth_method: pat
+    token: "token123"
+pools:
+  - name: "first-boot-pool"
+    provider: github
+    repository_url: "https://github.com/org/firstboot"
+    auth_profile: "fb_prof"
+    labels: ["linux"]
+    runner_image: "ghcr.io/noosxe/gh-runner:latest"
+`
+	if err := os.WriteFile(configFile, []byte(yamlContent), 0o600); err != nil {
+		t.Fatalf("writing config.yml: %v", err)
+	}
+
+	root := NewRootCommand()
+	if err := bindFlagsToConfig(root, nil); err != nil {
+		t.Fatalf("bindFlagsToConfig: %v", err)
+	}
+
+	// First boot
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	done1 := make(chan error, 1)
+	go func() { done1 <- runDaemonContext(ctx1) }()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel1()
+	<-done1
+
+	// Verify that DB has first-boot-pool
+	database, err := db.Open(db.Options{Path: dbPath})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	pools, err := database.ListRunnerPools(context.Background())
+	_ = database.Close()
+	if err != nil || len(pools) != 1 || pools[0].Name != "first-boot-pool" {
+		t.Fatalf("expected first-boot-pool in DB, got: %+v (err: %v)", pools, err)
+	}
+
+	// Change config.yml to declare a DIFFERENT pool
+	yamlContent2 := `version: "1.0"
+auth_profiles:
+  fb_prof2:
+    auth_method: pat
+    token: "token456"
+pools:
+  - name: "second-boot-pool-should-be-ignored"
+    provider: github
+    repository_url: "https://github.com/org/ignored"
+    auth_profile: "fb_prof2"
+    labels: ["linux"]
+    runner_image: "img"
+`
+	if err := os.WriteFile(configFile, []byte(yamlContent2), 0o600); err != nil {
+		t.Fatalf("writing updated config.yml: %v", err)
+	}
+
+	// Second boot with fresh port
+	port2 := freePort(t)
+	t.Setenv("SUPERVISOR_PORT", strconv.Itoa(port2))
+	root2 := NewRootCommand()
+	if err := bindFlagsToConfig(root2, nil); err != nil {
+		t.Fatalf("bindFlagsToConfig 2: %v", err)
+	}
+
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	done2 := make(chan error, 1)
+	go func() { done2 <- runDaemonContext(ctx2) }()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel2()
+	<-done2
+
+	// Verify database was NOT changed (second-boot YAML ignored)
+	database2, err := db.Open(db.Options{Path: dbPath})
+	if err != nil {
+		t.Fatalf("Open 2: %v", err)
+	}
+	pools2, err := database2.ListRunnerPools(context.Background())
+	_ = database2.Close()
+	if err != nil || len(pools2) != 1 || pools2[0].Name != "first-boot-pool" {
+		t.Fatalf("second boot modified the database! Expected first-boot-pool, got: %+v", pools2)
+	}
+}
+

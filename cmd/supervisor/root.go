@@ -61,6 +61,7 @@ Run it with no subcommand to start the daemon.`,
 	root.AddCommand(
 		newDaemonCommand(),
 		newImportCommand(),
+		newExportCommand(),
 		newResetPasswordCommand(),
 		newBackupCommand(),
 	)
