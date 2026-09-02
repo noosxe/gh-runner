@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/noosxe/gh-runner/internal/db"
+	"github.com/noosxe/gh-runner/internal/keys"
 	"github.com/noosxe/gh-runner/internal/server"
 )
 
@@ -28,13 +29,7 @@ func newDaemonCommand() *cobra.Command {
 }
 
 // runDaemon boots the supervisor daemon and blocks until SIGINT/SIGTERM.
-// Today that is the Echo v5 HTTP server with the /healthz and /readyz
-// endpoints (RUN-10); later milestones grow the same process: database and
-// migrations (M2), providers and the Docker orchestrator with real health
-// probes (M4/M5), the pool control loop (M6), and the ConnectRPC API plus
-// embedded SPA (M7). Configuration loading and validation (RUN-7) already
-// ran in the root command's PersistentPreRunE.
-func runDaemon(cmd *cobra.Command, args []string) error {
+func runDaemon(cmd *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return runDaemonContext(ctx)
@@ -51,7 +46,15 @@ func runDaemonContext(ctx context.Context) error {
 		"port", cfg.Port,
 	)
 
-	database, err := db.Open(db.Options{Path: cfg.DBPath})
+	derivedKeys, err := keys.Derive(cfg.DBEncryptionKey)
+	if err != nil {
+		return fmt.Errorf("daemon: deriving runtime keys: %w", err)
+	}
+
+	database, err := db.Open(db.Options{
+		Path:          cfg.DBPath,
+		EncryptionKey: derivedKeys.DBEncryptionKey,
+	})
 	if err != nil {
 		return fmt.Errorf("daemon: database: %w", err)
 	}

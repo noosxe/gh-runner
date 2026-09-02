@@ -37,14 +37,20 @@ type Options struct {
 	// MaxOpenConns sets the maximum number of open connections. Defaults to 1
 	// if <= 0 to serialize SQLite transactions and prevent database lock contention.
 	MaxOpenConns int
+
+	// EncryptionKey is the 32-byte AES-256 key for encrypting sensitive credential
+	// columns at rest (auth_profiles private keys and tokens). If provided, it initializes
+	// the database encryptor.
+	EncryptionKey []byte
 }
 
 // DB wraps an opened SQLite database connection pool and its configuration,
-// embedding sqlc-generated type-safe Queries.
+// embedding sqlc-generated type-safe Queries and credential encryption.
 type DB struct {
-	sqlDB *sql.DB
-	path  string
+	sqlDB     *sql.DB
+	path      string
 	*Queries
+	encryptor *Encryptor
 }
 
 // Open initializes and verifies a SQLite database connection with modernc.org/sqlite
@@ -92,10 +98,21 @@ func Open(opts Options) (*DB, error) {
 		return nil, fmt.Errorf("database file %q is corrupted: %w; refuse to start; restore from a backup in DATA_DIR/backups (OQ #21)", opts.Path, err)
 	}
 
+	var enc *Encryptor
+	if len(opts.EncryptionKey) > 0 {
+		var err error
+		enc, err = NewEncryptor(opts.EncryptionKey)
+		if err != nil {
+			_ = sqlDB.Close()
+			return nil, fmt.Errorf("initializing database encryptor: %w", err)
+		}
+	}
+
 	database := &DB{
-		sqlDB:   sqlDB,
-		path:    opts.Path,
-		Queries: New(sqlDB),
+		sqlDB:     sqlDB,
+		path:      opts.Path,
+		Queries:   New(sqlDB),
+		encryptor: enc,
 	}
 
 	if !opts.SkipMigrations {
@@ -107,6 +124,11 @@ func Open(opts Options) (*DB, error) {
 
 	logger.Info("database opened successfully", "path", opts.Path)
 	return database, nil
+}
+
+// Encryptor returns the configured AES-256-GCM Encryptor, or nil if none was configured.
+func (d *DB) Encryptor() *Encryptor {
+	return d.encryptor
 }
 
 // OpenPath is a convenience wrapper that opens the database at path with default options.
