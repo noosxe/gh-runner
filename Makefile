@@ -13,7 +13,11 @@ export CGO_ENABLED := 0
 BINARY := supervisor
 PKG     := ./...
 
-.PHONY: build test lint fmt vet tidy clean
+.PHONY: build test lint fmt vet tidy clean generate
+
+## generate: run code generation tools (sqlc)
+generate:
+	sqlc generate
 
 ## build: compile all packages and produce the supervisor binary
 build:
