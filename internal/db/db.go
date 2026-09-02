@@ -39,10 +39,12 @@ type Options struct {
 	MaxOpenConns int
 }
 
-// DB wraps an opened SQLite database connection pool and its configuration.
+// DB wraps an opened SQLite database connection pool and its configuration,
+// embedding sqlc-generated type-safe Queries.
 type DB struct {
 	sqlDB *sql.DB
 	path  string
+	*Queries
 }
 
 // Open initializes and verifies a SQLite database connection with modernc.org/sqlite
@@ -91,8 +93,9 @@ func Open(opts Options) (*DB, error) {
 	}
 
 	database := &DB{
-		sqlDB: sqlDB,
-		path:  opts.Path,
+		sqlDB:   sqlDB,
+		path:    opts.Path,
+		Queries: New(sqlDB),
 	}
 
 	if !opts.SkipMigrations {
