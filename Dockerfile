@@ -106,27 +106,31 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Establish a dedicated non-root user for security isolation (Least Privilege)
-RUN useradd -m -u 1001 runner \
+# Establish a dedicated non-root user and group with UID 1001 and GID 1001 (Least Privilege)
+RUN groupadd -g 1001 runner \
+    && useradd -m -u 1001 -g 1001 -s /bin/bash runner \
     && usermod -aG sudo runner \
-    && echo "runner ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+    && echo "runner ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    && mkdir -p /home/runner/.cache /home/runner/.config \
+    && chown -R 1001:1001 /home/runner
 
-# Copy verified binaries and runner distribution from downloader stage
-COPY --from=downloader /build/bin/act_runner /usr/local/bin/act_runner
-COPY --from=downloader /build/bin/forgejo-runner /usr/local/bin/forgejo-runner
+# Copy verified binaries and runner distribution from downloader stage (read-only for non-root runner)
+COPY --from=downloader --chown=root:root --chmod=755 /build/bin/act_runner /usr/local/bin/act_runner
+COPY --from=downloader --chown=root:root --chmod=755 /build/bin/forgejo-runner /usr/local/bin/forgejo-runner
 COPY --from=downloader /build/actions-runner /actions-runner
 
 # Setup workspace and install agent runtime dependencies
 WORKDIR /actions-runner
 RUN ./bin/installdependencies.sh \
-    && chown -R runner:runner /actions-runner
+    && mkdir -p /actions-runner/_work \
+    && chown -R 1001:1001 /actions-runner \
+    && chmod -R 755 /actions-runner
 
-# Copy and secure the orchestration entrypoint script
-COPY src/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Copy and secure the orchestration entrypoint script (executable by runner, owned by root)
+COPY --chown=root:root --chmod=755 src/entrypoint.sh /entrypoint.sh
 
-# Switch execution context to the dedicated non-root user
-USER runner
+# Switch execution context to the dedicated non-root user (UID 1001, GID 1001)
+USER 1001:1001
 
 # Run the orchestration script
 ENTRYPOINT ["/entrypoint.sh"]
