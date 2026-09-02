@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -319,15 +320,100 @@ func ParseMemoryLimit(mem string) (int64, error) {
 }
 
 // TerminateRunner gracefully stops and removes a runner container.
-// Full implementation delivered in RUN-32.
 func (c *Client) TerminateRunner(ctx context.Context, containerID string) error {
-	return errors.New("TerminateRunner not yet implemented")
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		return ErrNilClient
+	}
+
+	timeoutSec := 10
+	stopOpts := container.StopOptions{
+		Timeout: &timeoutSec,
+	}
+
+	// Graceful stop with fallback
+	if err := docker.ContainerStop(ctx, containerID, stopOpts); err != nil {
+		if !cerrdefs.IsNotFound(err) {
+			_ = docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+			return fmt.Errorf("stopping container %s: %w", containerID, err)
+		}
+	}
+
+	// Remove container
+	if err := docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil {
+		if !cerrdefs.IsNotFound(err) {
+			return fmt.Errorf("removing container %s: %w", containerID, err)
+		}
+	}
+
+	return nil
 }
 
-// AuditRunners inspects all active and exited supervisor-managed runner containers.
-// Full implementation delivered in RUN-33.
+// AuditRunners inspects all active and exited supervisor-managed runner containers
+// by querying the Docker daemon for the com.github-runner-supervisor.managed=true label.
 func (c *Client) AuditRunners(ctx context.Context) ([]orchestrator.RunnerStatus, error) {
-	return nil, errors.New("AuditRunners not yet implemented")
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		return nil, ErrNilClient
+	}
+
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("label", orchestrator.LabelManaged+"=true")
+
+	containers, err := docker.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: filterArgs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing supervisor containers: %w", err)
+	}
+
+	statuses := make([]orchestrator.RunnerStatus, 0, len(containers))
+	for _, cnt := range containers {
+		name := ""
+		if len(cnt.Names) > 0 {
+			name = strings.TrimPrefix(cnt.Names[0], "/")
+		}
+
+		poolName := cnt.Labels[orchestrator.LabelPoolName]
+
+		var spawnedAt time.Time
+		if rawSpawned := cnt.Labels[orchestrator.LabelSpawnedAt]; rawSpawned != "" {
+			if t, err := time.Parse(time.RFC3339, rawSpawned); err == nil {
+				spawnedAt = t
+			}
+		}
+		if spawnedAt.IsZero() {
+			spawnedAt = time.Unix(cnt.Created, 0)
+		}
+
+		ipAddress := ""
+		if cnt.NetworkSettings != nil && len(cnt.NetworkSettings.Networks) > 0 {
+			for _, net := range cnt.NetworkSettings.Networks {
+				if net.IPAddress != "" {
+					ipAddress = net.IPAddress
+					break
+				}
+			}
+		}
+
+		statuses = append(statuses, orchestrator.RunnerStatus{
+			ID:        cnt.ID,
+			Name:      name,
+			PoolName:  poolName,
+			State:     cnt.State,
+			IPAddress: ipAddress,
+			SpawnedAt: spawnedAt,
+		})
+	}
+
+	return statuses, nil
 }
 
 // PruneExitedContainers removes containers that have finished executing.
