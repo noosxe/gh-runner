@@ -6,8 +6,8 @@ services:
       args:
         # Version of the GitHub runner agent to bake into the image
         - RUNNER_VERSION=2.335.1
-    image: gh-runner:latest
-    container_name: github-actions-runner
+    image: ghcr.io/noosxe/runner-aio:latest
+    container_name: runner-aio
     # Use standard init process to reap zombie processes spawned by runner jobs
     init: true
     restart: unless-stopped

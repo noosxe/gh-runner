@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -18,6 +19,9 @@ concurrency:
 permissions:
   contents: read
   packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/runner-aio
 
 jobs:
   # Cheap gate job: detects whether any runner-image input changed.
@@ -50,6 +54,7 @@ jobs:
               - 'Dockerfile'
               - '.dockerignore'
               - 'src/**'
+              - 'tests/**'
               - '.github/workflows/build.yml'
 
   build:
@@ -96,7 +101,7 @@ jobs:
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
-          outputs: ${{ startsWith(github.ref, 'refs/tags/v') && format('type=image,name=ghcr.io/{0},push-by-digest=true,name-canonical=true', github.repository) || '' }}
+          outputs: ${{ startsWith(github.ref, 'refs/tags/v') && format('type=image,name={0},push-by-digest=true,name-canonical=true', env.IMAGE_NAME) || '' }}
           # Use Actions cache backend for extremely fast subsequent builds
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -156,9 +161,9 @@ jobs:
         run: |
           cd /tmp/digests
           docker buildx imagetools create \
-            -t "ghcr.io/${{ github.repository }}:${{ github.ref_name }}" \
-            -t "ghcr.io/${{ github.repository }}:latest" \
-            $(printf "ghcr.io/${{ github.repository }}@sha256:%s " *)
+            -t "${IMAGE_NAME}:${{ github.ref_name }}" \
+            -t "${IMAGE_NAME}:latest" \
+            $(printf "${IMAGE_NAME}@sha256:%s " *)
 
       # Create an official GitHub Release for the pushed tag
       - name: Create GitHub Release
