@@ -55,6 +55,7 @@ type Querier interface {
 	ListRenovateConfigs(ctx context.Context) ([]RenovateConfig, error)
 	ListRunnerPools(ctx context.Context) ([]RunnerPool, error)
 	ListSessionsByUserId(ctx context.Context, userID int64) ([]Session, error)
+	PruneJobHistoryOlderThan(ctx context.Context, arg PruneJobHistoryOlderThanParams) ([]PruneJobHistoryOlderThanRow, error)
 	SetAppSetting(ctx context.Context, arg SetAppSettingParams) (AppSetting, error)
 	UpdateAdminPassword(ctx context.Context, arg UpdateAdminPasswordParams) (AdminUser, error)
 	UpdateAuthProfile(ctx context.Context, arg UpdateAuthProfileParams) (AuthProfile, error)
