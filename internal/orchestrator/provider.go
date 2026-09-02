@@ -1,0 +1,58 @@
+package orchestrator
+
+import (
+	"context"
+	"time"
+)
+
+// RunnerConfig defines parameters for spawning an ephemeral runner or task container.
+type RunnerConfig struct {
+	Name         string   `json:"name"`
+	RepoURL      string   `json:"repo_url"`
+	Token        string   `json:"token"`
+	Labels       []string `json:"labels"`
+	WorkDir      string   `json:"work_dir"`
+	Image        string   `json:"image"`
+	CPULimit     string   `json:"cpu_limit"`
+	MemoryLimit  string   `json:"memory_limit"`
+	AllowDocker  bool     `json:"allow_docker"`
+	Env          []string `json:"env,omitempty"`
+	PoolName     string   `json:"pool_name,omitempty"`
+	DockerHostID string   `json:"docker_host_id,omitempty"` // Groundwork for multi-host Docker (OQ #22)
+}
+
+// RunnerStatus represents the current state of a containerized runner.
+type RunnerStatus struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	PoolName  string    `json:"pool_name"`
+	State     string    `json:"state"` // e.g., "running", "exited", "created"
+	IPAddress string    `json:"ip_address"`
+	ExitCode  int       `json:"exit_code"`
+	SpawnedAt time.Time `json:"spawned_at"`
+}
+
+// ContainerProvider abstracts container lifecycle operations from the underlying container engine.
+// See docs/02-architecture-design.md §3.1.
+type ContainerProvider interface {
+	// SpawnRunner creates and starts an ephemeral runner container.
+	SpawnRunner(ctx context.Context, config RunnerConfig) (string, error)
+
+	// SpawnTask creates and starts a one-off task container (e.g., Renovate bot).
+	SpawnTask(ctx context.Context, config RunnerConfig) (string, error)
+
+	// TerminateRunner gracefully stops and removes a runner container.
+	TerminateRunner(ctx context.Context, containerID string) error
+
+	// AuditRunners inspects all active and exited supervisor-managed runner containers.
+	AuditRunners(ctx context.Context) ([]RunnerStatus, error)
+
+	// PruneExitedContainers removes containers that have finished executing.
+	PruneExitedContainers(ctx context.Context) error
+
+	// Ping checks connectivity with the container engine daemon.
+	Ping(ctx context.Context) error
+
+	// Close releases any allocated resources or connections.
+	Close() error
+}
