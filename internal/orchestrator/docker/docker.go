@@ -40,6 +40,9 @@ type APIClient interface {
 	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
 	ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
 	Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
+	NetworkList(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
+	NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
+	NetworkConnect(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error
 }
 
 // Client implements orchestrator.ContainerProvider using the Docker Engine API.
@@ -261,7 +264,24 @@ func (c *Client) spawn(ctx context.Context, config orchestrator.RunnerConfig, ta
 		Labels: labels,
 	}
 
-	createResp, err := docker.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerName)
+	networkName := config.Network
+	if networkName == "" {
+		networkName = orchestrator.DefaultNetworkName
+	}
+
+	var networkingConfig *network.NetworkingConfig
+	if networkName != "none" {
+		if _, err := c.EnsureNetwork(ctx, networkName); err != nil {
+			return "", fmt.Errorf("ensuring network %q: %w", networkName, err)
+		}
+		networkingConfig = &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				networkName: {},
+			},
+		}
+	}
+
+	createResp, err := docker.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, containerName)
 	if err != nil {
 		return "", fmt.Errorf("creating container %q: %w", containerName, err)
 	}
@@ -454,6 +474,57 @@ func (c *Client) Events(ctx context.Context, options events.ListOptions) (<-chan
 	}
 
 	return docker.Events(ctx, options)
+}
+
+// EnsureNetwork verifies that the specified bridge network exists, creating it if needed.
+// Idempotent across supervisor restarts and concurrent invocations (OQ #22).
+func (c *Client) EnsureNetwork(ctx context.Context, name string) (string, error) {
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		return "", ErrNilClient
+	}
+
+	if name == "" {
+		name = orchestrator.DefaultNetworkName
+	}
+
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("name", "^"+name+"$")
+
+	networks, err := docker.NetworkList(ctx, network.ListOptions{
+		Filters: filterArgs,
+	})
+	if err == nil {
+		for _, net := range networks {
+			if net.Name == name {
+				return net.ID, nil
+			}
+		}
+	}
+
+	createOpts := network.CreateOptions{
+		Driver: "bridge",
+		Labels: map[string]string{
+			orchestrator.LabelManaged: "true",
+		},
+	}
+
+	resp, err := docker.NetworkCreate(ctx, name, createOpts)
+	if err != nil {
+		if networks, listErr := docker.NetworkList(ctx, network.ListOptions{Filters: filterArgs}); listErr == nil {
+			for _, net := range networks {
+				if net.Name == name {
+					return net.ID, nil
+				}
+			}
+		}
+		return "", fmt.Errorf("creating managed network %q: %w", name, err)
+	}
+
+	return resp.ID, nil
 }
 
 // DockerHostID returns the configured Docker host identifier.

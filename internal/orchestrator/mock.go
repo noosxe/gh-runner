@@ -14,6 +14,7 @@ type MockContainerProvider struct {
 	TerminateRunnerFn       func(ctx context.Context, containerID string) error
 	AuditRunnersFn          func(ctx context.Context) ([]RunnerStatus, error)
 	PruneExitedContainersFn func(ctx context.Context) error
+	EnsureNetworkFn         func(ctx context.Context, name string) (string, error)
 	PingFn                  func(ctx context.Context) error
 	CloseFn                 func() error
 
@@ -88,6 +89,21 @@ func (m *MockContainerProvider) PruneExitedContainers(ctx context.Context) error
 		return fn(ctx)
 	}
 	return nil
+}
+
+// EnsureNetwork delegates to EnsureNetworkFn or returns a mock network ID.
+func (m *MockContainerProvider) EnsureNetwork(ctx context.Context, name string) (string, error) {
+	m.mu.RLock()
+	fn := m.EnsureNetworkFn
+	m.mu.RUnlock()
+
+	if fn != nil {
+		return fn(ctx, name)
+	}
+	if name == "" {
+		name = DefaultNetworkName
+	}
+	return "mock-network-id-" + name, nil
 }
 
 // Ping delegates to PingFn or returns nil.

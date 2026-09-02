@@ -27,6 +27,9 @@ type mockDockerAPI struct {
 	containerListFn   func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
 	containersPruneFn func(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
 	eventsFn          func(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
+	networkListFn     func(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
+	networkCreateFn   func(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
+	networkConnectFn  func(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error
 }
 
 func (m *mockDockerAPI) Ping(ctx context.Context) (types.Ping, error) {
@@ -92,6 +95,27 @@ func (m *mockDockerAPI) Events(ctx context.Context, options events.ListOptions) 
 	return nil, nil
 }
 
+func (m *mockDockerAPI) NetworkList(ctx context.Context, options network.ListOptions) ([]network.Summary, error) {
+	if m.networkListFn != nil {
+		return m.networkListFn(ctx, options)
+	}
+	return []network.Summary{}, nil
+}
+
+func (m *mockDockerAPI) NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error) {
+	if m.networkCreateFn != nil {
+		return m.networkCreateFn(ctx, name, options)
+	}
+	return network.CreateResponse{ID: "mock-net-id"}, nil
+}
+
+func (m *mockDockerAPI) NetworkConnect(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error {
+	if m.networkConnectFn != nil {
+		return m.networkConnectFn(ctx, networkID, containerID, config)
+	}
+	return nil
+}
+
 func TestDockerClient_BootstrapAndPing(t *testing.T) {
 	ctx := context.Background()
 
@@ -142,6 +166,7 @@ func TestDockerClient_SpawnRunner(t *testing.T) {
 
 	var createdConfig *container.Config
 	var createdHostConfig *container.HostConfig
+	var createdNetConfig *network.NetworkingConfig
 	var createdName string
 	var startedID string
 
@@ -149,6 +174,7 @@ func TestDockerClient_SpawnRunner(t *testing.T) {
 		containerCreateFn: func(ctx context.Context, cfg *container.Config, hostCfg *container.HostConfig, netCfg *network.NetworkingConfig, platform *v1.Platform, name string) (container.CreateResponse, error) {
 			createdConfig = cfg
 			createdHostConfig = hostCfg
+			createdNetConfig = netCfg
 			createdName = name
 			return container.CreateResponse{ID: "c-123456"}, nil
 		},
@@ -240,6 +266,11 @@ func TestDockerClient_SpawnRunner(t *testing.T) {
 	}
 	if envMap["RUNNER_EPHEMERAL"] != "true" {
 		t.Errorf("missing RUNNER_EPHEMERAL=true")
+	}
+
+	// Verify Network Attachment
+	if createdNetConfig == nil || createdNetConfig.EndpointsConfig[orchestrator.DefaultNetworkName] == nil {
+		t.Errorf("expected container attached to %q network: %+v", orchestrator.DefaultNetworkName, createdNetConfig)
 	}
 }
 
@@ -511,5 +542,80 @@ func TestDockerClient_Events(t *testing.T) {
 	outMsg, outErr := cli.Events(ctx, events.ListOptions{})
 	if outMsg == nil || outErr == nil {
 		t.Fatalf("expected non-nil event channels")
+	}
+}
+
+func TestDockerClient_EnsureNetwork(t *testing.T) {
+	ctx := context.Background()
+
+	// 1. Network already exists
+	listCalled := false
+	createCalled := false
+	mockAPIExisting := &mockDockerAPI{
+		networkListFn: func(ctx context.Context, options network.ListOptions) ([]network.Summary, error) {
+			listCalled = true
+			return []network.Summary{
+				{
+					ID:   "net-existing-123",
+					Name: orchestrator.DefaultNetworkName,
+				},
+			}, nil
+		},
+		networkCreateFn: func(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error) {
+			createCalled = true
+			return network.CreateResponse{ID: "should-not-be-called"}, nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPIExisting))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	id, err := cli.EnsureNetwork(ctx, "")
+	if err != nil {
+		t.Fatalf("EnsureNetwork failed: %v", err)
+	}
+	if id != "net-existing-123" {
+		t.Errorf("expected existing network id net-existing-123, got %q", id)
+	}
+	if !listCalled || createCalled {
+		t.Errorf("expected listCalled=true and createCalled=false, got list=%v create=%v", listCalled, createCalled)
+	}
+
+	// 2. Network does not exist -> created with driver bridge and managed label
+	var createdNetName string
+	var createdOptions network.CreateOptions
+	mockAPINew := &mockDockerAPI{
+		networkListFn: func(ctx context.Context, options network.ListOptions) ([]network.Summary, error) {
+			return []network.Summary{}, nil
+		},
+		networkCreateFn: func(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error) {
+			createdNetName = name
+			createdOptions = options
+			return network.CreateResponse{ID: "net-created-456"}, nil
+		},
+	}
+
+	cliNew, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPINew))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	id, err = cliNew.EnsureNetwork(ctx, "custom-net")
+	if err != nil {
+		t.Fatalf("EnsureNetwork failed: %v", err)
+	}
+	if id != "net-created-456" {
+		t.Errorf("expected created network id net-created-456, got %q", id)
+	}
+	if createdNetName != "custom-net" {
+		t.Errorf("expected network name custom-net, got %q", createdNetName)
+	}
+	if createdOptions.Driver != "bridge" {
+		t.Errorf("expected bridge driver, got %q", createdOptions.Driver)
+	}
+	if createdOptions.Labels[orchestrator.LabelManaged] != "true" {
+		t.Errorf("expected managed label on created network: %+v", createdOptions.Labels)
 	}
 }

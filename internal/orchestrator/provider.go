@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+const (
+	// DefaultNetworkName is the supervisor-managed bridge network for runner communication (OQ #22).
+	DefaultNetworkName = "ghrs-supervisor"
+)
+
 // RunnerConfig defines parameters for spawning an ephemeral runner or task container.
 type RunnerConfig struct {
 	Name         string   `json:"name"`
@@ -19,6 +24,7 @@ type RunnerConfig struct {
 	Env          []string `json:"env,omitempty"`
 	PoolName     string   `json:"pool_name,omitempty"`
 	DockerHostID string   `json:"docker_host_id,omitempty"` // Groundwork for multi-host Docker (OQ #22)
+	Network      string   `json:"network,omitempty"`        // Managed bridge network name (defaults to DefaultNetworkName)
 }
 
 // RunnerStatus represents the current state of a containerized runner.
@@ -49,6 +55,9 @@ type ContainerProvider interface {
 
 	// PruneExitedContainers removes containers that have finished executing.
 	PruneExitedContainers(ctx context.Context) error
+
+	// EnsureNetwork verifies that the specified bridge network exists, creating it if needed.
+	EnsureNetwork(ctx context.Context, name string) (string, error)
 
 	// Ping checks connectivity with the container engine daemon.
 	Ping(ctx context.Context) error
