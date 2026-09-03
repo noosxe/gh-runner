@@ -81,7 +81,12 @@ func runDaemonContext(ctx context.Context) error {
 
 	health := server.NewHealth()
 	registerHealthChecks(health, database)
-	srv := server.New(server.Options{Port: cfg.Port, Health: health})
+	srv := server.New(server.Options{
+		Port:             cfg.Port,
+		Health:           health,
+		AuthDB:           database,
+		JWTSigningSecret: derivedKeys.JWTSigningSecret,
+	})
 
 	// Start blocks, so serve from a goroutine and surface fatal errors
 	// (port already bound, permission denied) through the select below.

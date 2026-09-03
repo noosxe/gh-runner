@@ -10,6 +10,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/labstack/echo/v5"
+	"github.com/noosxe/gh-runner/internal/pb/supervisor/v1/supervisorv1connect"
 	"github.com/noosxe/gh-runner/web"
 )
 
@@ -62,16 +63,30 @@ type Options struct {
 	// StaticFS is the filesystem containing built SPA assets (index.html, js, css).
 	// If nil, defaults to the embedded web.Dist() filesystem (docs/06 §2, RUN-44).
 	StaticFS fs.FS
+
+	// AuthDB is the database interface used for administrator authentication,
+	// sessions, and audit logs. If nil, AuthService is not automatically mounted.
+	AuthDB AuthDatabase
+
+	// JWTSigningSecret is the 256-bit HMAC key derived from SUPERVISOR_DB_ENCRYPTION_KEY
+	// used to cryptographically sign session JWT tokens (docs/05 §5, keys.LabelJWTSigning).
+	JWTSigningSecret []byte
+
+	// IsSecureCookie sets the Secure attribute on the session cookie. Defaults to false
+	// for local development/testing without TLS, set to true behind HTTPS.
+	IsSecureCookie bool
 }
 
 // Server is the supervisor's HTTP server: an Echo v5 instance (docs/06 §1)
 // that serves health endpoints, ConnectRPC services (binary transport mandatory),
 // and the embedded SPA.
 type Server struct {
-	echo     *echo.Echo
-	http     *http.Server
-	health   *Health
-	staticFS fs.FS
+	echo      *echo.Echo
+	http      *http.Server
+	health    *Health
+	staticFS  fs.FS
+	authDB    AuthDatabase
+	jwtSecret []byte
 }
 
 // New builds the server and its routes. Construction is infallible: routes
@@ -84,9 +99,11 @@ func New(opts Options) *Server {
 	e.Logger = logger
 
 	s := &Server{
-		echo:     e,
-		health:   opts.Health,
-		staticFS: opts.StaticFS,
+		echo:      e,
+		health:    opts.Health,
+		staticFS:  opts.StaticFS,
+		authDB:    opts.AuthDB,
+		jwtSecret: opts.JWTSigningSecret,
 	}
 	if s.health == nil {
 		s.health = NewHealth()
@@ -103,6 +120,13 @@ func New(opts Options) *Server {
 	e.GET("/healthz", s.handleHealthz)
 	e.GET("/readyz", s.handleReadyz)
 
+	// Mount AuthService if database and secret are provided (RUN-45)
+	if s.authDB != nil && len(s.jwtSecret) > 0 {
+		authSvc := NewAuthService(s.authDB, s.jwtSecret, opts.IsSecureCookie)
+		path, handler := supervisorv1connect.NewAuthServiceHandler(authSvc, s.ConnectHandlerOptions()...)
+		s.MountConnectHandler(path, handler)
+	}
+
 	// SPA fallback routes (catch-all GET/HEAD, falls back to index.html)
 	e.GET("/*", s.serveSPA)
 	e.HEAD("/*", s.serveSPA)
@@ -112,6 +136,16 @@ func New(opts Options) *Server {
 		Handler: e,
 	}
 	return s
+}
+
+// ConnectHandlerOptions returns the standard Connect HandlerOptions enforcing binary transport
+// and (if configured) authentication interception on protected RPCs.
+func (s *Server) ConnectHandlerOptions() []connect.HandlerOption {
+	opts := BinaryConnectHandlerOptions()
+	if s.authDB != nil && len(s.jwtSecret) > 0 {
+		opts = append(opts, connect.WithInterceptors(NewAuthInterceptor(s.authDB, s.jwtSecret)))
+	}
+	return opts
 }
 
 // Health exposes the probe registry so the daemon (and later milestones)
