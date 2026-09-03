@@ -36,6 +36,7 @@ export const queryKeys = {
     ] as const,
   runners: (poolId: bigint) => ["pools", poolId.toString(), "runners"] as const,
   runnerLogs: (runnerId: string) => ["logs", runnerId] as const,
+  jobRecord: (jobId: bigint) => ["analytics", "jobRecord", jobId.toString()] as const,
 };
 
 // Onboarding Service Hooks
@@ -306,6 +307,17 @@ export function useJobHistory(params?: {
       return res;
     },
     staleTime: 5_000,
+  });
+}
+
+export function useJobRecord(jobId?: bigint) {
+  return useQuery({
+    queryKey: queryKeys.jobRecord(jobId ?? 0n),
+    queryFn: async () => {
+      const res = await analyticsClient.getJobRecord({ jobId: jobId ?? 0n });
+      return res.job;
+    },
+    enabled: Boolean(jobId && jobId > 0n),
   });
 }
 

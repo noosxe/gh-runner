@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ type AnalyticsDatabase interface {
 	CountJobHistoryByPoolId(ctx context.Context, poolID int64) (int64, error)
 	ListJobHistory(ctx context.Context, arg db.ListJobHistoryParams) ([]db.JobHistory, error)
 	ListJobHistoryByPoolId(ctx context.Context, arg db.ListJobHistoryByPoolIdParams) ([]db.JobHistory, error)
+	GetJobHistoryById(ctx context.Context, id int64) (db.JobHistory, error)
 	SearchJobHistory(ctx context.Context, arg db.SearchJobHistoryParams) ([]db.JobHistory, error)
 	CountSearchJobHistory(ctx context.Context, arg db.CountSearchJobHistoryParams) (int64, error)
 	GetJobStatsSince(ctx context.Context, createdAt time.Time) (db.GetJobStatsSinceRow, error)
@@ -174,6 +176,60 @@ func (s *AnalyticsService) GetJobHistory(ctx context.Context, req *connect.Reque
 	}
 
 	return connect.NewResponse(resp), nil
+}
+
+// GetJobRecord retrieves a single job execution record by job ID.
+func (s *AnalyticsService) GetJobRecord(ctx context.Context, req *connect.Request[supervisorv1.GetJobRecordRequest]) (*connect.Response[supervisorv1.GetJobRecordResponse], error) {
+	if req.Msg.JobId <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("job_id must be greater than 0"))
+	}
+	j, err := s.db.GetJobHistoryById(ctx, req.Msg.JobId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("job id %d not found: %w", req.Msg.JobId, err))
+	}
+
+	poolName := ""
+	if pools, err := s.db.ListRunnerPools(ctx); err == nil {
+		for _, p := range pools {
+			if p.ID == j.PoolID {
+				poolName = p.Name
+				break
+			}
+		}
+	}
+
+	rec := &supervisorv1.JobRecord{
+		Id:         j.ID,
+		PoolId:     j.PoolID,
+		RunnerName: j.RunnerName,
+		Status:     j.Status,
+		PoolName:   poolName,
+	}
+	if j.QueuedAt.Valid {
+		rec.QueuedAt = j.QueuedAt.Time.Format(time.RFC3339)
+	}
+	if j.StartedAt.Valid {
+		rec.StartedAt = j.StartedAt.Time.Format(time.RFC3339)
+	}
+	if j.CompletedAt.Valid {
+		rec.CompletedAt = j.CompletedAt.Time.Format(time.RFC3339)
+	}
+	if j.QueuedAt.Valid && j.StartedAt.Valid {
+		rec.QueueTimeSeconds = j.StartedAt.Time.Sub(j.QueuedAt.Time).Seconds()
+		if rec.QueueTimeSeconds < 0 {
+			rec.QueueTimeSeconds = 0
+		}
+	}
+	if j.StartedAt.Valid && j.CompletedAt.Valid {
+		rec.DurationSeconds = j.CompletedAt.Time.Sub(j.StartedAt.Time).Seconds()
+		if rec.DurationSeconds < 0 {
+			rec.DurationSeconds = 0
+		}
+	}
+
+	return connect.NewResponse(&supervisorv1.GetJobRecordResponse{
+		Job: rec,
+	}), nil
 }
 
 // GetSystemStats aggregates system metrics across live runner state and historical DB executions.

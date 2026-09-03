@@ -92,6 +92,9 @@ const (
 	// AnalyticsServiceGetJobHistoryProcedure is the fully-qualified name of the AnalyticsService's
 	// GetJobHistory RPC.
 	AnalyticsServiceGetJobHistoryProcedure = "/supervisor.v1.AnalyticsService/GetJobHistory"
+	// AnalyticsServiceGetJobRecordProcedure is the fully-qualified name of the AnalyticsService's
+	// GetJobRecord RPC.
+	AnalyticsServiceGetJobRecordProcedure = "/supervisor.v1.AnalyticsService/GetJobRecord"
 	// AnalyticsServiceGetSystemStatsProcedure is the fully-qualified name of the AnalyticsService's
 	// GetSystemStats RPC.
 	AnalyticsServiceGetSystemStatsProcedure = "/supervisor.v1.AnalyticsService/GetSystemStats"
@@ -762,6 +765,7 @@ func (UnimplementedOnboardingServiceHandler) SetAppSetting(context.Context, *con
 // AnalyticsServiceClient is a client for the supervisor.v1.AnalyticsService service.
 type AnalyticsServiceClient interface {
 	GetJobHistory(context.Context, *connect.Request[v1.GetJobHistoryRequest]) (*connect.Response[v1.GetJobHistoryResponse], error)
+	GetJobRecord(context.Context, *connect.Request[v1.GetJobRecordRequest]) (*connect.Response[v1.GetJobRecordResponse], error)
 	GetSystemStats(context.Context, *connect.Request[v1.GetSystemStatsRequest]) (*connect.Response[v1.GetSystemStatsResponse], error)
 	// WatchDashboard provides near-realtime server-streaming push of dashboard statistics, pool states, and recent jobs
 	WatchDashboard(context.Context, *connect.Request[v1.WatchDashboardRequest]) (*connect.ServerStreamForClient[v1.WatchDashboardResponse], error)
@@ -784,6 +788,12 @@ func NewAnalyticsServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(analyticsServiceMethods.ByName("GetJobHistory")),
 			connect.WithClientOptions(opts...),
 		),
+		getJobRecord: connect.NewClient[v1.GetJobRecordRequest, v1.GetJobRecordResponse](
+			httpClient,
+			baseURL+AnalyticsServiceGetJobRecordProcedure,
+			connect.WithSchema(analyticsServiceMethods.ByName("GetJobRecord")),
+			connect.WithClientOptions(opts...),
+		),
 		getSystemStats: connect.NewClient[v1.GetSystemStatsRequest, v1.GetSystemStatsResponse](
 			httpClient,
 			baseURL+AnalyticsServiceGetSystemStatsProcedure,
@@ -802,6 +812,7 @@ func NewAnalyticsServiceClient(httpClient connect.HTTPClient, baseURL string, op
 // analyticsServiceClient implements AnalyticsServiceClient.
 type analyticsServiceClient struct {
 	getJobHistory  *connect.Client[v1.GetJobHistoryRequest, v1.GetJobHistoryResponse]
+	getJobRecord   *connect.Client[v1.GetJobRecordRequest, v1.GetJobRecordResponse]
 	getSystemStats *connect.Client[v1.GetSystemStatsRequest, v1.GetSystemStatsResponse]
 	watchDashboard *connect.Client[v1.WatchDashboardRequest, v1.WatchDashboardResponse]
 }
@@ -809,6 +820,11 @@ type analyticsServiceClient struct {
 // GetJobHistory calls supervisor.v1.AnalyticsService.GetJobHistory.
 func (c *analyticsServiceClient) GetJobHistory(ctx context.Context, req *connect.Request[v1.GetJobHistoryRequest]) (*connect.Response[v1.GetJobHistoryResponse], error) {
 	return c.getJobHistory.CallUnary(ctx, req)
+}
+
+// GetJobRecord calls supervisor.v1.AnalyticsService.GetJobRecord.
+func (c *analyticsServiceClient) GetJobRecord(ctx context.Context, req *connect.Request[v1.GetJobRecordRequest]) (*connect.Response[v1.GetJobRecordResponse], error) {
+	return c.getJobRecord.CallUnary(ctx, req)
 }
 
 // GetSystemStats calls supervisor.v1.AnalyticsService.GetSystemStats.
@@ -824,6 +840,7 @@ func (c *analyticsServiceClient) WatchDashboard(ctx context.Context, req *connec
 // AnalyticsServiceHandler is an implementation of the supervisor.v1.AnalyticsService service.
 type AnalyticsServiceHandler interface {
 	GetJobHistory(context.Context, *connect.Request[v1.GetJobHistoryRequest]) (*connect.Response[v1.GetJobHistoryResponse], error)
+	GetJobRecord(context.Context, *connect.Request[v1.GetJobRecordRequest]) (*connect.Response[v1.GetJobRecordResponse], error)
 	GetSystemStats(context.Context, *connect.Request[v1.GetSystemStatsRequest]) (*connect.Response[v1.GetSystemStatsResponse], error)
 	// WatchDashboard provides near-realtime server-streaming push of dashboard statistics, pool states, and recent jobs
 	WatchDashboard(context.Context, *connect.Request[v1.WatchDashboardRequest], *connect.ServerStream[v1.WatchDashboardResponse]) error
@@ -842,6 +859,12 @@ func NewAnalyticsServiceHandler(svc AnalyticsServiceHandler, opts ...connect.Han
 		connect.WithSchema(analyticsServiceMethods.ByName("GetJobHistory")),
 		connect.WithHandlerOptions(opts...),
 	)
+	analyticsServiceGetJobRecordHandler := connect.NewUnaryHandler(
+		AnalyticsServiceGetJobRecordProcedure,
+		svc.GetJobRecord,
+		connect.WithSchema(analyticsServiceMethods.ByName("GetJobRecord")),
+		connect.WithHandlerOptions(opts...),
+	)
 	analyticsServiceGetSystemStatsHandler := connect.NewUnaryHandler(
 		AnalyticsServiceGetSystemStatsProcedure,
 		svc.GetSystemStats,
@@ -858,6 +881,8 @@ func NewAnalyticsServiceHandler(svc AnalyticsServiceHandler, opts ...connect.Han
 		switch r.URL.Path {
 		case AnalyticsServiceGetJobHistoryProcedure:
 			analyticsServiceGetJobHistoryHandler.ServeHTTP(w, r)
+		case AnalyticsServiceGetJobRecordProcedure:
+			analyticsServiceGetJobRecordHandler.ServeHTTP(w, r)
 		case AnalyticsServiceGetSystemStatsProcedure:
 			analyticsServiceGetSystemStatsHandler.ServeHTTP(w, r)
 		case AnalyticsServiceWatchDashboardProcedure:
@@ -873,6 +898,10 @@ type UnimplementedAnalyticsServiceHandler struct{}
 
 func (UnimplementedAnalyticsServiceHandler) GetJobHistory(context.Context, *connect.Request[v1.GetJobHistoryRequest]) (*connect.Response[v1.GetJobHistoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.AnalyticsService.GetJobHistory is not implemented"))
+}
+
+func (UnimplementedAnalyticsServiceHandler) GetJobRecord(context.Context, *connect.Request[v1.GetJobRecordRequest]) (*connect.Response[v1.GetJobRecordResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.AnalyticsService.GetJobRecord is not implemented"))
 }
 
 func (UnimplementedAnalyticsServiceHandler) GetSystemStats(context.Context, *connect.Request[v1.GetSystemStatsRequest]) (*connect.Response[v1.GetSystemStatsResponse], error) {

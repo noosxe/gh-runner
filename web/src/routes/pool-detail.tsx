@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "@tanstack/react-router";
 import { usePools, useRunners, useTerminateRunner } from "../lib/api/query-hooks";
 import { useWatchRunners, useStreamRunnerLogs } from "../lib/api/streaming-hooks";
+import { LogTerminal } from "../components/terminal/log-terminal";
 import type { RunnerInstance } from "../gen/api_pb";
 import {
   ArrowLeft,
@@ -15,7 +16,6 @@ import {
   Trash2,
   X,
   AlertTriangle,
-  Radio,
 } from "lucide-react";
 
 function formatUptime(seconds: number | bigint): string {
@@ -458,63 +458,32 @@ function RunnerLogViewerModal({
   runner: RunnerInstance;
   onClose: () => void;
 }) {
-  const { logs, isConnected } = useStreamRunnerLogs(runner.name);
+  const { logs, isConnected, isConnecting, clearLogs } = useStreamRunnerLogs(runner.name);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4">
-      <div className="flex h-[80vh] w-full max-w-4xl flex-col rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5 bg-slate-900/80">
-          <div className="flex items-center gap-2.5">
-            <Radio className="h-4 w-4 text-emerald-400 animate-pulse" />
-            <div>
-              <span className="font-mono text-xs font-bold text-white">{runner.name}</span>
-              <span className="ml-2 text-[11px] text-slate-400 font-mono">
-                ({runner.containerId.substring(0, 12)})
-              </span>
-            </div>
-          </div>
+      <div className="relative flex h-[82vh] w-full max-w-5xl flex-col rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden">
+        {/* Close button overlay */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close runner logs modal"
+          className="absolute right-3.5 top-3 z-20 rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+        >
+          <X className="h-4 w-4" />
+        </button>
 
-          <div className="flex items-center gap-3">
-            <span
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${
-                isConnected
-                  ? "bg-emerald-950 text-emerald-400 border-emerald-800"
-                  : "bg-amber-950 text-amber-400 border-amber-800"
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-                }`}
-              />
-              <span>{isConnected ? "Streaming Logs" : "Connecting"}</span>
-            </span>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Terminal Log Body */}
-        <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed text-slate-300 space-y-1">
-          {logs.length === 0 ? (
-            <div className="text-slate-500 italic py-8 text-center">
-              Waiting for runner log output from container...
-            </div>
-          ) : (
-            logs.map((chunk, idx) => (
-              <div key={idx} className="flex gap-2">
-                <span className="text-slate-600 select-none">{idx + 1}</span>
-                <span className="whitespace-pre-wrap break-all">{chunk.content}</span>
-              </div>
-            ))
-          )}
+        <div className="flex-1 overflow-hidden">
+          <LogTerminal
+            logs={logs}
+            mode="live"
+            runnerName={runner.name}
+            containerId={runner.containerId}
+            isConnected={isConnected}
+            isConnecting={isConnecting}
+            onClear={clearLogs}
+            title={runner.name}
+          />
         </div>
       </div>
     </div>

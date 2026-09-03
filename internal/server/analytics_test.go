@@ -221,6 +221,19 @@ func TestAnalyticsJobHistoryAndStats(t *testing.T) {
 		t.Fatalf("expected total 3, page length 1, got total=%d, len=%d", pageRes.Msg.TotalCount, len(pageRes.Msg.Jobs))
 	}
 
+	// 2d. GetJobRecord
+	jobReq := connect.NewRequest(&supervisorv1.GetJobRecordRequest{
+		JobId: searchRes.Msg.Jobs[0].Id,
+	})
+	jobReq.Header().Set("Cookie", "session_token="+rawCookie)
+	jobRes, err := client.GetJobRecord(ctx, jobReq)
+	if err != nil {
+		t.Fatalf("GetJobRecord failed: %v", err)
+	}
+	if jobRes.Msg.Job.RunnerName != "runner-3" || jobRes.Msg.Job.PoolName != "analytics-pool-2" {
+		t.Errorf("GetJobRecord mismatch: %+v", jobRes.Msg.Job)
+	}
+
 	// 3. GetSystemStats
 	statsReq := connect.NewRequest(&supervisorv1.GetSystemStatsRequest{})
 	statsReq.Header().Set("Cookie", "session_token="+rawCookie)
