@@ -13,11 +13,16 @@ export CGO_ENABLED := 0
 BINARY := supervisor
 PKG     := ./...
 
-.PHONY: build test test-scripts lint fmt vet tidy clean generate
+.PHONY: build test test-scripts lint fmt vet tidy clean generate proto-lint
 
-## generate: run code generation tools (sqlc)
+## generate: run code generation tools (sqlc, buf)
 generate:
 	sqlc generate
+	buf generate proto
+
+## proto-lint: lint protobuf schemas via buf
+proto-lint:
+	buf lint proto
 
 ## build: compile all packages and produce the supervisor binary
 build:
