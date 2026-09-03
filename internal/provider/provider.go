@@ -58,3 +58,9 @@ type RenovateTokenProvider interface {
 	// GetRenovateToken retrieves a short-lived token suitable for Renovate bot operations on the target URL.
 	GetRenovateToken(ctx context.Context, targetURL string) (string, error)
 }
+
+// RunnerDeregistrar is optionally implemented by GitProviders that support API-driven runner deregistration (docs/03 §7).
+type RunnerDeregistrar interface {
+	// DeregisterRunner removes a registered runner from the Git provider via its API to prevent ghost runners.
+	DeregisterRunner(ctx context.Context, scope RegistrationScope, targetURL, runnerName string) error
+}

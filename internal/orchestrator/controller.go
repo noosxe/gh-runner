@@ -32,6 +32,11 @@ const (
 
 	// DefaultTotalAllowedRunners is the default global circuit breaker limit across all pools (OQ #4, docs/05 §3).
 	DefaultTotalAllowedRunners = 20
+	// DefaultShutdownTimeout is the default duration to wait for active runners to complete during SIGTERM (OQ #24).
+	DefaultShutdownTimeout = 300 * time.Second
+
+	// DefaultShutdownPollInterval is the frequency to poll active containers during graceful shutdown (docs/03 §7).
+	DefaultShutdownPollInterval = 5 * time.Second
 )
 
 // ProvisionRequest represents a queued runner provisioning request when the global quota is saturated.
@@ -81,30 +86,34 @@ const (
 
 // ControllerOptions configures the PoolController.
 type ControllerOptions struct {
-	DB               PoolRepository
-	JobRecorder      JobHistoryRecorder
-	ContainerEngine  ContainerProvider
-	ProviderResolver GitProviderResolver
-	Reconciler       *Reconciler
-	EventListener    *EventListener
-	DataDir          string
-	GlobalMaxRunners int
-	Interval         time.Duration
+	DB                   PoolRepository
+	JobRecorder          JobHistoryRecorder
+	ContainerEngine      ContainerProvider
+	ProviderResolver     GitProviderResolver
+	Reconciler           *Reconciler
+	EventListener        *EventListener
+	DataDir              string
+	GlobalMaxRunners     int
+	ShutdownTimeout      time.Duration
+	ShutdownPollInterval time.Duration
+	Interval             time.Duration
 }
 
 // PoolController orchestrates the lifecycle control loop across all runner pools (docs/03 §1).
 type PoolController struct {
-	mu               sync.RWMutex
-	provisionMu      sync.Mutex // single-writer provisioning lock (RUN-38)
-	db               PoolRepository
-	jobRecorder      JobHistoryRecorder
-	engine           ContainerProvider
-	providerResolver GitProviderResolver
-	reconciler       *Reconciler
-	eventListener    *EventListener
-	dataDir          string
-	globalMaxRunners int
-	interval         time.Duration
+	mu                   sync.RWMutex
+	provisionMu          sync.Mutex // single-writer provisioning lock (RUN-38)
+	db                   PoolRepository
+	jobRecorder          JobHistoryRecorder
+	engine               ContainerProvider
+	providerResolver     GitProviderResolver
+	reconciler           *Reconciler
+	eventListener        *EventListener
+	dataDir              string
+	globalMaxRunners     int
+	shutdownTimeout      time.Duration
+	shutdownPollInterval time.Duration
+	interval             time.Duration
 
 	queue         []ProvisionRequest // internal provisioning queue for quota saturation (RUN-39)
 	state         ControllerState
@@ -126,6 +135,15 @@ func NewPoolController(opts ControllerOptions) *PoolController {
 		globalMax = DefaultTotalAllowedRunners
 	}
 
+	shutdownTimeout := opts.ShutdownTimeout
+	if shutdownTimeout <= 0 {
+		shutdownTimeout = DefaultShutdownTimeout
+	}
+	shutdownPollInterval := opts.ShutdownPollInterval
+	if shutdownPollInterval <= 0 {
+		shutdownPollInterval = DefaultShutdownPollInterval
+	}
+
 	jobRec := opts.JobRecorder
 	if jobRec == nil && opts.DB != nil {
 		if rec, ok := opts.DB.(JobHistoryRecorder); ok {
@@ -134,17 +152,19 @@ func NewPoolController(opts ControllerOptions) *PoolController {
 	}
 
 	return &PoolController{
-		db:               opts.DB,
-		jobRecorder:      jobRec,
-		engine:           opts.ContainerEngine,
-		providerResolver: opts.ProviderResolver,
-		reconciler:       opts.Reconciler,
-		eventListener:    opts.EventListener,
-		dataDir:          opts.DataDir,
-		globalMaxRunners: globalMax,
-		interval:         opts.Interval,
-		state:            StateStopped,
-		logger:           logging.For("controller"),
+		db:                   opts.DB,
+		jobRecorder:          jobRec,
+		engine:               opts.ContainerEngine,
+		providerResolver:     opts.ProviderResolver,
+		reconciler:           opts.Reconciler,
+		eventListener:        opts.EventListener,
+		dataDir:              opts.DataDir,
+		globalMaxRunners:     globalMax,
+		shutdownTimeout:      shutdownTimeout,
+		shutdownPollInterval: shutdownPollInterval,
+		interval:             opts.Interval,
+		state:                StateStopped,
+		logger:               logging.For("controller"),
 	}
 }
 
@@ -476,6 +496,183 @@ func (c *PoolController) ReadinessCheck() server.Check {
 		}
 		return server.StatusOK
 	})
+}
+
+// GracefulShutdown executes the structured SIGTERM shutdown sequence (docs/03 §7, OQ #24):
+// 1. Pauses the pool replenishing loop
+// 2. Immediately deregisters and terminates all IDLE runners
+// 3. Waits up to shutdownTimeout (polling every shutdownPollInterval) for ACTIVE runners to complete
+// 4. Force-terminates any remaining containers if timeout expires
+// 5. Exits cleanly with state StateStopped.
+func (c *PoolController) GracefulShutdown(ctx context.Context) error {
+	c.provisionMu.Lock()
+	defer c.provisionMu.Unlock()
+
+	c.Pause()
+	c.logger.Info("initiated graceful shutdown protocol (SIGTERM)", "timeout", c.shutdownTimeout)
+
+	if c.reconciler == nil || c.engine == nil {
+		c.mu.Lock()
+		c.state = StateStopped
+		c.mu.Unlock()
+		return nil
+	}
+
+	// 1. Terminate IDLE runners immediately; collect busy runners
+	var activeRunners []RunnerStatus
+	c.reconciler.mu.RLock()
+	for _, poolMap := range c.reconciler.tracked {
+		for _, r := range poolMap {
+			if r.State != "running" {
+				continue
+			}
+			if !r.IsBusy {
+				c.logger.Info("terminating idle runner during graceful shutdown", "pool", r.PoolName, "id", r.ID, "name", r.Name)
+				c.deregisterRunner(ctx, r)
+				_ = c.engine.TerminateRunner(ctx, r.ID)
+			} else {
+				activeRunners = append(activeRunners, r)
+			}
+		}
+	}
+	c.reconciler.mu.RUnlock()
+
+	// Clean untracked idle runners
+	c.reconciler.mu.Lock()
+	for _, poolMap := range c.reconciler.tracked {
+		for id, r := range poolMap {
+			if r.State == "running" && !r.IsBusy {
+				delete(poolMap, id)
+			}
+		}
+	}
+	c.reconciler.mu.Unlock()
+
+	if len(activeRunners) == 0 {
+		c.logger.Info("no active runners remaining, graceful shutdown completed cleanly")
+		c.mu.Lock()
+		c.state = StateStopped
+		c.mu.Unlock()
+		return nil
+	}
+
+	c.logger.Info("waiting for active runners to complete", "count", len(activeRunners), "timeout", c.shutdownTimeout)
+
+	// 2. Poll active containers every shutdownPollInterval up to shutdownTimeout
+	timeoutChan := time.After(c.shutdownTimeout)
+	ticker := time.NewTicker(c.shutdownPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			c.logger.Warn("context canceled during graceful shutdown, force-terminating remainder")
+			c.forceTerminateRemaining(ctx)
+			c.mu.Lock()
+			c.state = StateStopped
+			c.mu.Unlock()
+			return ctx.Err()
+
+		case <-timeoutChan:
+			c.logger.Warn("shutdown timeout exceeded, force-terminating remaining active runners", "timeout", c.shutdownTimeout)
+			c.forceTerminateRemaining(ctx)
+			c.mu.Lock()
+			c.state = StateStopped
+			c.mu.Unlock()
+			return nil
+
+		case <-ticker.C:
+			// Audit host containers to detect finished jobs
+			report, err := c.reconciler.Audit(ctx)
+			if err == nil {
+				for _, exited := range report.Exited {
+					c.reapContainer(ctx, exited.ID, exited.PoolName)
+				}
+			}
+
+			if c.TotalActiveRunners() == 0 {
+				c.logger.Info("all active runners finished jobs cleanly, graceful shutdown complete")
+				c.mu.Lock()
+				c.state = StateStopped
+				c.mu.Unlock()
+				return nil
+			}
+			c.logger.Info("active runners still in progress", "remaining", c.TotalActiveRunners())
+		}
+	}
+}
+
+// ImmediateShutdown executes the immediate SIGINT (Ctrl+C) shutdown protocol (docs/03 §7):
+// 1. Pauses the pool replenishing loop
+// 2. Immediately deregisters and terminates all IDLE runners
+// 3. Sends SIGTERM to all ACTIVE runner containers (Docker's 10s grace period applies)
+// 4. Transitions controller to StateStopped.
+func (c *PoolController) ImmediateShutdown(ctx context.Context) error {
+	c.provisionMu.Lock()
+	defer c.provisionMu.Unlock()
+
+	c.Pause()
+	c.logger.Info("initiated immediate shutdown protocol (SIGINT)")
+
+	c.forceTerminateRemaining(ctx)
+
+	c.mu.Lock()
+	c.state = StateStopped
+	c.mu.Unlock()
+
+	c.logger.Info("immediate shutdown completed cleanly")
+	return nil
+}
+
+func (c *PoolController) forceTerminateRemaining(ctx context.Context) {
+	if c.reconciler == nil || c.engine == nil {
+		return
+	}
+	c.reconciler.mu.Lock()
+	defer c.reconciler.mu.Unlock()
+
+	for poolName, poolMap := range c.reconciler.tracked {
+		for id, r := range poolMap {
+			if r.State == "running" {
+				c.deregisterRunner(ctx, r)
+				_ = c.engine.TerminateRunner(ctx, id)
+				delete(poolMap, id)
+			}
+		}
+		if len(poolMap) == 0 {
+			delete(c.reconciler.tracked, poolName)
+		}
+	}
+}
+
+func (c *PoolController) deregisterRunner(ctx context.Context, r RunnerStatus) {
+	if c.providerResolver == nil {
+		return
+	}
+	pools, err := c.loadPools(ctx)
+	if err != nil {
+		return
+	}
+	for _, p := range pools {
+		if p.Name == r.PoolName {
+			gitProv, err := c.providerResolver.ResolveProvider(ctx, p.AuthProfileID)
+			if err != nil {
+				return
+			}
+			if dereg, ok := gitProv.(provider.RunnerDeregistrar); ok {
+				runnerName := r.Name
+				if runnerName == "" {
+					runnerName = r.ID
+				}
+				if err := dereg.DeregisterRunner(ctx, provider.RegistrationScope(p.Scope), p.RepositoryUrl, runnerName); err != nil {
+					c.logger.Warn("failed to deregister runner via provider API", "runner", runnerName, "err", err)
+				} else {
+					c.logger.Info("successfully deregistered runner via provider API", "runner", runnerName)
+				}
+			}
+			return
+		}
+	}
 }
 
 func (c *PoolController) loadPools(ctx context.Context) ([]db.RunnerPool, error) {
