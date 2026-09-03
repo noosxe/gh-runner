@@ -2,8 +2,19 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { AppRouter, router } from "./router";
 
-// Mock the query hooks to return instant data without network
+// Mock the query hooks and fetchers to return instant authenticated state
 vi.mock("./lib/api/query-hooks", () => ({
+  fetchOnboardingStatus: vi.fn().mockResolvedValue({
+    setupComplete: true,
+    adminCreated: true,
+    authProfileExists: true,
+    poolExists: true,
+  }),
+  fetchSession: vi.fn().mockResolvedValue({
+    username: "admin",
+    isAdmin: true,
+  }),
+  useLogout: () => vi.fn(),
   useSystemStats: () => ({
     data: { totalActiveRunners: 3, totalIdleRunners: 2 },
     isLoading: false,

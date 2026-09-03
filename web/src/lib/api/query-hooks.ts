@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   authClient,
   poolClient,
@@ -55,6 +55,33 @@ export function useSetAppSetting() {
   });
 }
 
+// Direct Query Helpers (used for route guards and preloading)
+export async function fetchOnboardingStatus(qc: QueryClient) {
+  return await qc.ensureQueryData({
+    queryKey: queryKeys.onboardingStatus,
+    queryFn: async () => {
+      const res = await onboardingClient.getOnboardingStatus({});
+      return res;
+    },
+    staleTime: 30_000,
+  });
+}
+
+export async function fetchSession(qc: QueryClient) {
+  try {
+    return await qc.ensureQueryData({
+      queryKey: queryKeys.session,
+      queryFn: async () => {
+        const res = await authClient.getSession({});
+        return res;
+      },
+      staleTime: 60_000,
+    });
+  } catch {
+    return null;
+  }
+}
+
 // Auth Service Hooks
 export function useSession() {
   return useQuery({
@@ -78,6 +105,14 @@ export function useLogin() {
       queryClient.invalidateQueries({ queryKey: queryKeys.session });
     },
   });
+}
+
+export function useLogout() {
+  const queryClient = useQueryClient();
+  return () => {
+    queryClient.setQueryData(queryKeys.session, null);
+    queryClient.invalidateQueries({ queryKey: queryKeys.session });
+  };
 }
 
 export function useSetupAdmin() {
