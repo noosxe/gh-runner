@@ -270,11 +270,11 @@ export function useDeleteAuthProfile() {
 }
 
 // Analytics Service Hooks
-export function useSystemStats() {
+export function useSystemStats(timeframeHours = 24) {
   return useQuery({
-    queryKey: queryKeys.systemStats,
+    queryKey: [...queryKeys.systemStats, timeframeHours] as const,
     queryFn: async () => {
-      const res = await analyticsClient.getSystemStats({});
+      const res = await analyticsClient.getSystemStats({ timeframeHours });
       return res;
     },
     staleTime: 5_000,

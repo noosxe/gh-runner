@@ -302,7 +302,18 @@ message GetJobRecordResponse {
   JobRecord job = 1;
 }
 
-message GetSystemStatsRequest {}
+message LatencyBucket {
+  string timestamp = 1;
+  double avg_queue_seconds = 2;
+  double avg_runtime_seconds = 3;
+  int32 total_jobs = 4;
+  int32 successful_jobs = 5;
+  int32 failed_jobs = 6;
+}
+
+message GetSystemStatsRequest {
+  int32 timeframe_hours = 1; // 0 defaults to 24h
+}
 
 message GetSystemStatsResponse {
   int32 total_active_runners = 1;
@@ -313,6 +324,7 @@ message GetSystemStatsResponse {
   int32 failed_jobs_24h = 6;
   double average_runtime_seconds = 7;
   double success_rate_percent = 8;
+  repeated LatencyBucket queue_latency_trend = 9;
 }
 
 message WatchDashboardRequest {

@@ -259,6 +259,9 @@ func TestAnalyticsJobHistoryAndStats(t *testing.T) {
 	if resMsg.SuccessRatePercent < expectedRate-1.0 || resMsg.SuccessRatePercent > expectedRate+1.0 {
 		t.Errorf("success_rate_percent = %f, want ~%f", resMsg.SuccessRatePercent, expectedRate)
 	}
+	if len(resMsg.QueueLatencyTrend) == 0 {
+		t.Errorf("expected non-empty queue latency trend")
+	}
 	if resMsg.AverageQueueTimeSeconds <= 0 {
 		t.Errorf("average_queue_time_seconds = %f, want > 0", resMsg.AverageQueueTimeSeconds)
 	}

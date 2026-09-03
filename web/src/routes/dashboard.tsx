@@ -1,11 +1,52 @@
+import { useState } from "react";
 import { useSystemStats, usePools, useJobHistory } from "../lib/api/query-hooks";
-import { Activity, CheckCircle2, Clock, Server, XCircle } from "lucide-react";
+import { QueueLatencyChart } from "../components/analytics/queue-latency-chart";
+import { SuccessFailureWidget } from "../components/analytics/success-failure-widget";
+import { Activity, CheckCircle2, Clock, Server, XCircle, Terminal } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
+function formatDuration(seconds: number): string {
+  if (!seconds || seconds <= 0) return "—";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  const remSec = Math.round(seconds % 60);
+  if (mins < 60) return `${mins}m ${remSec}s`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hours}h ${remMins}m`;
+}
+
+function formatTimestamp(isoString?: string): string {
+  if (!isoString) return "—";
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return isoString;
+  }
+}
+
 export function DashboardPage() {
-  const { data: stats, isLoading: statsLoading } = useSystemStats();
+  const [timeframeHours, setTimeframeHours] = useState(24);
+
+  const { data: stats, isLoading: statsLoading } = useSystemStats(timeframeHours);
   const { data: pools, isLoading: poolsLoading } = usePools();
   const { data: history } = useJobHistory({ limit: 5 });
+
+  const totalJobs = stats?.totalJobs24h ?? 0;
+  const successfulJobs = stats?.successfulJobs24h ?? 0;
+  const failedJobs = stats?.failedJobs24h ?? 0;
+  const successRate = stats?.successRatePercent ?? (totalJobs === 0 ? 100 : 0);
+  const avgQueueSeconds = stats?.averageQueueTimeSeconds ?? 0;
+  const avgRuntimeSeconds = stats?.averageRuntimeSeconds ?? 0;
+  const trend = stats?.queueLatencyTrend ?? [];
 
   return (
     <div className="space-y-8">
@@ -16,19 +57,29 @@ export function DashboardPage() {
             Dashboard Overview
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Real-time supervisor metrics, runner utilization, and health state.
+            Real-time supervisor metrics, queue wait-time analytics, runner capacity, and execution
+            health.
           </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Link
+            to="/pools"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+          >
+            <span>Manage Pools</span>
+          </Link>
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* Primary KPI Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>ACTIVE RUNNERS</span>
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <span>Active Runners</span>
             <Activity className="h-4 w-4 text-emerald-500" />
           </div>
-          <div className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">
+          <div className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white font-mono">
             {statsLoading ? "..." : `${stats?.totalActiveRunners ?? 0} active`}
           </div>
           <div className="mt-1 text-xs text-slate-400">
@@ -37,52 +88,79 @@ export function DashboardPage() {
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>24H JOBS EXECUTED</span>
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <span>{timeframeHours}h Jobs Executed</span>
             <Server className="h-4 w-4 text-blue-500" />
           </div>
-          <div className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">
-            {statsLoading ? "..." : (stats?.totalJobs24h ?? 0)}
+          <div className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white font-mono">
+            {statsLoading ? "..." : totalJobs}
           </div>
           <div className="mt-1 text-xs text-slate-400">
-            Avg queue wait: {(stats?.averageQueueTimeSeconds ?? 0).toFixed(1)}s
+            Avg queue wait: {avgQueueSeconds.toFixed(1)}s
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>SUCCESS RATE</span>
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <span>Success Rate</span>
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
           </div>
-          <div className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">
-            {statsLoading ? "..." : `${(stats?.successRatePercent ?? 100).toFixed(1)}%`}
+          <div className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white font-mono">
+            {statsLoading ? "..." : `${successRate.toFixed(1)}%`}
           </div>
           <div className="mt-1 text-xs text-slate-400">
-            {stats?.successfulJobs24h ?? 0} passed / {stats?.failedJobs24h ?? 0} failed
+            {successfulJobs} passed / {failedJobs} failed
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>AVG RUNTIME</span>
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <span>Avg Runtime</span>
             <Clock className="h-4 w-4 text-indigo-500" />
           </div>
-          <div className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">
-            {statsLoading ? "..." : `${(stats?.averageRuntimeSeconds ?? 0).toFixed(0)}s`}
+          <div className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white font-mono">
+            {statsLoading ? "..." : formatDuration(avgRuntimeSeconds)}
           </div>
-          <div className="mt-1 text-xs text-slate-400">Job completion latency</div>
+          <div className="mt-1 text-xs text-slate-400">Job completion duration</div>
+        </div>
+      </div>
+
+      {/* Analytics Graphs Section */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <QueueLatencyChart
+            trend={trend}
+            averageQueueSeconds={avgQueueSeconds}
+            timeframeHours={timeframeHours}
+            onTimeframeChange={setTimeframeHours}
+          />
+        </div>
+
+        <div className="lg:col-span-1">
+          <SuccessFailureWidget
+            totalJobs={totalJobs}
+            successfulJobs={successfulJobs}
+            failedJobs={failedJobs}
+            successRatePercent={successRate}
+            averageRuntimeSeconds={avgRuntimeSeconds}
+          />
         </div>
       </div>
 
       {/* Pools Summary */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-            Configured Runner Pools
-          </h2>
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+              Configured Runner Pools
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Active dynamic scaling pools and container resource allocations.
+            </p>
+          </div>
           <Link
             to="/pools"
-            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+            className="text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400"
           >
             View All Pools &rarr;
           </Link>
@@ -107,7 +185,7 @@ export function DashboardPage() {
                   <span className="font-semibold text-slate-900 group-hover:text-blue-600 dark:text-white dark:group-hover:text-blue-400">
                     {p.name}
                   </span>
-                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                     {p.provider}
                   </span>
                 </div>
@@ -136,7 +214,21 @@ export function DashboardPage() {
 
       {/* Recent History */}
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Recent Executions</h2>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Recent Executions</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Latest ephemeral workflow jobs completed across runner pools.
+            </p>
+          </div>
+          <Link
+            to="/history"
+            className="text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400"
+          >
+            View Full History &rarr;
+          </Link>
+        </div>
+
         {!history?.jobs || history.jobs.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
             No executions recorded in the last 24h.
@@ -146,21 +238,38 @@ export function DashboardPage() {
             <table className="w-full text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
-                  <th className="p-3.5 font-medium">Status</th>
-                  <th className="p-3.5 font-medium">Runner Name</th>
-                  <th className="p-3.5 font-medium">Started At</th>
-                  <th className="p-3.5 font-medium">Completed At</th>
+                  <th className="p-3.5 font-semibold uppercase tracking-wider text-[11px]">
+                    Status
+                  </th>
+                  <th className="p-3.5 font-semibold uppercase tracking-wider text-[11px]">
+                    Runner Name
+                  </th>
+                  <th className="p-3.5 font-semibold uppercase tracking-wider text-[11px]">
+                    Duration
+                  </th>
+                  <th className="p-3.5 font-semibold uppercase tracking-wider text-[11px]">
+                    Queue Wait
+                  </th>
+                  <th className="p-3.5 font-semibold uppercase tracking-wider text-[11px]">
+                    Completed At
+                  </th>
+                  <th className="p-3.5 font-semibold uppercase tracking-wider text-[11px] text-right">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {history.jobs.map((job) => (
-                  <tr key={job.id.toString()}>
+                  <tr
+                    key={job.id.toString()}
+                    className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
+                  >
                     <td className="p-3.5">
                       <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
                           job.status === "success"
-                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-                            : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900"
+                            : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-900"
                         }`}
                       >
                         {job.status === "success" ? (
@@ -171,11 +280,28 @@ export function DashboardPage() {
                         {job.status}
                       </span>
                     </td>
-                    <td className="p-3.5 font-mono text-slate-900 dark:text-slate-100">
+                    <td className="p-3.5 font-mono font-medium text-slate-900 dark:text-slate-100">
                       {job.runnerName}
                     </td>
-                    <td className="p-3.5 text-slate-500">{job.startedAt || "-"}</td>
-                    <td className="p-3.5 text-slate-500">{job.completedAt || "-"}</td>
+                    <td className="p-3.5 font-mono text-slate-600 dark:text-slate-300">
+                      {formatDuration(job.durationSeconds)}
+                    </td>
+                    <td className="p-3.5 font-mono text-slate-500">
+                      {job.queueTimeSeconds > 0 ? `${job.queueTimeSeconds.toFixed(1)}s` : "—"}
+                    </td>
+                    <td className="p-3.5 font-mono text-slate-500 text-[11px]">
+                      {formatTimestamp(job.completedAt)}
+                    </td>
+                    <td className="p-3.5 text-right">
+                      <Link
+                        to="/history/$jobId"
+                        params={{ jobId: job.id.toString() }}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-blue-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-400 dark:hover:bg-slate-700"
+                      >
+                        <Terminal className="h-3 w-3" />
+                        <span>Logs</span>
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>

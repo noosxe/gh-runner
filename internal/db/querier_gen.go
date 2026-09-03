@@ -40,6 +40,7 @@ type Querier interface {
 	GetAuditLogById(ctx context.Context, id int64) (AuditLog, error)
 	GetAuthProfileById(ctx context.Context, id int64) (AuthProfile, error)
 	GetAuthProfileByName(ctx context.Context, name string) (AuthProfile, error)
+	GetHourlyJobStatsSince(ctx context.Context, createdAt time.Time) ([]GetHourlyJobStatsSinceRow, error)
 	GetJobHistoryById(ctx context.Context, id int64) (JobHistory, error)
 	GetJobStatsSince(ctx context.Context, createdAt time.Time) (GetJobStatsSinceRow, error)
 	GetRenovateConfigByPoolId(ctx context.Context, poolID int64) (RenovateConfig, error)
