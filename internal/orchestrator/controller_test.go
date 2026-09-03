@@ -43,6 +43,7 @@ func (m *mockGitProviderResolver) ResolveProvider(ctx context.Context, authProfi
 
 type mockGitProvider struct {
 	tokensIssued []string
+	deregistered []string
 	validateErr  error
 	tokenErr     error
 }
@@ -54,6 +55,11 @@ func (m *mockGitProvider) GetRegistrationToken(ctx context.Context, scope provid
 	token := "reg-token-mock"
 	m.tokensIssued = append(m.tokensIssued, token)
 	return token, nil
+}
+
+func (m *mockGitProvider) DeregisterRunner(ctx context.Context, scope provider.RegistrationScope, targetURL, runnerName string) error {
+	m.deregistered = append(m.deregistered, runnerName)
+	return nil
 }
 
 func (m *mockGitProvider) ValidateCredentials(ctx context.Context) error {
@@ -594,6 +600,245 @@ func TestPoolController_HungRunnerAutoTermination(t *testing.T) {
 	tracked := reconciler.TrackedPoolRunners("timeout-pool")
 	if len(tracked) != 1 || tracked[0].ID != "fresh-container-2" {
 		t.Errorf("fresh container should still be running, tracked: %+v", tracked)
+	}
+}
+
+func TestPoolController_GracefulShutdown_SIGTERM(t *testing.T) {
+	ctx := context.Background()
+
+	pool := db.RunnerPool{
+		ID:            100,
+		Name:          "shutdown-pool",
+		Provider:      "github",
+		RepositoryUrl: "https://github.com/owner/shutdown-repo",
+		Scope:         "repo",
+		AuthProfileID: 1,
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{1: gitProv},
+	}
+
+	terminated := make([]string, 0)
+	mockEngine := &orchestrator.MockContainerProvider{
+		TerminateRunnerFn: func(ctx context.Context, containerID string) error {
+			terminated = append(terminated, containerID)
+			return nil
+		},
+	}
+
+	reconciler := orchestrator.NewReconciler(mockEngine)
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:                   repo,
+		ContainerEngine:      mockEngine,
+		ProviderResolver:     resolver,
+		Reconciler:           reconciler,
+		ShutdownTimeout:      1 * time.Second,
+		ShutdownPollInterval: 20 * time.Millisecond,
+	})
+
+	// Setup: 1 idle runner and 1 busy runner
+	idleRunner := orchestrator.RunnerStatus{
+		ID:        "idle-runner-1",
+		Name:      "idle-1",
+		PoolName:  "shutdown-pool",
+		State:     "running",
+		IsBusy:    false,
+		SpawnedAt: time.Now().UTC(),
+	}
+	busyRunner := orchestrator.RunnerStatus{
+		ID:        "busy-runner-2",
+		Name:      "busy-2",
+		PoolName:  "shutdown-pool",
+		State:     "running",
+		IsBusy:    true,
+		SpawnedAt: time.Now().UTC(),
+	}
+
+	reconciler.TrackRunner(idleRunner)
+	reconciler.TrackRunner(busyRunner)
+
+	auditCalls := 0
+	mockEngine.AuditRunnersFn = func(ctx context.Context) ([]orchestrator.RunnerStatus, error) {
+		auditCalls++
+		if auditCalls == 1 {
+			// First audit: runner is still running
+			return []orchestrator.RunnerStatus{busyRunner}, nil
+		}
+		// Subsequent audit: runner has exited (job finished)
+		return []orchestrator.RunnerStatus{
+			{ID: "busy-runner-2", Name: "busy-2", PoolName: "shutdown-pool", State: "exited"},
+		}, nil
+	}
+
+	// Execute SIGTERM graceful shutdown
+	err := ctrl.GracefulShutdown(ctx)
+	if err != nil {
+		t.Fatalf("GracefulShutdown failed: %v", err)
+	}
+
+	// 1. Controller state must be StateStopped
+	if ctrl.State() != orchestrator.StateStopped {
+		t.Errorf("expected StateStopped, got %v", ctrl.State())
+	}
+
+	// 2. Idle runner terminated immediately
+	idleTerminated := false
+	for _, id := range terminated {
+		if id == "idle-runner-1" {
+			idleTerminated = true
+		}
+	}
+	if !idleTerminated {
+		t.Errorf("expected idle runner to be terminated immediately")
+	}
+
+	// 3. Busy runner allowed to complete and then reaped
+	busyTerminated := false
+	for _, id := range terminated {
+		if id == "busy-runner-2" {
+			busyTerminated = true
+		}
+	}
+	if !busyTerminated {
+		t.Errorf("expected busy runner to be reaped on job completion")
+	}
+
+	// 4. Zero ghost registrations: provider deregistration called for runners
+	if len(gitProv.deregistered) == 0 {
+		t.Errorf("expected provider DeregisterRunner to be called")
+	}
+}
+
+func TestPoolController_GracefulShutdown_TimeoutExceeded(t *testing.T) {
+	ctx := context.Background()
+
+	pool := db.RunnerPool{
+		ID:            101,
+		Name:          "timeout-shutdown-pool",
+		Provider:      "github",
+		RepositoryUrl: "https://github.com/owner/timeout-repo",
+		Scope:         "repo",
+		AuthProfileID: 1,
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{1: gitProv},
+	}
+
+	terminated := make([]string, 0)
+	mockEngine := &orchestrator.MockContainerProvider{
+		TerminateRunnerFn: func(ctx context.Context, containerID string) error {
+			terminated = append(terminated, containerID)
+			return nil
+		},
+	}
+
+	reconciler := orchestrator.NewReconciler(mockEngine)
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:                   repo,
+		ContainerEngine:      mockEngine,
+		ProviderResolver:     resolver,
+		Reconciler:           reconciler,
+		ShutdownTimeout:      50 * time.Millisecond, // Short timeout
+		ShutdownPollInterval: 10 * time.Millisecond,
+	})
+
+	busyRunner := orchestrator.RunnerStatus{
+		ID:        "busy-runner-stuck",
+		Name:      "busy-stuck",
+		PoolName:  "timeout-shutdown-pool",
+		State:     "running",
+		IsBusy:    true,
+		SpawnedAt: time.Now().UTC(),
+	}
+	reconciler.TrackRunner(busyRunner)
+
+	// Container never exits, remains running
+	mockEngine.AuditRunnersFn = func(ctx context.Context) ([]orchestrator.RunnerStatus, error) {
+		return []orchestrator.RunnerStatus{busyRunner}, nil
+	}
+
+	// Graceful shutdown should wait up to 50ms and then force terminate
+	if err := ctrl.GracefulShutdown(ctx); err != nil {
+		t.Fatalf("GracefulShutdown failed: %v", err)
+	}
+
+	if ctrl.State() != orchestrator.StateStopped {
+		t.Errorf("expected StateStopped, got %v", ctrl.State())
+	}
+
+	// Container must be force-terminated
+	forceTerminated := false
+	for _, id := range terminated {
+		if id == "busy-runner-stuck" {
+			forceTerminated = true
+		}
+	}
+	if !forceTerminated {
+		t.Errorf("expected stuck busy runner to be force terminated after timeout")
+	}
+}
+
+func TestPoolController_ImmediateShutdown_SIGINT(t *testing.T) {
+	ctx := context.Background()
+
+	pool := db.RunnerPool{
+		ID:            102,
+		Name:          "immediate-pool",
+		Provider:      "github",
+		RepositoryUrl: "https://github.com/owner/immediate-repo",
+		Scope:         "repo",
+		AuthProfileID: 1,
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{1: gitProv},
+	}
+
+	terminated := make([]string, 0)
+	mockEngine := &orchestrator.MockContainerProvider{
+		TerminateRunnerFn: func(ctx context.Context, containerID string) error {
+			terminated = append(terminated, containerID)
+			return nil
+		},
+	}
+
+	reconciler := orchestrator.NewReconciler(mockEngine)
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler,
+	})
+
+	r1 := orchestrator.RunnerStatus{ID: "runner-idle", Name: "r-idle", PoolName: "immediate-pool", State: "running", IsBusy: false}
+	r2 := orchestrator.RunnerStatus{ID: "runner-busy", Name: "r-busy", PoolName: "immediate-pool", State: "running", IsBusy: true}
+	reconciler.TrackRunner(r1)
+	reconciler.TrackRunner(r2)
+
+	// Immediate shutdown: all containers terminated immediately
+	if err := ctrl.ImmediateShutdown(ctx); err != nil {
+		t.Fatalf("ImmediateShutdown failed: %v", err)
+	}
+
+	if ctrl.State() != orchestrator.StateStopped {
+		t.Errorf("expected StateStopped, got %v", ctrl.State())
+	}
+
+	if len(terminated) != 2 {
+		t.Fatalf("expected both runners terminated immediately, got %d", len(terminated))
+	}
+
+	// Deregistered called for both
+	if len(gitProv.deregistered) != 2 {
+		t.Errorf("expected both runners deregistered with provider, got %d", len(gitProv.deregistered))
 	}
 }
 

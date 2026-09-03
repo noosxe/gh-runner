@@ -36,6 +36,7 @@ type RunnerStatus struct {
 	IPAddress string    `json:"ip_address"`
 	ExitCode  int       `json:"exit_code"`
 	SpawnedAt time.Time `json:"spawned_at"`
+	IsBusy    bool      `json:"is_busy,omitempty"`
 }
 
 // ContainerProvider abstracts container lifecycle operations from the underlying container engine.
