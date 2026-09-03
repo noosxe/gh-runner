@@ -4,10 +4,48 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/labstack/echo/v5"
+	"github.com/noosxe/gh-runner/web"
 )
+
+// DisabledJSONCodec explicitly overrides the default "json" codec in Connect,
+// enforcing that JSON payloads are rejected because binary protocol is mandatory (docs/06 §1).
+type DisabledJSONCodec struct{}
+
+func (d DisabledJSONCodec) Name() string { return "json" }
+func (d DisabledJSONCodec) Marshal(any) ([]byte, error) {
+	return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("binary protocol mandatory: JSON transport is disabled per docs/06 §1"))
+}
+func (d DisabledJSONCodec) Unmarshal([]byte, any) error {
+	return connect.NewError(connect.CodeInvalidArgument, errors.New("binary protocol mandatory: JSON transport is disabled per docs/06 §1"))
+}
+
+// BinaryProtocolInterceptor inspects Connect requests to ensure no JSON content-type is permitted.
+func BinaryProtocolInterceptor() connect.UnaryInterceptorFunc {
+	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			ct := req.Header().Get("Content-Type")
+			if strings.Contains(ct, "json") {
+				return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("binary protocol mandatory: JSON transport is disabled per docs/06 §1"))
+			}
+			return next(ctx, req)
+		}
+	}
+}
+
+// BinaryConnectHandlerOptions returns the standard Connect HandlerOptions enforcing
+// mandatory binary protocol transport (docs/06 §1).
+func BinaryConnectHandlerOptions() []connect.HandlerOption {
+	return []connect.HandlerOption{
+		connect.WithCodec(DisabledJSONCodec{}),
+		connect.WithInterceptors(connect.UnaryInterceptorFunc(BinaryProtocolInterceptor())),
+	}
+}
 
 // Options configures New.
 type Options struct {
@@ -20,15 +58,20 @@ type Options struct {
 	// the DB probe in M2, Docker and auditor probes in M5, the control
 	// loop in M6 (OQ #19, RUN-10).
 	Health *Health
+
+	// StaticFS is the filesystem containing built SPA assets (index.html, js, css).
+	// If nil, defaults to the embedded web.Dist() filesystem (docs/06 §2, RUN-44).
+	StaticFS fs.FS
 }
 
 // Server is the supervisor's HTTP server: an Echo v5 instance (docs/06 §1)
-// that today serves only the health endpoints. M7 (RUN-44) mounts the
-// ConnectRPC handlers and the embedded SPA on this same instance.
+// that serves health endpoints, ConnectRPC services (binary transport mandatory),
+// and the embedded SPA.
 type Server struct {
-	echo   *echo.Echo
-	http   *http.Server
-	health *Health
+	echo     *echo.Echo
+	http     *http.Server
+	health   *Health
+	staticFS fs.FS
 }
 
 // New builds the server and its routes. Construction is infallible: routes
@@ -41,15 +84,28 @@ func New(opts Options) *Server {
 	e.Logger = logger
 
 	s := &Server{
-		echo:   e,
-		health: opts.Health,
+		echo:     e,
+		health:   opts.Health,
+		staticFS: opts.StaticFS,
 	}
 	if s.health == nil {
 		s.health = NewHealth()
 	}
+	if s.staticFS == nil {
+		if dist, err := web.Dist(); err == nil {
+			s.staticFS = dist
+		}
+	}
+
+	// Middleware: enforce binary protocol on Connect RPC routes
+	e.Use(s.enforceBinaryTransportMiddleware)
 
 	e.GET("/healthz", s.handleHealthz)
 	e.GET("/readyz", s.handleReadyz)
+
+	// SPA fallback routes (catch-all GET/HEAD, falls back to index.html)
+	e.GET("/*", s.serveSPA)
+	e.HEAD("/*", s.serveSPA)
 
 	s.http = &http.Server{
 		Addr:    fmt.Sprintf(":%d", opts.Port),
@@ -112,4 +168,58 @@ func reportHTTPStatus(status, okStatus string) int {
 		return http.StatusServiceUnavailable
 	}
 	return http.StatusOK
+}
+
+// Echo returns the underlying Echo instance.
+func (s *Server) Echo() *echo.Echo {
+	return s.echo
+}
+
+// MountConnectHandler registers a ConnectRPC service handler on Echo.
+func (s *Server) MountConnectHandler(pattern string, handler http.Handler) {
+	prefix := strings.TrimSuffix(pattern, "/")
+	wrapped := echo.WrapHandler(handler)
+	s.echo.Any(prefix, wrapped)
+	s.echo.Any(prefix+"/*", wrapped)
+}
+
+func (s *Server) serveSPA(c *echo.Context) error {
+	if s.staticFS == nil {
+		return c.String(http.StatusNotFound, "frontend assets not found")
+	}
+
+	reqPath := strings.TrimPrefix(c.Request().URL.Path, "/")
+	// Never serve SPA index.html for API / Connect RPC endpoints
+	if strings.HasPrefix(reqPath, "supervisor.v1.") || strings.HasPrefix(reqPath, "healthz") || strings.HasPrefix(reqPath, "readyz") {
+		return c.String(http.StatusNotFound, "not found")
+	}
+
+	if reqPath == "" {
+		reqPath = "index.html"
+	}
+
+	// If the file exists in staticFS, serve it directly
+	if f, err := s.staticFS.Open(reqPath); err == nil {
+		_ = f.Close()
+		return c.FileFS(reqPath, s.staticFS)
+	}
+
+	// Fallback to index.html for client-side routing (TanStack Router)
+	return c.FileFS("index.html", s.staticFS)
+}
+
+func (s *Server) enforceBinaryTransportMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		path := c.Request().URL.Path
+		if strings.HasPrefix(path, "/supervisor.v1.") {
+			ct := c.Request().Header.Get("Content-Type")
+			if strings.Contains(ct, "json") {
+				return c.JSON(http.StatusUnsupportedMediaType, map[string]string{
+					"code":    "invalid_argument",
+					"message": "binary protocol mandatory: JSON transport is disabled per docs/06 §1",
+				})
+			}
+		}
+		return next(c)
+	}
 }

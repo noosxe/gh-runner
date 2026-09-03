@@ -5,7 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"connectrpc.com/connect"
+	supervisorv1 "github.com/noosxe/gh-runner/internal/pb/supervisor/v1"
+	"github.com/noosxe/gh-runner/internal/pb/supervisor/v1/supervisorv1connect"
 )
 
 // do executes a request against the server's routing handler without
@@ -121,12 +126,11 @@ func TestHealthEndpointsProbeStateIsLive(t *testing.T) {
 	}
 }
 
-// TestUnknownRouteAnswers404 verifies only the two health routes are
-// mounted at this milestone (the ConnectRPC handlers arrive in M7).
+// TestUnknownRouteAnswers404 verifies unknown API routes answer 404 rather than falling back to SPA index.
 func TestUnknownRouteAnswers404(t *testing.T) {
 	s := New(Options{Port: 8080})
-	if rec := do(t, s, "/nope"); rec.Code != http.StatusNotFound {
-		t.Errorf("GET /nope = %d, want %d", rec.Code, http.StatusNotFound)
+	if rec := do(t, s, "/supervisor.v1.UnknownService/Method"); rec.Code != http.StatusNotFound {
+		t.Errorf("GET /supervisor.v1.UnknownService/Method = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
 
@@ -141,5 +145,82 @@ func TestDefaultHealthRegistryMounted(t *testing.T) {
 	}
 	if rec := do(t, s, "/readyz"); rec.Code != http.StatusOK {
 		t.Errorf("GET /readyz = %d, want %d with no probes", rec.Code, http.StatusOK)
+	}
+}
+
+func TestSPAFallbackRouting(t *testing.T) {
+	s := New(Options{Port: 8080})
+
+	// 1. Root path serves index.html
+	rec := do(t, s, "/")
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET / = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "AIO Supervisor") {
+		t.Errorf("expected SPA index content, got: %s", rec.Body.String())
+	}
+
+	// 2. Client-side routes fallback to index.html
+	recPools := do(t, s, "/pools")
+	if recPools.Code != http.StatusOK {
+		t.Errorf("GET /pools = %d, want 200", recPools.Code)
+	}
+	if !strings.Contains(recPools.Body.String(), "AIO Supervisor") {
+		t.Errorf("expected SPA fallback for /pools, got: %s", recPools.Body.String())
+	}
+
+	// 3. Unknown API route returns 404, not index.html
+	recAPI := do(t, s, "/supervisor.v1.UnknownService/Method")
+	if recAPI.Code != http.StatusNotFound {
+		t.Errorf("unknown API route should return 404, got: %d", recAPI.Code)
+	}
+}
+
+type mockAuthService struct {
+	supervisorv1connect.UnimplementedAuthServiceHandler
+}
+
+func (m *mockAuthService) GetSession(ctx context.Context, req *connect.Request[supervisorv1.GetSessionRequest]) (*connect.Response[supervisorv1.GetSessionResponse], error) {
+	return connect.NewResponse(&supervisorv1.GetSessionResponse{
+		Username: "admin",
+		IsAdmin:  true,
+	}), nil
+}
+
+func TestConnectBinaryTransportWiring(t *testing.T) {
+	s := New(Options{Port: 8080})
+	authPath, authHandler := supervisorv1connect.NewAuthServiceHandler(
+		&mockAuthService{},
+		BinaryConnectHandlerOptions()...,
+	)
+	s.MountConnectHandler(authPath, authHandler)
+
+	// Start a test server with s.Handler()
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	// 1. Acceptance: Connect unary call round-trips binary successfully
+	client := supervisorv1connect.NewAuthServiceClient(ts.Client(), ts.URL)
+	res, err := client.GetSession(context.Background(), connect.NewRequest(&supervisorv1.GetSessionRequest{}))
+	if err != nil {
+		t.Fatalf("binary Connect unary call failed: %v", err)
+	}
+	if res.Msg.Username != "admin" || !res.Msg.IsAdmin {
+		t.Errorf("unexpected response message: %+v", res.Msg)
+	}
+
+	// 2. Acceptance: JSON transport is rejected (binary protocol mandatory per docs/06 §1)
+	jsonReq, err := http.NewRequest(http.MethodPost, ts.URL+"/supervisor.v1.AuthService/GetSession", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("failed to create JSON request: %v", err)
+	}
+	jsonReq.Header.Set("Content-Type", "application/json")
+	jsonResp, err := ts.Client().Do(jsonReq)
+	if err != nil {
+		t.Fatalf("JSON request failed: %v", err)
+	}
+	_ = jsonResp.Body.Close()
+	if jsonResp.StatusCode != http.StatusUnsupportedMediaType && jsonResp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected JSON transport to be rejected with 415 or 400, got: %d", jsonResp.StatusCode)
 	}
 }
