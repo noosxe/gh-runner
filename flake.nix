@@ -55,9 +55,6 @@
             echo "   shellcheck:      $(shellcheck --version | grep 'version:' | awk '{print $2}')"
             echo "   shfmt:           $(shfmt --version)"
             echo "======================================================="
-            echo "💡 Tip: You can install beads/bd via:"
-            echo "   CGO_ENABLED=0 go install github.com/steveyegge/beads/cmd/bd@latest"
-            echo ""
           '';
         };
       }
