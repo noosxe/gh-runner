@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/noosxe/gh-runner/internal/db"
@@ -62,6 +63,12 @@ func parseLabels(raw string) []string {
 }
 
 func (s *PoolService) toProto(p db.RunnerPool) *supervisorv1.Pool {
+	return ConvertDBPoolToProto(p, s.statsProvider)
+}
+
+// ConvertDBPoolToProto converts a db.RunnerPool row into a supervisorv1.Pool protobuf message,
+// attaching runtime active/idle runner counts from the provided stats provider if available.
+func ConvertDBPoolToProto(p db.RunnerPool, stats PoolStatsProvider) *supervisorv1.Pool {
 	protoPool := &supervisorv1.Pool{
 		Id:                       p.ID,
 		Name:                     p.Name,
@@ -79,8 +86,8 @@ func (s *PoolService) toProto(p db.RunnerPool) *supervisorv1.Pool {
 		MaxRunnerLifetimeSeconds: int32(p.MaxRunnerLifetimeSeconds),
 	}
 
-	if s.statsProvider != nil {
-		active, idle := s.statsProvider.PoolStats(p.Name)
+	if stats != nil {
+		active, idle := stats.PoolStats(p.Name)
 		protoPool.ActiveRunners = active
 		protoPool.IdleRunners = idle
 	}
@@ -307,4 +314,47 @@ func (s *PoolService) DeletePool(ctx context.Context, req *connect.Request[super
 	return connect.NewResponse(&supervisorv1.DeletePoolResponse{
 		Success: true,
 	}), nil
+}
+
+// WatchPools provides near-realtime server-streaming push of pool states and runner counts.
+func (s *PoolService) WatchPools(ctx context.Context, req *connect.Request[supervisorv1.WatchPoolsRequest], stream *connect.ServerStream[supervisorv1.WatchPoolsResponse]) error {
+	intervalMs := req.Msg.IntervalMs
+	if intervalMs < 250 {
+		intervalMs = 1000
+	}
+	if intervalMs > 10000 {
+		intervalMs = 10000
+	}
+	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
+	defer ticker.Stop()
+
+	sendSnapshot := func() error {
+		dbPools, err := s.db.ListRunnerPools(ctx)
+		if err != nil {
+			return connect.NewError(connect.CodeInternal, fmt.Errorf("listing runner pools: %w", err))
+		}
+		protoPools := make([]*supervisorv1.Pool, 0, len(dbPools))
+		for _, p := range dbPools {
+			protoPools = append(protoPools, s.toProto(p))
+		}
+		return stream.Send(&supervisorv1.WatchPoolsResponse{
+			Pools: protoPools,
+		})
+	}
+
+	// Send initial snapshot immediately
+	if err := sendSnapshot(); err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := sendSnapshot(); err != nil {
+				return err
+			}
+		}
+	}
 }

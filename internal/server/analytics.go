@@ -19,6 +19,7 @@ type AnalyticsDatabase interface {
 	ListJobHistory(ctx context.Context, arg db.ListJobHistoryParams) ([]db.JobHistory, error)
 	ListJobHistoryByPoolId(ctx context.Context, arg db.ListJobHistoryByPoolIdParams) ([]db.JobHistory, error)
 	GetJobStatsSince(ctx context.Context, createdAt time.Time) (db.GetJobStatsSinceRow, error)
+	ListRunnerPools(ctx context.Context) ([]db.RunnerPool, error)
 }
 
 // SystemStatsProvider provides live active/idle runner counts across all pools.
@@ -32,13 +33,15 @@ type AnalyticsService struct {
 	supervisorv1connect.UnimplementedAnalyticsServiceHandler
 	db            AnalyticsDatabase
 	statsProvider SystemStatsProvider
+	poolStats     PoolStatsProvider
 }
 
 // NewAnalyticsService constructs an AnalyticsService instance.
-func NewAnalyticsService(database AnalyticsDatabase, statsProvider SystemStatsProvider) *AnalyticsService {
+func NewAnalyticsService(database AnalyticsDatabase, statsProvider SystemStatsProvider, poolStats PoolStatsProvider) *AnalyticsService {
 	return &AnalyticsService{
 		db:            database,
 		statsProvider: statsProvider,
+		poolStats:     poolStats,
 	}
 }
 
@@ -185,4 +188,82 @@ func (s *AnalyticsService) GetSystemStats(ctx context.Context, _ *connect.Reques
 		AverageRuntimeSeconds:   avgRuntime,
 		SuccessRatePercent:      successRate,
 	}), nil
+}
+
+// WatchDashboard provides near-realtime server-streaming push of system stats, pool states, and recent jobs.
+func (s *AnalyticsService) WatchDashboard(ctx context.Context, req *connect.Request[supervisorv1.WatchDashboardRequest], stream *connect.ServerStream[supervisorv1.WatchDashboardResponse]) error {
+	intervalMs := req.Msg.IntervalMs
+	if intervalMs < 250 {
+		intervalMs = 1000
+	}
+	if intervalMs > 10000 {
+		intervalMs = 10000
+	}
+	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
+	defer ticker.Stop()
+
+	sendSnapshot := func() error {
+		statsResp, err := s.GetSystemStats(ctx, connect.NewRequest(&supervisorv1.GetSystemStatsRequest{}))
+		if err != nil {
+			return err
+		}
+
+		dbPools, err := s.db.ListRunnerPools(ctx)
+		if err != nil {
+			return connect.NewError(connect.CodeInternal, fmt.Errorf("listing runner pools: %w", err))
+		}
+		protoPools := make([]*supervisorv1.Pool, 0, len(dbPools))
+		for _, p := range dbPools {
+			protoPools = append(protoPools, ConvertDBPoolToProto(p, s.poolStats))
+		}
+
+		jobs, err := s.db.ListJobHistory(ctx, db.ListJobHistoryParams{
+			Limit:  10,
+			Offset: 0,
+		})
+		if err != nil {
+			return connect.NewError(connect.CodeInternal, fmt.Errorf("listing recent jobs: %w", err))
+		}
+		recentJobs := make([]*supervisorv1.JobRecord, 0, len(jobs))
+		for _, j := range jobs {
+			rec := &supervisorv1.JobRecord{
+				Id:         j.ID,
+				PoolId:     j.PoolID,
+				RunnerName: j.RunnerName,
+				Status:     j.Status,
+			}
+			if j.QueuedAt.Valid {
+				rec.QueuedAt = j.QueuedAt.Time.Format(time.RFC3339)
+			}
+			if j.StartedAt.Valid {
+				rec.StartedAt = j.StartedAt.Time.Format(time.RFC3339)
+			}
+			if j.CompletedAt.Valid {
+				rec.CompletedAt = j.CompletedAt.Time.Format(time.RFC3339)
+			}
+			recentJobs = append(recentJobs, rec)
+		}
+
+		return stream.Send(&supervisorv1.WatchDashboardResponse{
+			Stats:      statsResp.Msg,
+			Pools:      protoPools,
+			RecentJobs: recentJobs,
+		})
+	}
+
+	// Send initial snapshot immediately
+	if err := sendSnapshot(); err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := sendSnapshot(); err != nil {
+				return err
+			}
+		}
+	}
 }

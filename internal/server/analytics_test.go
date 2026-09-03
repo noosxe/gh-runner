@@ -207,3 +207,123 @@ func TestAnalyticsJobHistoryAndStats(t *testing.T) {
 		t.Errorf("average_runtime_seconds = %f, want > 0", resMsg.AverageRuntimeSeconds)
 	}
 }
+
+func TestAnalyticsServiceWatchDashboard(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	database, jwtSecret := setupTestDB(t)
+	stats := &mockSystemStats{
+		active: 8,
+		idle:   2,
+	}
+
+	srv := server.New(server.Options{
+		Port:             8080,
+		AuthDB:           database,
+		PoolDB:           database,
+		AnalyticsDB:      database,
+		SystemStats:      stats,
+		JWTSigningSecret: jwtSecret,
+	})
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Authenticate
+	authClient := supervisorv1connect.NewAuthServiceClient(ts.Client(), ts.URL)
+	_, err := authClient.SetupAdmin(ctx, connect.NewRequest(&supervisorv1.SetupAdminRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("SetupAdmin failed: %v", err)
+	}
+
+	loginRes, err := authClient.Login(ctx, connect.NewRequest(&supervisorv1.LoginRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("Login failed: %v", err)
+	}
+	cookie := loginRes.Header().Get("Set-Cookie")
+	rawCookie := strings.Split(strings.Split(cookie, ";")[0], "=")[1]
+
+	// Seed auth profile and runner pool
+	authProf, err := database.CreateAuthProfile(ctx, db.CreateAuthProfileParams{
+		Name:           "watch-dash-auth",
+		AuthMethod:     "pat",
+		TokenEncrypted: sql.NullString{String: "dummy-token", Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateAuthProfile failed: %v", err)
+	}
+
+	pool, err := database.CreateRunnerPool(ctx, db.CreateRunnerPoolParams{
+		Name:           "watch-dash-pool",
+		Provider:       "github",
+		RepositoryUrl:  "https://github.com/org/repo",
+		AuthProfileID:  authProf.ID,
+		Scope:          "repo",
+		MinIdleRunners: 2,
+		MaxConcurrency: 10,
+	})
+	if err != nil {
+		t.Fatalf("CreateRunnerPool failed: %v", err)
+	}
+
+	// Seed Job History
+	now := time.Now().UTC()
+	_, err = database.CreateJobHistory(ctx, db.CreateJobHistoryParams{
+		PoolID:     pool.ID,
+		RunnerName: "runner-watch-1",
+		Status:     "success",
+		QueuedAt:   sql.NullTime{Time: now.Add(-10 * time.Minute), Valid: true},
+		StartedAt:  sql.NullTime{Time: now.Add(-9 * time.Minute), Valid: true},
+		CompletedAt: sql.NullTime{Time: now.Add(-5 * time.Minute), Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateJobHistory failed: %v", err)
+	}
+
+	client := supervisorv1connect.NewAnalyticsServiceClient(ts.Client(), ts.URL)
+	watchReq := connect.NewRequest(&supervisorv1.WatchDashboardRequest{
+		IntervalMs: 250,
+	})
+	watchReq.Header().Set("Cookie", "session_token="+rawCookie)
+
+	stream, err := client.WatchDashboard(ctx, watchReq)
+	if err != nil {
+		t.Fatalf("WatchDashboard failed: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	// First message: immediate snapshot
+	if !stream.Receive() {
+		t.Fatalf("expected initial message from WatchDashboard, got none (err: %v)", stream.Err())
+	}
+
+	msg := stream.Msg()
+	if msg.Stats == nil {
+		t.Fatalf("expected non-nil stats in WatchDashboard")
+	}
+	if msg.Stats.TotalActiveRunners != 8 || msg.Stats.TotalIdleRunners != 2 {
+		t.Errorf("stats mismatch: active=%d, idle=%d", msg.Stats.TotalActiveRunners, msg.Stats.TotalIdleRunners)
+	}
+	if len(msg.Pools) != 1 || msg.Pools[0].Name != "watch-dash-pool" {
+		t.Errorf("expected 1 pool named 'watch-dash-pool', got: %+v", msg.Pools)
+	}
+	if len(msg.RecentJobs) != 1 || msg.RecentJobs[0].RunnerName != "runner-watch-1" {
+		t.Errorf("expected 1 recent job with runner 'runner-watch-1', got: %+v", msg.RecentJobs)
+	}
+
+	// Cancel context to ensure clean shutdown
+	cancel()
+	for stream.Receive() {
+		// drain remaining
+	}
+	if err := stream.Err(); err != nil && !strings.Contains(err.Error(), "canceled") {
+		t.Errorf("unexpected error on stream cancel: %v", err)
+	}
+}
