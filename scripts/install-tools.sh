@@ -23,7 +23,4 @@ go install github.com/air-verse/air@latest
 # golangci-lint
 go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
-# beads (bd) for issue tracking
-CGO_ENABLED=0 go install github.com/steveyegge/beads/cmd/bd@latest
-
 echo "All tools installed successfully!"
