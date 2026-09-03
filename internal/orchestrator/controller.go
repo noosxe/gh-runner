@@ -71,16 +71,21 @@ type ControllerOptions struct {
 	ContainerEngine  ContainerProvider
 	ProviderResolver GitProviderResolver
 	Reconciler       *Reconciler
+	EventListener    *EventListener
+	DataDir          string
 	Interval         time.Duration
 }
 
 // PoolController orchestrates the lifecycle control loop across all runner pools (docs/03 §1).
 type PoolController struct {
 	mu               sync.RWMutex
+	provisionMu      sync.Mutex // single-writer provisioning lock (RUN-38)
 	db               PoolRepository
 	engine           ContainerProvider
 	providerResolver GitProviderResolver
 	reconciler       *Reconciler
+	eventListener    *EventListener
+	dataDir          string
 	interval         time.Duration
 
 	state         ControllerState
@@ -102,6 +107,8 @@ func NewPoolController(opts ControllerOptions) *PoolController {
 		engine:           opts.ContainerEngine,
 		providerResolver: opts.ProviderResolver,
 		reconciler:       opts.Reconciler,
+		eventListener:    opts.EventListener,
+		dataDir:          opts.DataDir,
 		interval:         opts.Interval,
 		state:            StateStopped,
 		logger:           logging.For("controller"),
@@ -194,8 +201,11 @@ func (c *PoolController) Boot(ctx context.Context) error {
 }
 
 // Reconcile executes a single reconciliation cycle across all pools:
-// audits running containers, detects exited containers, and provisions replacements to maintain min_idle_runners.
+// audits running containers, detects exited containers, reaps them, and provisions replacements (docs/03 §1, §4).
 func (c *PoolController) Reconcile(ctx context.Context) error {
+	c.provisionMu.Lock()
+	defer c.provisionMu.Unlock()
+
 	c.mu.RLock()
 	state := c.state
 	c.mu.RUnlock()
@@ -206,8 +216,14 @@ func (c *PoolController) Reconcile(ctx context.Context) error {
 
 	// 1. Audit containers across all pools
 	if c.reconciler != nil {
-		if _, err := c.reconciler.Audit(ctx); err != nil {
+		report, err := c.reconciler.Audit(ctx)
+		if err != nil {
 			c.logger.Warn("audit cycle failed", "err", err)
+		} else {
+			// Reap any exited containers detected during audit cycle
+			for _, exited := range report.Exited {
+				c.reapContainer(ctx, exited.ID, exited.PoolName)
+			}
 		}
 	}
 
@@ -231,10 +247,79 @@ func (c *PoolController) Reconcile(ctx context.Context) error {
 	return nil
 }
 
+// HandleContainerEvent processes real-time Docker events ("die", "destroy").
+// Reaps exited containers and immediately provisions a replacement idle runner (single-writer per docs/03 §1, §4).
+func (c *PoolController) HandleContainerEvent(ctx context.Context, event ContainerEvent) error {
+	c.mu.RLock()
+	state := c.state
+	c.mu.RUnlock()
+
+	if state == StatePaused || state == StateStopped {
+		return nil
+	}
+
+	if event.Action != "die" && event.Action != "destroy" {
+		return nil
+	}
+
+	c.provisionMu.Lock()
+	defer c.provisionMu.Unlock()
+
+	c.logger.Info("handling container exit event", "pool", event.PoolName, "id", event.ContainerID, "action", event.Action)
+
+	// 1. Reap dead container
+	c.reapContainer(ctx, event.ContainerID, event.PoolName)
+
+	// 2. Replenish target pool immediately
+	if event.PoolName != "" {
+		pools, err := c.loadPools(ctx)
+		if err != nil {
+			return fmt.Errorf("loading pools during event reap: %w", err)
+		}
+		for _, p := range pools {
+			if p.Name == event.PoolName {
+				return c.reconcilePool(ctx, p)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *PoolController) reapContainer(ctx context.Context, containerID, poolName string) {
+	if c.dataDir != "" && c.engine != nil {
+		if _, err := c.engine.CaptureLogs(ctx, containerID, c.dataDir); err != nil {
+			c.logger.Warn("capturing exit logs before container removal", "id", containerID, "err", err)
+		}
+	}
+	if c.engine != nil {
+		if err := c.engine.TerminateRunner(ctx, containerID); err != nil {
+			c.logger.Warn("terminating exited runner container", "id", containerID, "err", err)
+		}
+	}
+	if c.reconciler != nil {
+		c.reconciler.UntrackRunner(poolName, containerID)
+	}
+}
+
 // Start boots the controller and runs the continuous periodic reconciliation loop until ctx is canceled.
 func (c *PoolController) Start(ctx context.Context) error {
 	if err := c.Boot(ctx); err != nil {
 		return err
+	}
+
+	if c.eventListener != nil {
+		if c.dataDir != "" && c.engine != nil {
+			c.eventListener.SetLogCapturer(func(ctx context.Context, id string) error {
+				_, err := c.engine.CaptureLogs(ctx, id, c.dataDir)
+				return err
+			})
+		}
+		go func() {
+			_ = c.eventListener.Listen(ctx, func(evt ContainerEvent) {
+				_ = c.HandleContainerEvent(ctx, evt)
+			})
+		}()
 	}
 
 	ticker := time.NewTicker(c.interval)

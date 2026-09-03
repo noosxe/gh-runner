@@ -233,3 +233,101 @@ func TestPoolController_BootEngineUnreachable(t *testing.T) {
 		t.Errorf("expected StateStopped, got %v", ctrl.State())
 	}
 }
+
+func TestPoolController_HandleContainerEvent_ReapAndReplenish(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+
+	pool := db.RunnerPool{
+		ID:             1,
+		Name:           "event-pool",
+		Provider:       "github",
+		RepositoryUrl:  "https://github.com/owner/event-repo",
+		Scope:          "repo",
+		AuthProfileID:  20,
+		MinIdleRunners: 2,
+		RunnerImage:    "ghcr.io/noosxe/gh-runner:latest",
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	tokensFetched := 0
+	gitProv := &mockGitProvider{}
+	gitProv.tokensIssued = make([]string, 0)
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{20: gitProv},
+	}
+
+	terminatedIDs := make([]string, 0)
+	logsCapturedIDs := make([]string, 0)
+	spawnedIDs := make([]string, 0)
+
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			tokensFetched++
+			id := "runner-" + config.Name
+			spawnedIDs = append(spawnedIDs, id)
+			return id, nil
+		},
+		TerminateRunnerFn: func(ctx context.Context, containerID string) error {
+			terminatedIDs = append(terminatedIDs, containerID)
+			return nil
+		},
+		CaptureLogsFn: func(ctx context.Context, containerID, dataDir string) (string, error) {
+			logsCapturedIDs = append(logsCapturedIDs, containerID)
+			return orchestrator.LogPath(dataDir, containerID), nil
+		},
+	}
+
+	reconciler := orchestrator.NewReconciler(mockEngine)
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler,
+		DataDir:          tempDir,
+	})
+
+	// 1. Boot up: spawns 2 idle runners
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("ctrl.Boot failed: %v", err)
+	}
+
+	if len(spawnedIDs) != 2 {
+		t.Fatalf("expected 2 spawned on boot, got %d", len(spawnedIDs))
+	}
+	firstRunnerID := spawnedIDs[0]
+
+	// 2. Container completes job and dies -> "die" event arrives
+	event := orchestrator.ContainerEvent{
+		ContainerID: firstRunnerID,
+		PoolName:    "event-pool",
+		Action:      "die",
+		ExitCode:    0,
+	}
+
+	// Handle event: must capture logs, terminate dead container, and immediately replenish
+	if err := ctrl.HandleContainerEvent(ctx, event); err != nil {
+		t.Fatalf("HandleContainerEvent failed: %v", err)
+	}
+
+	// Acceptance: dead container reaped, exit logs captured before prune
+	if len(logsCapturedIDs) != 1 || logsCapturedIDs[0] != firstRunnerID {
+		t.Errorf("expected logs captured for %s, got: %v", firstRunnerID, logsCapturedIDs)
+	}
+	if len(terminatedIDs) != 1 || terminatedIDs[0] != firstRunnerID {
+		t.Errorf("expected container %s terminated, got: %v", firstRunnerID, terminatedIDs)
+	}
+
+	// Replacement runner spawned with fresh token, converging back to target 2 idle runners
+	if len(spawnedIDs) != 3 {
+		t.Fatalf("expected 3 total spawns (2 initial + 1 replacement), got %d", len(spawnedIDs))
+	}
+	if tokensFetched != 3 {
+		t.Errorf("expected fresh token requested per spawn (3 total), got %d", tokensFetched)
+	}
+
+	tracked := reconciler.TrackedPoolRunners("event-pool")
+	if len(tracked) != 2 {
+		t.Fatalf("expected 2 active runners in pool, got %d", len(tracked))
+	}
+}
