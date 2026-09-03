@@ -12,7 +12,10 @@ The Web Control Interface is an embedded Single Page Application (SPA) compiled 
 | Layer | Technology | Rationale & Standards |
 | :--- | :--- | :--- |
 | **Framework** | **React 19** + **TypeScript** | Strict type safety aligned with generated Protobuf stubs (`web/src/gen/*`). |
+| **Package Manager** | **pnpm** | Mandated across the repository for all Node/frontend dependency management. |
 | **Build Tooling** | **Vite** | Fast HMR in development; optimized Rollup chunks for Alpine multi-stage Docker build. |
+| **Linting & Formatting** | **oxlint** + **oxfmt** | Rust-based Oxc toolchain replacing ESLint/Prettier for sub-second static analysis and formatting. |
+| **Testing** | **Vitest** + **Testing Library** | Fast in-memory unit tests with `jsdom` test runner. |
 | **Routing** | **TanStack Router** (`@tanstack/react-router`) | Type-safe search params, nested layouts, route loaders, and redirect guards. |
 | **State & API** | **TanStack Query** (`@tanstack/react-query`) + **Connect-Web** | Binary Protobuf transport client (`@connectrpc/connect-web`), zero JSON transport. |
 | **Styling** | **TailwindCSS** | Strictly utility-first CSS; zero custom `.css` stylesheets or manual selectors. |

@@ -1,0 +1,4 @@
+{
+  "plugins": ["react"],
+  "ignorePatterns": ["dist/**", "src/gen/**", "node_modules/**"]
+}

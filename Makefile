@@ -13,7 +13,7 @@ export CGO_ENABLED := 0
 BINARY := supervisor
 PKG     := ./...
 
-.PHONY: build test test-scripts lint fmt vet tidy clean generate proto-lint
+.PHONY: build build-web test test-scripts test-web lint lint-web fmt fmt-web vet tidy clean generate proto-lint
 
 ## generate: run code generation tools (sqlc, buf)
 generate:
@@ -24,6 +24,10 @@ generate:
 proto-lint:
 	buf lint proto
 
+## build-web: compile Vite/React frontend SPA into web/dist
+build-web:
+	cd web && pnpm run build
+
 ## build: compile all packages and produce the supervisor binary
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/$(BINARY) ./cmd/$(BINARY)
@@ -31,6 +35,18 @@ build:
 ## test: run the Go test suite
 test:
 	go test $(PKG)
+
+## test-web: run frontend Vitest suite
+test-web:
+	cd web && pnpm test
+
+## lint-web: run frontend Oxlint and Oxfmt checks
+lint-web:
+	cd web && pnpm run lint && pnpm run format:check
+
+## fmt-web: format frontend sources in place with oxfmt
+fmt-web:
+	cd web && pnpm run format
 
 ## test-scripts: run unit tests for runner image scripts
 test-scripts:

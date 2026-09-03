@@ -25,6 +25,8 @@ The backend daemon is engineered to be modular, extensible, and free of heavy CG
 The Web Control Interface is a Single Page Application (SPA) bundled and served by the Go backend.
 
 - **Framework**: **React** with **TypeScript**, built via **Vite**.
+- **Package Manager**: **pnpm** is strictly mandated across the repository for all Node/frontend dependency management.
+- **Linting & Formatting**: **oxlint** and **oxfmt** (from the Rust-based Oxc project) replace legacy ESLint and Prettier, providing sub-second static analysis and deterministic formatting.
 - **Routing**: **TanStack Router** (`@tanstack/react-router`) handles all client-side navigation.
 - **Data Fetching & RPC**: **TanStack Query** (`@tanstack/react-query`) is deeply integrated with the ConnectRPC client clients for fetching, caching, and mutating data.
 - **Ecosystem**: The use of other available `@tanstack` libraries is highly encouraged where applicable.
@@ -40,7 +42,7 @@ The Web Control Interface is a Single Page Application (SPA) bundled and served 
 The Supervisor is packaged as a lightweight, multi-stage Docker image to keep the final footprint minimal and avoid shipping build toolchains to production.
 
 - **Stage 1: Frontend Build (`node:24-alpine`)**
-  - Installs Node dependencies and builds the Vite/React/TypeScript web application.
+  - Installs Node dependencies via `pnpm install --frozen-lockfile` and builds the Vite/React/TypeScript web application (`pnpm run build`).
 - **Stage 2: Backend Build (`golang:1.26-alpine`)**
   - The static output directory from the frontend build stage is copied into this stage.
   - The frontend assets are embedded directly into the Go application using the native `go:embed` directive.
