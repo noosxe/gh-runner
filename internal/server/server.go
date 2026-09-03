@@ -75,6 +75,17 @@ type Options struct {
 	// PoolStats provides live runtime runner counts and reload capabilities (RUN-46).
 	PoolStats PoolStatsProvider
 
+	// AuthProfileDB is the database interface used for auth profiles.
+	// If nil, AuthProfileService is not automatically mounted.
+	AuthProfileDB AuthProfileDatabase
+
+	// DBEncryptionKey is the 256-bit AES key derived from SUPERVISOR_DB_ENCRYPTION_KEY
+	// used to encrypt auth profile secrets at rest (docs/05 §5, keys.LabelDBEncryption).
+	DBEncryptionKey []byte
+
+	// CredentialValidator optionally validates credentials against upstream providers on profile create.
+	CredentialValidator CredentialValidator
+
 	// JWTSigningSecret is the 256-bit HMAC key derived from SUPERVISOR_DB_ENCRYPTION_KEY
 	// used to cryptographically sign session JWT tokens (docs/05 §5, keys.LabelJWTSigning).
 	JWTSigningSecret []byte
@@ -138,6 +149,13 @@ func New(opts Options) *Server {
 	if opts.PoolDB != nil {
 		poolSvc := NewPoolService(opts.PoolDB, opts.PoolStats)
 		path, handler := supervisorv1connect.NewPoolServiceHandler(poolSvc, s.ConnectHandlerOptions()...)
+		s.MountConnectHandler(path, handler)
+	}
+
+	// Mount AuthProfileService if auth profile database is provided (RUN-47)
+	if opts.AuthProfileDB != nil {
+		authProfileSvc := NewAuthProfileService(opts.AuthProfileDB, opts.DBEncryptionKey, opts.CredentialValidator)
+		path, handler := supervisorv1connect.NewAuthProfileServiceHandler(authProfileSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}
 
