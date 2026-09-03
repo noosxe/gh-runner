@@ -2084,16 +2084,19 @@ func (x *SetAppSettingResponse) GetValue() string {
 }
 
 type JobRecord struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	PoolId        int64                  `protobuf:"varint,2,opt,name=pool_id,json=poolId,proto3" json:"pool_id,omitempty"`
-	RunnerName    string                 `protobuf:"bytes,3,opt,name=runner_name,json=runnerName,proto3" json:"runner_name,omitempty"`
-	Status        string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
-	QueuedAt      string                 `protobuf:"bytes,5,opt,name=queued_at,json=queuedAt,proto3" json:"queued_at,omitempty"`
-	StartedAt     string                 `protobuf:"bytes,6,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	CompletedAt   string                 `protobuf:"bytes,7,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	PoolId           int64                  `protobuf:"varint,2,opt,name=pool_id,json=poolId,proto3" json:"pool_id,omitempty"`
+	RunnerName       string                 `protobuf:"bytes,3,opt,name=runner_name,json=runnerName,proto3" json:"runner_name,omitempty"`
+	Status           string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	QueuedAt         string                 `protobuf:"bytes,5,opt,name=queued_at,json=queuedAt,proto3" json:"queued_at,omitempty"`
+	StartedAt        string                 `protobuf:"bytes,6,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	CompletedAt      string                 `protobuf:"bytes,7,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
+	DurationSeconds  float64                `protobuf:"fixed64,8,opt,name=duration_seconds,json=durationSeconds,proto3" json:"duration_seconds,omitempty"`
+	QueueTimeSeconds float64                `protobuf:"fixed64,9,opt,name=queue_time_seconds,json=queueTimeSeconds,proto3" json:"queue_time_seconds,omitempty"`
+	PoolName         string                 `protobuf:"bytes,10,opt,name=pool_name,json=poolName,proto3" json:"pool_name,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *JobRecord) Reset() {
@@ -2175,11 +2178,34 @@ func (x *JobRecord) GetCompletedAt() string {
 	return ""
 }
 
+func (x *JobRecord) GetDurationSeconds() float64 {
+	if x != nil {
+		return x.DurationSeconds
+	}
+	return 0
+}
+
+func (x *JobRecord) GetQueueTimeSeconds() float64 {
+	if x != nil {
+		return x.QueueTimeSeconds
+	}
+	return 0
+}
+
+func (x *JobRecord) GetPoolName() string {
+	if x != nil {
+		return x.PoolName
+	}
+	return ""
+}
+
 type GetJobHistoryRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PoolId        int64                  `protobuf:"varint,1,opt,name=pool_id,json=poolId,proto3" json:"pool_id,omitempty"` // 0 for all
 	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
 	Offset        int32                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	Search        string                 `protobuf:"bytes,4,opt,name=search,proto3" json:"search,omitempty"` // search by runner name
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"` // filter by status (e.g. success, failure, running)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2233,6 +2259,20 @@ func (x *GetJobHistoryRequest) GetOffset() int32 {
 		return x.Offset
 	}
 	return 0
+}
+
+func (x *GetJobHistoryRequest) GetSearch() string {
+	if x != nil {
+		return x.Search
+	}
+	return ""
+}
+
+func (x *GetJobHistoryRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
 }
 
 type GetJobHistoryResponse struct {
@@ -3694,7 +3734,7 @@ const file_api_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"?\n" +
 	"\x15SetAppSettingResponse\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"\xcc\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"\xc2\x02\n" +
 	"\tJobRecord\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
 	"\apool_id\x18\x02 \x01(\x03R\x06poolId\x12\x1f\n" +
@@ -3704,11 +3744,17 @@ const file_api_proto_rawDesc = "" +
 	"\tqueued_at\x18\x05 \x01(\tR\bqueuedAt\x12\x1d\n" +
 	"\n" +
 	"started_at\x18\x06 \x01(\tR\tstartedAt\x12!\n" +
-	"\fcompleted_at\x18\a \x01(\tR\vcompletedAt\"]\n" +
+	"\fcompleted_at\x18\a \x01(\tR\vcompletedAt\x12)\n" +
+	"\x10duration_seconds\x18\b \x01(\x01R\x0fdurationSeconds\x12,\n" +
+	"\x12queue_time_seconds\x18\t \x01(\x01R\x10queueTimeSeconds\x12\x1b\n" +
+	"\tpool_name\x18\n" +
+	" \x01(\tR\bpoolName\"\x8d\x01\n" +
 	"\x14GetJobHistoryRequest\x12\x17\n" +
 	"\apool_id\x18\x01 \x01(\x03R\x06poolId\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x16\n" +
-	"\x06offset\x18\x03 \x01(\x05R\x06offset\"f\n" +
+	"\x06offset\x18\x03 \x01(\x05R\x06offset\x12\x16\n" +
+	"\x06search\x18\x04 \x01(\tR\x06search\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\"f\n" +
 	"\x15GetJobHistoryResponse\x12,\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x18.supervisor.v1.JobRecordR\x04jobs\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +

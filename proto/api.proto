@@ -275,12 +275,17 @@ message JobRecord {
   string queued_at = 5;
   string started_at = 6;
   string completed_at = 7;
+  double duration_seconds = 8;
+  double queue_time_seconds = 9;
+  string pool_name = 10;
 }
 
 message GetJobHistoryRequest {
   int64 pool_id = 1; // 0 for all
   int32 limit = 2;
   int32 offset = 3;
+  string search = 4; // search by runner name
+  string status = 5; // filter by status (e.g. success, failure, running)
 }
 
 message GetJobHistoryResponse {

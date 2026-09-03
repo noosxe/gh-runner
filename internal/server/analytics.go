@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -18,6 +19,8 @@ type AnalyticsDatabase interface {
 	CountJobHistoryByPoolId(ctx context.Context, poolID int64) (int64, error)
 	ListJobHistory(ctx context.Context, arg db.ListJobHistoryParams) ([]db.JobHistory, error)
 	ListJobHistoryByPoolId(ctx context.Context, arg db.ListJobHistoryByPoolIdParams) ([]db.JobHistory, error)
+	SearchJobHistory(ctx context.Context, arg db.SearchJobHistoryParams) ([]db.JobHistory, error)
+	CountSearchJobHistory(ctx context.Context, arg db.CountSearchJobHistoryParams) (int64, error)
 	GetJobStatsSince(ctx context.Context, createdAt time.Time) (db.GetJobStatsSinceRow, error)
 	ListRunnerPools(ctx context.Context) ([]db.RunnerPool, error)
 }
@@ -81,7 +84,7 @@ func toInt32(v any) int32 {
 	}
 }
 
-// GetJobHistory retrieves paginated job history optionally filtered by pool_id.
+// GetJobHistory retrieves paginated job history with optional search, status, and pool_id filters.
 func (s *AnalyticsService) GetJobHistory(ctx context.Context, req *connect.Request[supervisorv1.GetJobHistoryRequest]) (*connect.Response[supervisorv1.GetJobHistoryResponse], error) {
 	limit := req.Msg.Limit
 	if limit <= 0 {
@@ -96,34 +99,37 @@ func (s *AnalyticsService) GetJobHistory(ctx context.Context, req *connect.Reque
 		offset = 0
 	}
 
-	var jobs []db.JobHistory
-	var totalCount int64
-	var err error
+	search := strings.TrimSpace(req.Msg.Search)
+	status := strings.TrimSpace(strings.ToLower(req.Msg.Status))
+	if status == "all" {
+		status = ""
+	}
 
-	if req.Msg.PoolId > 0 {
-		totalCount, err = s.db.CountJobHistoryByPoolId(ctx, req.Msg.PoolId)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("counting job history: %w", err))
-		}
-		jobs, err = s.db.ListJobHistoryByPoolId(ctx, db.ListJobHistoryByPoolIdParams{
-			PoolID: req.Msg.PoolId,
-			Limit:  int64(limit),
-			Offset: int64(offset),
-		})
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("listing job history: %w", err))
-		}
-	} else {
-		totalCount, err = s.db.CountJobHistory(ctx)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("counting job history: %w", err))
-		}
-		jobs, err = s.db.ListJobHistory(ctx, db.ListJobHistoryParams{
-			Limit:  int64(limit),
-			Offset: int64(offset),
-		})
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("listing job history: %w", err))
+	totalCount, err := s.db.CountSearchJobHistory(ctx, db.CountSearchJobHistoryParams{
+		PoolID: req.Msg.PoolId,
+		Search: search,
+		Status: status,
+	})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("counting job history: %w", err))
+	}
+
+	jobs, err := s.db.SearchJobHistory(ctx, db.SearchJobHistoryParams{
+		PoolID: req.Msg.PoolId,
+		Search: search,
+		Status: status,
+		Limit:  int64(limit),
+		Offset: int64(offset),
+	})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("searching job history: %w", err))
+	}
+
+	// Lookup pool names
+	poolMap := make(map[int64]string)
+	if pools, err := s.db.ListRunnerPools(ctx); err == nil {
+		for _, p := range pools {
+			poolMap[p.ID] = p.Name
 		}
 	}
 
@@ -138,6 +144,7 @@ func (s *AnalyticsService) GetJobHistory(ctx context.Context, req *connect.Reque
 			PoolId:     j.PoolID,
 			RunnerName: j.RunnerName,
 			Status:     j.Status,
+			PoolName:   poolMap[j.PoolID],
 		}
 		if j.QueuedAt.Valid {
 			rec.QueuedAt = j.QueuedAt.Time.Format(time.RFC3339)
@@ -148,6 +155,21 @@ func (s *AnalyticsService) GetJobHistory(ctx context.Context, req *connect.Reque
 		if j.CompletedAt.Valid {
 			rec.CompletedAt = j.CompletedAt.Time.Format(time.RFC3339)
 		}
+
+		if j.QueuedAt.Valid && j.StartedAt.Valid {
+			rec.QueueTimeSeconds = j.StartedAt.Time.Sub(j.QueuedAt.Time).Seconds()
+			if rec.QueueTimeSeconds < 0 {
+				rec.QueueTimeSeconds = 0
+			}
+		}
+
+		if j.StartedAt.Valid && j.CompletedAt.Valid {
+			rec.DurationSeconds = j.CompletedAt.Time.Sub(j.StartedAt.Time).Seconds()
+			if rec.DurationSeconds < 0 {
+				rec.DurationSeconds = 0
+			}
+		}
+
 		resp.Jobs = append(resp.Jobs, rec)
 	}
 

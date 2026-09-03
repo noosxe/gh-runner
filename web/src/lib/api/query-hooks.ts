@@ -16,8 +16,24 @@ export const queryKeys = {
   pool: (id: bigint) => ["pools", id.toString()] as const,
   authProfiles: ["authProfiles"] as const,
   systemStats: ["analytics", "systemStats"] as const,
-  jobHistory: (poolId?: bigint, limit?: number, offset?: number) =>
-    ["analytics", "jobHistory", { poolId: poolId?.toString(), limit, offset }] as const,
+  jobHistory: (params?: {
+    poolId?: bigint;
+    limit?: number;
+    offset?: number;
+    search?: string;
+    status?: string;
+  }) =>
+    [
+      "analytics",
+      "jobHistory",
+      {
+        poolId: params?.poolId?.toString(),
+        limit: params?.limit,
+        offset: params?.offset,
+        search: params?.search,
+        status: params?.status,
+      },
+    ] as const,
   runners: (poolId: bigint) => ["pools", poolId.toString(), "runners"] as const,
   runnerLogs: (runnerId: string) => ["logs", runnerId] as const,
 };
@@ -264,17 +280,32 @@ export function useSystemStats() {
   });
 }
 
-export function useJobHistory(poolId?: bigint, limit = 25, offset = 0) {
+export function useJobHistory(params?: {
+  poolId?: bigint;
+  limit?: number;
+  offset?: number;
+  search?: string;
+  status?: string;
+}) {
+  const poolId = params?.poolId ?? 0n;
+  const limit = params?.limit ?? 25;
+  const offset = params?.offset ?? 0;
+  const search = params?.search ?? "";
+  const status = params?.status ?? "";
+
   return useQuery({
-    queryKey: queryKeys.jobHistory(poolId, limit, offset),
+    queryKey: queryKeys.jobHistory({ poolId, limit, offset, search, status }),
     queryFn: async () => {
       const res = await analyticsClient.getJobHistory({
-        poolId: poolId ?? 0n,
+        poolId,
         limit,
         offset,
+        search,
+        status,
       });
       return res;
     },
+    staleTime: 5_000,
   });
 }
 
