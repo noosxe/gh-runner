@@ -77,6 +77,9 @@ type Options struct {
 	// PoolStats provides live runtime runner counts and reload capabilities (RUN-46).
 	PoolStats PoolStatsProvider
 
+	// RunnerMgr provides live runner container inspection and manual termination (RUN-58).
+	RunnerMgr RunnerManager
+
 	// AuthProfileDB is the database interface used for auth profiles.
 	// If nil, AuthProfileService is not automatically mounted.
 	AuthProfileDB AuthProfileDatabase
@@ -169,7 +172,7 @@ func New(opts Options) *Server {
 
 	// Mount PoolService if pool database is provided (RUN-46)
 	if opts.PoolDB != nil {
-		poolSvc := NewPoolService(opts.PoolDB, opts.PoolStats)
+		poolSvc := NewPoolService(opts.PoolDB, opts.PoolStats, opts.RunnerMgr)
 		path, handler := supervisorv1connect.NewPoolServiceHandler(poolSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}

@@ -18,6 +18,7 @@ export const queryKeys = {
   systemStats: ["analytics", "systemStats"] as const,
   jobHistory: (poolId?: bigint, limit?: number, offset?: number) =>
     ["analytics", "jobHistory", { poolId: poolId?.toString(), limit, offset }] as const,
+  runners: (poolId: bigint) => ["pools", poolId.toString(), "runners"] as const,
   runnerLogs: (runnerId: string) => ["logs", runnerId] as const,
 };
 
@@ -183,6 +184,32 @@ export function useDeletePool() {
       return await poolClient.deletePool({ id });
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pools });
+      queryClient.invalidateQueries({ queryKey: queryKeys.systemStats });
+    },
+  });
+}
+
+export function useRunners(poolId: bigint) {
+  return useQuery({
+    queryKey: queryKeys.runners(poolId),
+    queryFn: async () => {
+      const res = await poolClient.listRunners({ poolId });
+      return res.runners;
+    },
+    enabled: poolId > 0n,
+    staleTime: 3_000,
+  });
+}
+
+export function useTerminateRunner() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ poolId, containerId }: { poolId: bigint; containerId: string }) => {
+      return await poolClient.terminateRunner({ poolId, containerId });
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.runners(vars.poolId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.pools });
       queryClient.invalidateQueries({ queryKey: queryKeys.systemStats });
     },

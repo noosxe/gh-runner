@@ -33,18 +33,38 @@ type PoolStatsProvider interface {
 	Reload(ctx context.Context) error
 }
 
+// RunnerInstanceInfo represents an active runner container's runtime state.
+type RunnerInstanceInfo struct {
+	ID        string
+	Name      string
+	PoolName  string
+	State     string
+	IPAddress string
+	SpawnedAt time.Time
+	IsBusy    bool
+}
+
+// RunnerManager provides live runner container inspection and manual kill operations.
+// *orchestrator.PoolController satisfies this interface.
+type RunnerManager interface {
+	PoolRunners(poolName string) []RunnerInstanceInfo
+	TerminateRunner(ctx context.Context, poolName, containerID string) error
+}
+
 // PoolService implements supervisorv1connect.PoolServiceHandler.
 type PoolService struct {
 	supervisorv1connect.UnimplementedPoolServiceHandler
 	db            PoolDatabase
 	statsProvider PoolStatsProvider
+	runnerMgr     RunnerManager
 }
 
 // NewPoolService constructs a PoolService instance.
-func NewPoolService(database PoolDatabase, statsProvider PoolStatsProvider) *PoolService {
+func NewPoolService(database PoolDatabase, statsProvider PoolStatsProvider, runnerMgr RunnerManager) *PoolService {
 	return &PoolService{
 		db:            database,
 		statsProvider: statsProvider,
+		runnerMgr:     runnerMgr,
 	}
 }
 
@@ -357,4 +377,140 @@ func (s *PoolService) WatchPools(ctx context.Context, req *connect.Request[super
 			}
 		}
 	}
+}
+
+// ListRunners returns the active container instances for a specified pool.
+func (s *PoolService) ListRunners(ctx context.Context, req *connect.Request[supervisorv1.ListRunnersRequest]) (*connect.Response[supervisorv1.ListRunnersResponse], error) {
+	if req.Msg.PoolId <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("pool_id must be greater than 0"))
+	}
+	p, err := s.db.GetRunnerPoolById(ctx, req.Msg.PoolId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("pool id %d not found: %w", req.Msg.PoolId, err))
+	}
+
+	runners := s.getRunnerInstances(p)
+	return connect.NewResponse(&supervisorv1.ListRunnersResponse{
+		Runners: runners,
+	}), nil
+}
+
+// TerminateRunner manually terminates an active runner container instance.
+func (s *PoolService) TerminateRunner(ctx context.Context, req *connect.Request[supervisorv1.TerminateRunnerRequest]) (*connect.Response[supervisorv1.TerminateRunnerResponse], error) {
+	if req.Msg.PoolId <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("pool_id must be greater than 0"))
+	}
+	containerID := strings.TrimSpace(req.Msg.ContainerId)
+	if containerID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("container_id must not be empty"))
+	}
+
+	p, err := s.db.GetRunnerPoolById(ctx, req.Msg.PoolId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("pool id %d not found: %w", req.Msg.PoolId, err))
+	}
+
+	if s.runnerMgr != nil {
+		if err := s.runnerMgr.TerminateRunner(ctx, p.Name, containerID); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("terminating runner %q: %w", containerID, err))
+		}
+	}
+
+	var userID sql.NullInt64
+	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
+		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
+	}
+	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
+		UserID:       userID,
+		Action:       "runner_terminate",
+		ResourceType: sql.NullString{String: "runner_container", Valid: true},
+		ResourceID:   sql.NullInt64{Int64: p.ID, Valid: true},
+		Details:      sql.NullString{String: fmt.Sprintf("Terminated runner container %s in pool %s", containerID, p.Name), Valid: true},
+	})
+
+	if s.statsProvider != nil {
+		_ = s.statsProvider.Reload(ctx)
+	}
+
+	return connect.NewResponse(&supervisorv1.TerminateRunnerResponse{
+		Success: true,
+	}), nil
+}
+
+// WatchRunners provides near-realtime server-streaming push of active runner instances for a pool.
+func (s *PoolService) WatchRunners(ctx context.Context, req *connect.Request[supervisorv1.WatchRunnersRequest], stream *connect.ServerStream[supervisorv1.WatchRunnersResponse]) error {
+	if req.Msg.PoolId <= 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("pool_id must be greater than 0"))
+	}
+	p, err := s.db.GetRunnerPoolById(ctx, req.Msg.PoolId)
+	if err != nil {
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("pool id %d not found: %w", req.Msg.PoolId, err))
+	}
+
+	intervalMs := req.Msg.IntervalMs
+	if intervalMs < 250 {
+		intervalMs = 1000
+	}
+	if intervalMs > 10000 {
+		intervalMs = 10000
+	}
+	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
+	defer ticker.Stop()
+
+	sendSnapshot := func() error {
+		runners := s.getRunnerInstances(p)
+		return stream.Send(&supervisorv1.WatchRunnersResponse{
+			Runners: runners,
+		})
+	}
+
+	if err := sendSnapshot(); err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := sendSnapshot(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (s *PoolService) getRunnerInstances(p db.RunnerPool) []*supervisorv1.RunnerInstance {
+	if s.runnerMgr == nil {
+		return []*supervisorv1.RunnerInstance{}
+	}
+	rawRunners := s.runnerMgr.PoolRunners(p.Name)
+	res := make([]*supervisorv1.RunnerInstance, 0, len(rawRunners))
+	for _, r := range rawRunners {
+		status := "idle"
+		if r.State != "running" {
+			status = r.State
+		} else if r.IsBusy {
+			status = "busy"
+		}
+		uptime := int64(0)
+		if !r.SpawnedAt.IsZero() {
+			uptime = int64(time.Since(r.SpawnedAt).Seconds())
+			if uptime < 0 {
+				uptime = 0
+			}
+		}
+		res = append(res, &supervisorv1.RunnerInstance{
+			ContainerId:   r.ID,
+			Name:          r.Name,
+			PoolName:      r.PoolName,
+			Status:        status,
+			IpAddress:     r.IPAddress,
+			UptimeSeconds: uptime,
+			SpawnedAt:     r.SpawnedAt.Format(time.RFC3339),
+			CpuLimit:      p.CpuLimit.String,
+			MemoryLimit:   p.MemoryLimit.String,
+		})
+	}
+	return res
 }

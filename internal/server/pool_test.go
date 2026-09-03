@@ -368,3 +368,258 @@ func TestPoolServiceWatchPools(t *testing.T) {
 		t.Errorf("unexpected error on stream cancel: %v", err)
 	}
 }
+
+type mockRunnerManager struct {
+	mu         sync.Mutex
+	runners    map[string][]server.RunnerInstanceInfo
+	terminated []string
+}
+
+func newMockRunnerManager() *mockRunnerManager {
+	return &mockRunnerManager{
+		runners: make(map[string][]server.RunnerInstanceInfo),
+	}
+}
+
+func (m *mockRunnerManager) PoolRunners(poolName string) []server.RunnerInstanceInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.runners[poolName]
+}
+
+func (m *mockRunnerManager) TerminateRunner(ctx context.Context, poolName, containerID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.terminated = append(m.terminated, containerID)
+	list := m.runners[poolName]
+	filtered := make([]server.RunnerInstanceInfo, 0, len(list))
+	for _, r := range list {
+		if r.ID != containerID {
+			filtered = append(filtered, r)
+		}
+	}
+	m.runners[poolName] = filtered
+	return nil
+}
+
+func TestPoolServiceListRunnersAndTerminate(t *testing.T) {
+	ctx := context.Background()
+	database, jwtSecret := setupTestDB(t)
+	runnerMgr := newMockRunnerManager()
+
+	runnerMgr.runners["runner-mgmt-pool"] = []server.RunnerInstanceInfo{
+		{
+			ID:        "cnt-alpha",
+			Name:      "ghrs-runner-alpha",
+			PoolName:  "runner-mgmt-pool",
+			State:     "running",
+			IPAddress: "172.18.0.2",
+			IsBusy:    true,
+		},
+		{
+			ID:        "cnt-beta",
+			Name:      "ghrs-runner-beta",
+			PoolName:  "runner-mgmt-pool",
+			State:     "running",
+			IPAddress: "172.18.0.3",
+			IsBusy:    false,
+		},
+	}
+
+	srv := server.New(server.Options{
+		Port:             8080,
+		AuthDB:           database,
+		PoolDB:           database,
+		RunnerMgr:        runnerMgr,
+		JWTSigningSecret: jwtSecret,
+	})
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Authenticate
+	authClient := supervisorv1connect.NewAuthServiceClient(ts.Client(), ts.URL)
+	_, err := authClient.SetupAdmin(ctx, connect.NewRequest(&supervisorv1.SetupAdminRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("SetupAdmin failed: %v", err)
+	}
+
+	loginRes, err := authClient.Login(ctx, connect.NewRequest(&supervisorv1.LoginRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("Login failed: %v", err)
+	}
+	rawCookie := strings.Split(strings.Split(loginRes.Header().Get("Set-Cookie"), ";")[0], "=")[1]
+
+	// Create Auth Profile and Pool
+	authProf, err := database.CreateAuthProfile(ctx, db.CreateAuthProfileParams{
+		Name:           "mgmt-auth",
+		AuthMethod:     "pat",
+		TokenEncrypted: sql.NullString{String: "token", Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateAuthProfile failed: %v", err)
+	}
+
+	pool, err := database.CreateRunnerPool(ctx, db.CreateRunnerPoolParams{
+		Name:           "runner-mgmt-pool",
+		Provider:       "github",
+		RepositoryUrl:  "https://github.com/org/repo",
+		AuthProfileID:  authProf.ID,
+		Scope:          "repo",
+		MinIdleRunners: 1,
+		MaxConcurrency: 5,
+	})
+	if err != nil {
+		t.Fatalf("CreateRunnerPool failed: %v", err)
+	}
+
+	client := supervisorv1connect.NewPoolServiceClient(ts.Client(), ts.URL)
+
+	// List runners
+	listReq := connect.NewRequest(&supervisorv1.ListRunnersRequest{
+		PoolId: pool.ID,
+	})
+	listReq.Header().Set("Cookie", "session_token="+rawCookie)
+
+	listRes, err := client.ListRunners(ctx, listReq)
+	if err != nil {
+		t.Fatalf("ListRunners failed: %v", err)
+	}
+	if len(listRes.Msg.Runners) != 2 {
+		t.Fatalf("expected 2 runners, got %d", len(listRes.Msg.Runners))
+	}
+	if listRes.Msg.Runners[0].Status != "busy" || listRes.Msg.Runners[1].Status != "idle" {
+		t.Errorf("runner statuses mismatch: %+v", listRes.Msg.Runners)
+	}
+
+	// Terminate cnt-alpha
+	termReq := connect.NewRequest(&supervisorv1.TerminateRunnerRequest{
+		PoolId:      pool.ID,
+		ContainerId: "cnt-alpha",
+	})
+	termReq.Header().Set("Cookie", "session_token="+rawCookie)
+
+	termRes, err := client.TerminateRunner(ctx, termReq)
+	if err != nil {
+		t.Fatalf("TerminateRunner failed: %v", err)
+	}
+	if !termRes.Msg.Success {
+		t.Errorf("expected success=true")
+	}
+
+	// Verify only cnt-beta remains
+	listRes2, err := client.ListRunners(ctx, listReq)
+	if err != nil {
+		t.Fatalf("second ListRunners failed: %v", err)
+	}
+	if len(listRes2.Msg.Runners) != 1 || listRes2.Msg.Runners[0].ContainerId != "cnt-beta" {
+		t.Fatalf("expected only cnt-beta to remain, got: %+v", listRes2.Msg.Runners)
+	}
+}
+
+func TestPoolServiceWatchRunners(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	database, jwtSecret := setupTestDB(t)
+	runnerMgr := newMockRunnerManager()
+	runnerMgr.runners["stream-pool"] = []server.RunnerInstanceInfo{
+		{
+			ID:        "stream-cnt-1",
+			Name:      "ghrs-stream-1",
+			PoolName:  "stream-pool",
+			State:     "running",
+			IPAddress: "172.18.0.9",
+			IsBusy:    true,
+		},
+	}
+
+	srv := server.New(server.Options{
+		Port:             8080,
+		AuthDB:           database,
+		PoolDB:           database,
+		RunnerMgr:        runnerMgr,
+		JWTSigningSecret: jwtSecret,
+	})
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Authenticate
+	authClient := supervisorv1connect.NewAuthServiceClient(ts.Client(), ts.URL)
+	_, err := authClient.SetupAdmin(ctx, connect.NewRequest(&supervisorv1.SetupAdminRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("SetupAdmin failed: %v", err)
+	}
+
+	loginRes, err := authClient.Login(ctx, connect.NewRequest(&supervisorv1.LoginRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("Login failed: %v", err)
+	}
+	rawCookie := strings.Split(strings.Split(loginRes.Header().Get("Set-Cookie"), ";")[0], "=")[1]
+
+	authProf, err := database.CreateAuthProfile(ctx, db.CreateAuthProfileParams{
+		Name:           "stream-auth",
+		AuthMethod:     "pat",
+		TokenEncrypted: sql.NullString{String: "token", Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateAuthProfile failed: %v", err)
+	}
+
+	pool, err := database.CreateRunnerPool(ctx, db.CreateRunnerPoolParams{
+		Name:           "stream-pool",
+		Provider:       "github",
+		RepositoryUrl:  "https://github.com/org/repo",
+		AuthProfileID:  authProf.ID,
+		Scope:          "repo",
+		MinIdleRunners: 1,
+		MaxConcurrency: 5,
+	})
+	if err != nil {
+		t.Fatalf("CreateRunnerPool failed: %v", err)
+	}
+
+	client := supervisorv1connect.NewPoolServiceClient(ts.Client(), ts.URL)
+	watchReq := connect.NewRequest(&supervisorv1.WatchRunnersRequest{
+		PoolId:     pool.ID,
+		IntervalMs: 250,
+	})
+	watchReq.Header().Set("Cookie", "session_token="+rawCookie)
+
+	stream, err := client.WatchRunners(ctx, watchReq)
+	if err != nil {
+		t.Fatalf("WatchRunners failed: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	if !stream.Receive() {
+		t.Fatalf("expected initial message from WatchRunners, got none (err: %v)", stream.Err())
+	}
+
+	msg := stream.Msg()
+	if len(msg.Runners) != 1 || msg.Runners[0].ContainerId != "stream-cnt-1" {
+		t.Fatalf("expected stream-cnt-1, got: %+v", msg.Runners)
+	}
+
+	// Cancel context to ensure clean shutdown
+	cancel()
+	for stream.Receive() {
+		// drain remaining
+	}
+	if err := stream.Err(); err != nil && !strings.Contains(err.Error(), "canceled") {
+		t.Errorf("unexpected error on stream cancel: %v", err)
+	}
+}
