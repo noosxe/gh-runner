@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/noosxe/gh-runner/internal/orchestrator"
 	"github.com/noosxe/gh-runner/internal/orchestrator/docker"
+	"github.com/noosxe/gh-runner/internal/server"
 )
 
 type mockDockerAPI struct {
@@ -618,4 +620,97 @@ func TestDockerClient_EnsureNetwork(t *testing.T) {
 	if createdOptions.Labels[orchestrator.LabelManaged] != "true" {
 		t.Errorf("expected managed label on created network: %+v", createdOptions.Labels)
 	}
+}
+
+func TestDockerClient_DegradedModeAndReadiness(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var pingError error
+	mockAPI := &mockDockerAPI{
+		pingFn: func(ctx context.Context) (types.Ping, error) {
+			if pingError != nil {
+				return types.Ping{}, pingError
+			}
+			return types.Ping{APIVersion: "1.47"}, nil
+		},
+		containerCreateFn: func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error) {
+			return container.CreateResponse{ID: "cnt-spawned"}, nil
+		},
+		containerStartFn: func(ctx context.Context, containerID string, options container.StartOptions) error {
+			return nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	probe := cli.ReadinessCheck()
+
+	// 1. Initially healthy
+	if status := probe.Check(ctx); status != server.StatusOK {
+		t.Errorf("expected StatusOK, got %v", status)
+	}
+	if cli.IsDegraded() {
+		t.Errorf("expected not degraded initially")
+	}
+
+	// 2. Daemon becomes unreachable (e.g. stopped docker in test env)
+	pingError = errors.New("daemon stopped")
+	// Start monitor with small interval
+	monitorCtx, cancelMonitor := context.WithCancel(ctx)
+	go func() {
+		_ = cli.StartHealthMonitor(monitorCtx, 10*time.Millisecond)
+	}()
+
+	// Wait for monitor to detect degraded state
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if cli.IsDegraded() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !cli.IsDegraded() {
+		t.Fatalf("expected client to enter degraded state")
+	}
+
+	// 3. Readiness check reflects "degraded" (OQ #19: still ready to serve, but flagged)
+	if status := probe.Check(ctx); status != server.StatusDegraded {
+		t.Errorf("expected StatusDegraded when daemon unreachable, got %v", status)
+	}
+
+	// 4. Spawning pauses in degraded mode (RUN-35)
+	_, spawnErr := cli.SpawnRunner(ctx, orchestrator.RunnerConfig{PoolName: "test-pool"})
+	if spawnErr == nil || !errors.Is(spawnErr, orchestrator.ErrDaemonDegraded) {
+		t.Fatalf("expected ErrDaemonDegraded when spawning during degraded mode, got %v", spawnErr)
+	}
+
+	// 5. Daemon recovers (acceptance: process stays alive, recovers when daemon returns)
+	pingError = nil
+	deadline = time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if !cli.IsDegraded() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if cli.IsDegraded() {
+		t.Fatalf("expected client to recover from degraded state")
+	}
+
+	// 6. Readiness check reflects "ok" after recovery
+	if status := probe.Check(ctx); status != server.StatusOK {
+		t.Errorf("expected StatusOK after daemon recovery, got %v", status)
+	}
+
+	// 7. Spawning succeeds after recovery
+	id, err := cli.SpawnRunner(ctx, orchestrator.RunnerConfig{PoolName: "test-pool"})
+	if err != nil || id != "cnt-spawned" {
+		t.Fatalf("expected spawn to succeed after recovery, got id=%q err=%v", id, err)
+	}
+
+	cancelMonitor()
 }

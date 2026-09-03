@@ -20,6 +20,7 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/noosxe/gh-runner/internal/orchestrator"
+	"github.com/noosxe/gh-runner/internal/server"
 )
 
 var (
@@ -47,21 +48,24 @@ type APIClient interface {
 
 // Client implements orchestrator.ContainerProvider using the Docker Engine API.
 type Client struct {
-	docker       APIClient
-	host         string
-	dockerHostID string // Groundwork for multi-host Docker pools (OQ #22)
-	mu           sync.RWMutex
+	docker        APIClient
+	host          string
+	dockerHostID  string // Groundwork for multi-host Docker pools (OQ #22)
+	healthTracker *orchestrator.DockerHealthTracker
+	mu            sync.RWMutex
 }
 
 // Option configures the Docker orchestrator Client.
 type Option func(*options)
 
 type options struct {
-	host         string
-	certPath     string
-	verifyTLS    bool
-	dockerHostID string
-	apiClient    APIClient
+	host          string
+	certPath      string
+	verifyTLS     bool
+	dockerHostID  string
+	apiClient     APIClient
+	healthTracker *orchestrator.DockerHealthTracker
+	alertHandler  func(orchestrator.DockerAlert)
 }
 
 // WithHost configures a custom Docker host endpoint (e.g. unix:///var/run/docker.sock or tcp://remote:2376).
@@ -93,6 +97,20 @@ func WithAPIClient(apiClient APIClient) Option {
 	}
 }
 
+// WithHealthTracker injects a custom DockerHealthTracker.
+func WithHealthTracker(tracker *orchestrator.DockerHealthTracker) Option {
+	return func(o *options) {
+		o.healthTracker = tracker
+	}
+}
+
+// WithAlertHandler configures an alert callback for when Docker is down > 5m (OQ #5).
+func WithAlertHandler(handler func(orchestrator.DockerAlert)) Option {
+	return func(o *options) {
+		o.alertHandler = handler
+	}
+}
+
 // NewClient initializes a new Docker orchestrator client.
 // Honors standard Docker environment variables (DOCKER_HOST, DOCKER_TLS_VERIFY, DOCKER_CERT_PATH)
 // unless overridden by options.
@@ -108,11 +126,17 @@ func NewClient(ctx context.Context, opts ...Option) (*Client, error) {
 		opt(&cfg)
 	}
 
+	tracker := cfg.healthTracker
+	if tracker == nil {
+		tracker = orchestrator.NewDockerHealthTracker(cfg.dockerHostID, cfg.alertHandler)
+	}
+
 	if cfg.apiClient != nil {
 		return &Client{
-			docker:       cfg.apiClient,
-			host:         cfg.host,
-			dockerHostID: cfg.dockerHostID,
+			docker:        cfg.apiClient,
+			host:          cfg.host,
+			dockerHostID:  cfg.dockerHostID,
+			healthTracker: tracker,
 		}, nil
 	}
 
@@ -135,9 +159,10 @@ func NewClient(ctx context.Context, opts ...Option) (*Client, error) {
 	}
 
 	return &Client{
-		docker:       cli,
-		host:         cfg.host,
-		dockerHostID: cfg.dockerHostID,
+		docker:        cli,
+		host:          cfg.host,
+		dockerHostID:  cfg.dockerHostID,
+		healthTracker: tracker,
 	}, nil
 }
 
@@ -181,10 +206,17 @@ func (c *Client) SpawnTask(ctx context.Context, config orchestrator.RunnerConfig
 func (c *Client) spawn(ctx context.Context, config orchestrator.RunnerConfig, taskType string) (string, error) {
 	c.mu.RLock()
 	docker := c.docker
+	tracker := c.healthTracker
 	c.mu.RUnlock()
 
 	if docker == nil {
 		return "", ErrNilClient
+	}
+
+	if tracker != nil {
+		if err := tracker.CanSpawn(); err != nil {
+			return "", err
+		}
 	}
 
 	containerName := config.Name
@@ -532,6 +564,71 @@ func (c *Client) DockerHostID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.dockerHostID
+}
+
+// HealthTracker returns the Docker health tracker instance.
+func (c *Client) HealthTracker() *orchestrator.DockerHealthTracker {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.healthTracker
+}
+
+// IsDegraded reports whether the client has entered degraded mode due to an unreachable daemon.
+func (c *Client) IsDegraded() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.healthTracker == nil {
+		return false
+	}
+	return c.healthTracker.IsDegraded()
+}
+
+// ReadinessCheck adapts the Docker client's reachability into a server.Check probe.
+// When the daemon is unreachable, the probe reports server.StatusDegraded, allowing
+// the supervisor to remain ready to serve while pausing container spawns (OQ #19).
+func (c *Client) ReadinessCheck() server.Check {
+	return server.NewCheck("docker", func(ctx context.Context) server.Status {
+		if c.IsDegraded() {
+			return server.StatusDegraded
+		}
+		if err := c.Ping(ctx); err != nil {
+			return server.StatusDegraded
+		}
+		return server.StatusOK
+	})
+}
+
+// StartHealthMonitor starts periodic daemon reachability checks.
+// Retries periodically without crashing, transitions in and out of degraded mode,
+// and raises alerts if down > 5m (OQ #5, OQ #19).
+func (c *Client) StartHealthMonitor(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		interval = orchestrator.DefaultMonitorInterval
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Initial check
+	c.checkHealth(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			c.checkHealth(ctx)
+		}
+	}
+}
+
+func (c *Client) checkHealth(ctx context.Context) {
+	err := c.Ping(ctx)
+	if err != nil {
+		c.healthTracker.RecordFailure(err)
+	} else {
+		c.healthTracker.RecordSuccess()
+	}
 }
 
 var _ orchestrator.ContainerProvider = (*Client)(nil)
