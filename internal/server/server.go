@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -148,6 +150,9 @@ func New(opts Options) *Server {
 			s.staticFS = dist
 		}
 	}
+
+	// Middleware: enforce HTTP security headers and deny CORS by default (RUN-50, OQ #25, #26)
+	e.Use(s.securityMiddleware)
 
 	// Middleware: enforce binary protocol on Connect RPC routes
 	e.Use(s.enforceBinaryTransportMiddleware)
@@ -327,3 +332,88 @@ func (s *Server) enforceBinaryTransportMiddleware(next echo.HandlerFunc) echo.Ha
 		return next(c)
 	}
 }
+
+// Security header constants (RUN-50, OQ #25, #26).
+const (
+	HeaderXFrameOptions       = "X-Frame-Options"
+	HeaderXContentTypeOptions = "X-Content-Type-Options"
+	HeaderCSP                 = "Content-Security-Policy"
+	HeaderReferrerPolicy      = "Referrer-Policy"
+
+	ValueXFrameOptions       = "DENY"
+	ValueXContentTypeOptions = "nosniff"
+	ValueCSP                 = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none';"
+	ValueReferrerPolicy      = "strict-origin-when-cross-origin"
+)
+
+// securityMiddleware sets standard HTTP security headers and strictly denies CORS (same-origin only, OQ #25, #26).
+func (s *Server) securityMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		req := c.Request()
+		res := c.Response()
+
+		// 1. Set mandatory security hardening headers
+		res.Header().Set(HeaderXFrameOptions, ValueXFrameOptions)
+		res.Header().Set(HeaderXContentTypeOptions, ValueXContentTypeOptions)
+		res.Header().Set(HeaderCSP, ValueCSP)
+		res.Header().Set(HeaderReferrerPolicy, ValueReferrerPolicy)
+
+		// 2. Strict CORS denial: same-origin only (SPA + API share origin)
+		origin := req.Header.Get("Origin")
+		if origin != "" {
+			expectedHost := req.Header.Get("X-Forwarded-Host")
+			if expectedHost == "" {
+				expectedHost = req.Host
+			}
+
+			if !isSameOrigin(origin, expectedHost) {
+				return echo.NewHTTPError(http.StatusForbidden, "cross-origin requests are forbidden")
+			}
+		}
+
+		// Reject CORS preflight requests
+		if req.Method == http.MethodOptions && origin != "" {
+			return echo.NewHTTPError(http.StatusForbidden, "CORS preflight forbidden")
+		}
+
+		return next(c)
+	}
+}
+
+func isSameOrigin(originStr, expectedHost string) bool {
+	if originStr == "" {
+		return true
+	}
+	u, err := url.Parse(originStr)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(u.Host, expectedHost) {
+		return true
+	}
+
+	oHostname := u.Hostname()
+	eHostname := expectedHost
+	if h, _, err := net.SplitHostPort(expectedHost); err == nil {
+		eHostname = h
+	}
+	if !strings.EqualFold(oHostname, eHostname) {
+		return false
+	}
+
+	oPort := u.Port()
+	if oPort == "" {
+		switch u.Scheme {
+		case "https":
+			oPort = "443"
+		case "http":
+			oPort = "80"
+		}
+	}
+	_, ePort, _ := net.SplitHostPort(expectedHost)
+	if ePort == "" {
+		ePort = oPort
+	}
+	return oPort == ePort
+}
+
