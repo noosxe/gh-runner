@@ -50,3 +50,13 @@ DELETE FROM job_history
 WHERE (completed_at IS NOT NULL AND completed_at < ?)
    OR (completed_at IS NULL AND created_at < ?)
 RETURNING id, log_retention_path;
+
+-- name: GetJobStatsSince :one
+SELECT
+    COUNT(*) as total_jobs,
+    COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as successful_jobs,
+    COALESCE(SUM(CASE WHEN status = 'failure' OR status = 'failed' THEN 1 ELSE 0 END), 0) as failed_jobs,
+    COALESCE(AVG(CASE WHEN started_at IS NOT NULL AND queued_at IS NOT NULL THEN (CAST(strftime('%s', replace(substr(started_at, 1, 19), 'T', ' ')) AS REAL) - CAST(strftime('%s', replace(substr(queued_at, 1, 19), 'T', ' ')) AS REAL)) END), 0.0) as avg_queue_seconds,
+    COALESCE(AVG(CASE WHEN completed_at IS NOT NULL AND started_at IS NOT NULL THEN (CAST(strftime('%s', replace(substr(completed_at, 1, 19), 'T', ' ')) AS REAL) - CAST(strftime('%s', replace(substr(started_at, 1, 19), 'T', ' ')) AS REAL)) END), 0.0) as avg_runtime_seconds
+FROM job_history
+WHERE created_at >= ?;

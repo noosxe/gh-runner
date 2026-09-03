@@ -176,6 +176,8 @@ message DeleteAuthProfileResponse {
 
 service OnboardingService {
   rpc GetOnboardingStatus (GetOnboardingStatusRequest) returns (GetOnboardingStatusResponse);
+  rpc GetAppSettings (GetAppSettingsRequest) returns (GetAppSettingsResponse);
+  rpc SetAppSetting (SetAppSettingRequest) returns (SetAppSettingResponse);
 }
 
 message GetOnboardingStatusRequest {}
@@ -185,6 +187,28 @@ message GetOnboardingStatusResponse {
   bool auth_profile_exists = 2;
   bool pool_exists = 3;
   bool setup_complete = 4;        // true when all above are true
+}
+
+message GetAppSettingsRequest {}
+
+message AppSettingEntry {
+  string key = 1;
+  string value = 2;
+  string updated_at = 3;
+}
+
+message GetAppSettingsResponse {
+  repeated AppSettingEntry settings = 1;
+}
+
+message SetAppSettingRequest {
+  string key = 1;
+  string value = 2;
+}
+
+message SetAppSettingResponse {
+  string key = 1;
+  string value = 2;
 }
 
 // ----------------------------------------
