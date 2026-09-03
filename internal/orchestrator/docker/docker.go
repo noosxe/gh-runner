@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -39,6 +40,7 @@ type APIClient interface {
 	ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error
 	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
 	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
+	ContainerLogs(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error)
 	ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
 	Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
 	NetworkList(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
@@ -629,6 +631,37 @@ func (c *Client) checkHealth(ctx context.Context) {
 	} else {
 		c.healthTracker.RecordSuccess()
 	}
+}
+
+// CaptureLogs reads full logs from containerID via Docker Logs API, compresses them into
+// DATA_DIR/logs/<runner-id>.log.jsonl.gz, and returns the path to the compressed file (OQ #14, #20).
+func (c *Client) CaptureLogs(ctx context.Context, containerID, dataDir string) (string, error) {
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		return "", ErrNilClient
+	}
+
+	opts := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Timestamps: true,
+	}
+
+	logStream, err := docker.ContainerLogs(ctx, containerID, opts)
+	if err != nil {
+		return "", fmt.Errorf("fetching container logs for %s: %w", containerID, err)
+	}
+	defer func() { _ = logStream.Close() }()
+
+	destPath := orchestrator.LogPath(dataDir, containerID)
+	if _, err := orchestrator.CaptureAndCompressLogs(logStream, destPath); err != nil {
+		return "", fmt.Errorf("compressing logs to %s: %w", destPath, err)
+	}
+
+	return destPath, nil
 }
 
 var _ orchestrator.ContainerProvider = (*Client)(nil)

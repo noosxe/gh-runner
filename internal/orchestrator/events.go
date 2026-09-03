@@ -77,6 +77,7 @@ type EventListener struct {
 	provider     EventStreamProvider
 	deduplicator *ReapDeduplicator
 	backoff      time.Duration
+	logCapturer  func(ctx context.Context, containerID string) error
 }
 
 // NewEventListener creates a new Docker event listener.
@@ -89,6 +90,11 @@ func NewEventListener(provider EventStreamProvider, deduplicator *ReapDeduplicat
 		deduplicator: deduplicator,
 		backoff:      500 * time.Millisecond,
 	}
+}
+
+// SetLogCapturer registers a callback to capture container logs prior to reaping (OQ #14, #20).
+func (l *EventListener) SetLogCapturer(capturer func(ctx context.Context, containerID string) error) {
+	l.logCapturer = capturer
 }
 
 // Listen starts streaming container events, invoking onReap when a supervisor-managed
@@ -157,6 +163,9 @@ func (l *EventListener) Listen(ctx context.Context, onReap func(ContainerEvent))
 				}
 
 				if l.deduplicator.ShouldReap(containerID) {
+					if action == "die" && l.logCapturer != nil {
+						_ = l.logCapturer(ctx, containerID)
+					}
 					if onReap != nil {
 						onReap(event)
 					}

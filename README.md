@@ -158,6 +158,13 @@ This runner is configured to support Docker-outside-of-Docker execution. This al
 * On startup, the container registers with the GitHub API using the provided token.
 * Upon termination (`docker compose down`, `docker stop`, `SIGTERM`/`SIGINT`), a trap triggers a cleanup routine that automatically de-registers the runner from the repository. This guarantees that your runner dashboard does not get cluttered with offline zombie runners.
 
+### Docker Orchestrator Core
+* **Ephemeral Runner Lifecycle:** Spawns and manages ephemeral runner and task containers with deterministic naming (`ghrs-<pool-slug>-<6-hex>`), supervisor tracking labels (`com.github-runner-supervisor.*`), CPU/memory limits, and environment segregation.
+* **Supervisor-Managed Bridge Network:** Connects runners to a dedicated `ghrs-supervisor` bridge network isolated from supervisor host networks.
+* **Event-Driven Container Reaping:** Subscribes to Docker Engine `die` and `destroy` events with deduplication to ensure low-latency (<2s) cleanup without duplicate provisioning races.
+* **Exit Log Capture & Compression:** Captures container stdout and stderr via the Docker Logs API on exit, structures them into JSONL with timestamps and stream tagging, and streams them directly into gzipped files (`DATA_DIR/logs/<runner-id>.log.jsonl.gz`) before container removal.
+* **Degraded-Mode Handling:** Gracefully handles Docker daemon disconnections by pausing container spawning and rate-limiting log errors. Surfaces reachability via `/readyz` (`checks.docker: "degraded"`) while keeping the supervisor alive, and automatically recovers when the daemon returns.
+
 > [!WARNING]
 > Keep your `RUNNER_TOKEN` confidential. It is short-lived, but it grants the ability to register runners capable of executing arbitrary code inside your host environment.
 

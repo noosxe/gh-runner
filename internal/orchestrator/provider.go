@@ -59,6 +59,9 @@ type ContainerProvider interface {
 	// EnsureNetwork verifies that the specified bridge network exists, creating it if needed.
 	EnsureNetwork(ctx context.Context, name string) (string, error)
 
+	// CaptureLogs reads full logs from containerID and writes them gzipped to DATA_DIR/logs/<runner-id>.log.jsonl.gz.
+	CaptureLogs(ctx context.Context, containerID, dataDir string) (string, error)
+
 	// Ping checks connectivity with the container engine daemon.
 	Ping(ctx context.Context) error
 
