@@ -29,7 +29,16 @@ const (
 
 	// DefaultHeartbeatTimeout is the maximum duration between heartbeats before the auditor is marked degraded.
 	DefaultHeartbeatTimeout = 30 * time.Second
+
+	// DefaultTotalAllowedRunners is the default global circuit breaker limit across all pools (OQ #4, docs/05 §3).
+	DefaultTotalAllowedRunners = 20
 )
+
+// ProvisionRequest represents a queued runner provisioning request when the global quota is saturated.
+type ProvisionRequest struct {
+	PoolName  string    `json:"pool_name"`
+	CreatedAt time.Time `json:"created_at"`
+}
 
 // PoolRepository abstracts loading active runner pools from the database.
 type PoolRepository interface {
@@ -73,6 +82,7 @@ type ControllerOptions struct {
 	Reconciler       *Reconciler
 	EventListener    *EventListener
 	DataDir          string
+	GlobalMaxRunners int
 	Interval         time.Duration
 }
 
@@ -86,8 +96,10 @@ type PoolController struct {
 	reconciler       *Reconciler
 	eventListener    *EventListener
 	dataDir          string
+	globalMaxRunners int
 	interval         time.Duration
 
+	queue         []ProvisionRequest // internal provisioning queue for quota saturation (RUN-39)
 	state         ControllerState
 	lastHeartbeat time.Time
 	logger        *slog.Logger
@@ -102,6 +114,11 @@ func NewPoolController(opts ControllerOptions) *PoolController {
 		opts.Reconciler = NewReconciler(opts.ContainerEngine)
 	}
 
+	globalMax := opts.GlobalMaxRunners
+	if globalMax <= 0 {
+		globalMax = DefaultTotalAllowedRunners
+	}
+
 	return &PoolController{
 		db:               opts.DB,
 		engine:           opts.ContainerEngine,
@@ -109,6 +126,7 @@ func NewPoolController(opts ControllerOptions) *PoolController {
 		reconciler:       opts.Reconciler,
 		eventListener:    opts.EventListener,
 		dataDir:          opts.DataDir,
+		globalMaxRunners: globalMax,
 		interval:         opts.Interval,
 		state:            StateStopped,
 		logger:           logging.For("controller"),
@@ -227,13 +245,16 @@ func (c *PoolController) Reconcile(ctx context.Context) error {
 		}
 	}
 
-	// 2. Load active pools
+	// 2. Drain queued provisioning requests if global capacity has freed
+	c.drainQueue(ctx)
+
+	// 3. Load active pools
 	pools, err := c.loadPools(ctx)
 	if err != nil {
 		return fmt.Errorf("loading pools for reconcile: %w", err)
 	}
 
-	// 3. Reconcile pool targets
+	// 4. Reconcile pool targets
 	for _, p := range pools {
 		if err := c.reconcilePool(ctx, p); err != nil {
 			c.logger.Error("failed reconciling pool target", "pool", p.Name, "err", err)
@@ -300,6 +321,9 @@ func (c *PoolController) reapContainer(ctx context.Context, containerID, poolNam
 	if c.reconciler != nil {
 		c.reconciler.UntrackRunner(poolName, containerID)
 	}
+
+	// Drain internal provisioning queue as global capacity freed up
+	c.drainQueue(ctx)
 }
 
 // Start boots the controller and runs the continuous periodic reconciliation loop until ctx is canceled.
@@ -406,61 +430,215 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 		}
 	}
 
-	needed := p.MinIdleRunners - activeCount
+	effectiveTarget := p.MinIdleRunners
+	if p.MaxConcurrency > 0 && effectiveTarget > p.MaxConcurrency {
+		effectiveTarget = p.MaxConcurrency
+	}
+
+	queuedForPool := int64(c.QueueLengthForPool(p.Name))
+	needed := effectiveTarget - (activeCount + queuedForPool)
 	if needed <= 0 {
 		return nil
 	}
 
-	c.logger.Info("provisioning idle runners for pool", "pool", p.Name, "needed", needed, "active", activeCount, "target", p.MinIdleRunners)
+	c.logger.Info("reconciling idle runners for pool",
+		"pool", p.Name,
+		"needed", needed,
+		"active", activeCount,
+		"queued", queuedForPool,
+		"target", effectiveTarget,
+		"max_concurrency", p.MaxConcurrency,
+	)
 
 	for i := int64(0); i < needed; i++ {
-		token, err := gitProv.GetRegistrationToken(ctx, provider.RegistrationScope(p.Scope), p.RepositoryUrl)
-		if err != nil {
-			return fmt.Errorf("getting registration token for pool %q: %w", p.Name, err)
+		// Check per-pool max_concurrency
+		if p.MaxConcurrency > 0 && (activeCount+int64(c.QueueLengthForPool(p.Name))) >= p.MaxConcurrency {
+			c.logger.Info("pool reached max concurrency limit, skipping further spawns", "pool", p.Name, "max_concurrency", p.MaxConcurrency)
+			break
 		}
 
-		containerName := GenerateContainerName(p.Name)
-		labels := formatLabels(p.Labels)
-
-		env := []string{
-			"GITHUB_REPOSITORY_URL=" + p.RepositoryUrl,
-			"RUNNER_TOKEN=" + token,
-			"RUNNER_NAME=" + containerName,
-			"RUNNER_LABELS=" + labels,
-			"RUNNER_WORKDIR=_work",
-			"RUNNER_EPHEMERAL=1",
+		// Check global quota circuit breaker (Total Allowed Runners per docs/03 §4, docs/05 §3)
+		if c.globalMaxRunners > 0 && c.TotalActiveRunners() >= c.globalMaxRunners {
+			c.logger.Warn("global runner quota saturated, queuing provisioning request internally",
+				"pool", p.Name,
+				"global_active", c.TotalActiveRunners(),
+				"global_max", c.globalMaxRunners,
+			)
+			c.enqueueRequest(p.Name)
+			continue
 		}
 
-		config := RunnerConfig{
-			Name:        containerName,
-			PoolName:    p.Name,
-			Image:       p.RunnerImage,
-			AllowDocker: p.AllowDocker,
-			Env:         env,
+		if err := c.spawnSingleRunner(ctx, p, gitProv); err != nil {
+			return err
 		}
-		if p.CpuLimit.Valid {
-			config.CPULimit = p.CpuLimit.String
-		}
-		if p.MemoryLimit.Valid {
-			config.MemoryLimit = p.MemoryLimit.String
-		}
-
-		id, err := c.engine.SpawnRunner(ctx, config)
-		if err != nil {
-			return fmt.Errorf("spawning runner for pool %q: %w", p.Name, err)
-		}
-
-		c.reconciler.TrackRunner(RunnerStatus{
-			ID:        id,
-			PoolName:  p.Name,
-			State:     "running",
-			SpawnedAt: time.Now().UTC(),
-		})
-
-		c.logger.Info("spawned idle runner", "pool", p.Name, "id", id)
+		activeCount++
 	}
 
 	return nil
+}
+
+func (c *PoolController) spawnSingleRunner(ctx context.Context, p db.RunnerPool, gitProv provider.GitProvider) error {
+	if gitProv == nil {
+		var err error
+		gitProv, err = c.providerResolver.ResolveProvider(ctx, p.AuthProfileID)
+		if err != nil {
+			return fmt.Errorf("resolving provider for pool %q: %w", p.Name, err)
+		}
+	}
+
+	token, err := gitProv.GetRegistrationToken(ctx, provider.RegistrationScope(p.Scope), p.RepositoryUrl)
+	if err != nil {
+		return fmt.Errorf("getting registration token for pool %q: %w", p.Name, err)
+	}
+
+	containerName := GenerateContainerName(p.Name)
+	labels := formatLabels(p.Labels)
+
+	env := []string{
+		"GITHUB_REPOSITORY_URL=" + p.RepositoryUrl,
+		"RUNNER_TOKEN=" + token,
+		"RUNNER_NAME=" + containerName,
+		"RUNNER_LABELS=" + labels,
+		"RUNNER_WORKDIR=_work",
+		"RUNNER_EPHEMERAL=1",
+	}
+
+	config := RunnerConfig{
+		Name:        containerName,
+		PoolName:    p.Name,
+		Image:       p.RunnerImage,
+		AllowDocker: p.AllowDocker,
+		Env:         env,
+	}
+	if p.CpuLimit.Valid {
+		config.CPULimit = p.CpuLimit.String
+	}
+	if p.MemoryLimit.Valid {
+		config.MemoryLimit = p.MemoryLimit.String
+	}
+
+	id, err := c.engine.SpawnRunner(ctx, config)
+	if err != nil {
+		return fmt.Errorf("spawning runner for pool %q: %w", p.Name, err)
+	}
+
+	c.reconciler.TrackRunner(RunnerStatus{
+		ID:        id,
+		PoolName:  p.Name,
+		State:     "running",
+		SpawnedAt: time.Now().UTC(),
+	})
+
+	c.logger.Info("spawned idle runner", "pool", p.Name, "id", id)
+	return nil
+}
+
+// TotalActiveRunners returns the total count of running runner containers across all pools.
+func (c *PoolController) TotalActiveRunners() int {
+	if c.reconciler == nil {
+		return 0
+	}
+	c.reconciler.mu.RLock()
+	defer c.reconciler.mu.RUnlock()
+
+	count := 0
+	for _, poolMap := range c.reconciler.tracked {
+		for _, r := range poolMap {
+			if r.State == "running" {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// QueueLength returns the number of currently queued provisioning requests.
+func (c *PoolController) QueueLength() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.queue)
+}
+
+// QueueLengthForPool returns the number of queued requests for a specific pool.
+func (c *PoolController) QueueLengthForPool(poolName string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	count := 0
+	for _, req := range c.queue {
+		if req.PoolName == poolName {
+			count++
+		}
+	}
+	return count
+}
+
+func (c *PoolController) enqueueRequest(poolName string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.queue = append(c.queue, ProvisionRequest{
+		PoolName:  poolName,
+		CreatedAt: time.Now().UTC(),
+	})
+}
+
+// drainQueue processes queued requests fairly when global capacity becomes available (docs/03 §4).
+func (c *PoolController) drainQueue(ctx context.Context) {
+	c.mu.Lock()
+	if len(c.queue) == 0 {
+		c.mu.Unlock()
+		return
+	}
+	queueCopy := append([]ProvisionRequest(nil), c.queue...)
+	c.mu.Unlock()
+
+	pools, err := c.loadPools(ctx)
+	if err != nil {
+		return
+	}
+	poolMap := make(map[string]db.RunnerPool, len(pools))
+	for _, p := range pools {
+		poolMap[p.Name] = p
+	}
+
+	var remaining []ProvisionRequest
+	for _, req := range queueCopy {
+		// Stop if global quota is saturated
+		if c.globalMaxRunners > 0 && c.TotalActiveRunners() >= c.globalMaxRunners {
+			remaining = append(remaining, req)
+			continue
+		}
+
+		p, exists := poolMap[req.PoolName]
+		if !exists {
+			// Pool no longer exists, discard request
+			continue
+		}
+
+		poolActive := int64(0)
+		for _, r := range c.reconciler.TrackedPoolRunners(p.Name) {
+			if r.State == "running" {
+				poolActive++
+			}
+		}
+
+		// Respect per-pool max_concurrency
+		if p.MaxConcurrency > 0 && poolActive >= p.MaxConcurrency {
+			remaining = append(remaining, req)
+			continue
+		}
+
+		if err := c.spawnSingleRunner(ctx, p, nil); err != nil {
+			c.logger.Error("failed spawning queued runner", "pool", p.Name, "err", err)
+			remaining = append(remaining, req)
+			continue
+		}
+	}
+
+	c.mu.Lock()
+	c.queue = remaining
+	c.mu.Unlock()
 }
 
 func formatLabels(raw string) string {

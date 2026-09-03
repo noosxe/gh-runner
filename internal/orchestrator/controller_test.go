@@ -331,3 +331,138 @@ func TestPoolController_HandleContainerEvent_ReapAndReplenish(t *testing.T) {
 		t.Fatalf("expected 2 active runners in pool, got %d", len(tracked))
 	}
 }
+
+func TestPoolController_GlobalQuotaSaturationAndFairQueueDrain(t *testing.T) {
+	ctx := context.Background()
+
+	poolA := db.RunnerPool{
+		ID:             1,
+		Name:           "pool-a",
+		Provider:       "github",
+		RepositoryUrl:  "https://github.com/owner/repo-a",
+		Scope:          "repo",
+		AuthProfileID:  10,
+		MinIdleRunners: 2,
+		MaxConcurrency: 2,
+		RunnerImage:    "ghcr.io/noosxe/gh-runner:latest",
+	}
+	poolB := db.RunnerPool{
+		ID:             2,
+		Name:           "pool-b",
+		Provider:       "github",
+		RepositoryUrl:  "https://github.com/owner/repo-b",
+		Scope:          "repo",
+		AuthProfileID:  10,
+		MinIdleRunners: 2,
+		MaxConcurrency: 2,
+		RunnerImage:    "ghcr.io/noosxe/gh-runner:latest",
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{poolA, poolB}}
+	gitProv := &mockGitProvider{}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{10: gitProv},
+	}
+
+	spawnedByPool := make(map[string][]string)
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			id := "runner-" + config.Name
+			spawnedByPool[config.PoolName] = append(spawnedByPool[config.PoolName], id)
+			return id, nil
+		},
+		TerminateRunnerFn: func(ctx context.Context, containerID string) error {
+			return nil
+		},
+	}
+
+	reconciler := orchestrator.NewReconciler(mockEngine)
+	// Set GlobalMaxRunners = 3 (while poolA + poolB total target is 4)
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler,
+		GlobalMaxRunners: 3,
+	})
+
+	// 1. Boot controller: should hit circuit breaker at 3 runners and queue the 4th request
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("ctrl.Boot failed: %v", err)
+	}
+
+	if ctrl.TotalActiveRunners() != 3 {
+		t.Fatalf("expected exactly 3 total active runners (at circuit breaker limit), got %d", ctrl.TotalActiveRunners())
+	}
+	if ctrl.QueueLength() != 1 {
+		t.Fatalf("expected 1 request queued for pool-b due to saturation, got %d", ctrl.QueueLength())
+	}
+	if ctrl.QueueLengthForPool("pool-b") != 1 {
+		t.Errorf("expected queued request to be for pool-b")
+	}
+
+	// Verify poolA has 2 and poolB has 1 active runner
+	if len(spawnedByPool["pool-a"]) != 2 {
+		t.Errorf("expected 2 spawns for pool-a, got %d", len(spawnedByPool["pool-a"]))
+	}
+	if len(spawnedByPool["pool-b"]) != 1 {
+		t.Errorf("expected 1 spawn for pool-b, got %d", len(spawnedByPool["pool-b"]))
+	}
+
+	// 2. Terminate a container in pool-a
+	runnerA1 := spawnedByPool["pool-a"][0]
+	event := orchestrator.ContainerEvent{
+		ContainerID: runnerA1,
+		PoolName:    "pool-a",
+		Action:      "die",
+		ExitCode:    0,
+	}
+
+	// When container terminates, capacity frees up -> queue drains pool-b request
+	// Since pool-b takes the freed slot (reaching 3 active), pool-a's replenishment is queued
+	if err := ctrl.HandleContainerEvent(ctx, event); err != nil {
+		t.Fatalf("HandleContainerEvent failed: %v", err)
+	}
+
+	// Queue for pool-b should now be drained
+	if ctrl.QueueLengthForPool("pool-b") != 0 {
+		t.Errorf("expected pool-b queue to be drained after capacity freed, got length %d", ctrl.QueueLengthForPool("pool-b"))
+	}
+
+	// Total active runners must still never exceed GlobalMaxRunners (3)
+	if ctrl.TotalActiveRunners() != 3 {
+		t.Fatalf("expected total active runners to stay at global limit 3: got %d", ctrl.TotalActiveRunners())
+	}
+
+	// Pool B reached its target of 2 idle runners from queue drain
+	if len(spawnedByPool["pool-b"]) != 2 {
+		t.Errorf("expected pool-b to have received its 2nd runner from queue drain, got %d", len(spawnedByPool["pool-b"]))
+	}
+
+	// Pool A's replenishment request is now queued because capacity is at 3/3
+	if ctrl.QueueLengthForPool("pool-a") != 1 {
+		t.Errorf("expected pool-a replenishment to be queued, got %d", ctrl.QueueLengthForPool("pool-a"))
+	}
+
+	// 3. Now terminate a container in pool-b to free capacity for pool-a's queued request
+	runnerB1 := spawnedByPool["pool-b"][0]
+	eventB := orchestrator.ContainerEvent{
+		ContainerID: runnerB1,
+		PoolName:    "pool-b",
+		Action:      "die",
+		ExitCode:    0,
+	}
+
+	if err := ctrl.HandleContainerEvent(ctx, eventB); err != nil {
+		t.Fatalf("HandleContainerEvent for pool-b failed: %v", err)
+	}
+
+	// Now pool-a's queued request should have drained and spawned!
+	if ctrl.QueueLengthForPool("pool-a") != 0 {
+		t.Errorf("expected pool-a queue to be drained, got %d", ctrl.QueueLengthForPool("pool-a"))
+	}
+	if ctrl.TotalActiveRunners() != 3 {
+		t.Fatalf("expected total active runners to remain at global limit 3, got %d", ctrl.TotalActiveRunners())
+	}
+}
+
