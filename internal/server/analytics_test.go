@@ -175,6 +175,52 @@ func TestAnalyticsJobHistoryAndStats(t *testing.T) {
 		t.Fatalf("expected 2 jobs for pool 1, got total=%d", poolRes.Msg.TotalCount)
 	}
 
+	// 2a. Search by runner name
+	searchReq := connect.NewRequest(&supervisorv1.GetJobHistoryRequest{
+		Search: "runner-3",
+	})
+	searchReq.Header().Set("Cookie", "session_token="+rawCookie)
+	searchRes, err := client.GetJobHistory(ctx, searchReq)
+	if err != nil {
+		t.Fatalf("search GetJobHistory failed: %v", err)
+	}
+	if searchRes.Msg.TotalCount != 1 || len(searchRes.Msg.Jobs) != 1 || searchRes.Msg.Jobs[0].RunnerName != "runner-3" {
+		t.Fatalf("expected 1 runner-3 job, got: %+v", searchRes.Msg.Jobs)
+	}
+	if searchRes.Msg.Jobs[0].PoolName != "analytics-pool-2" {
+		t.Errorf("expected pool name 'analytics-pool-2', got %s", searchRes.Msg.Jobs[0].PoolName)
+	}
+	if searchRes.Msg.Jobs[0].DurationSeconds <= 0 || searchRes.Msg.Jobs[0].QueueTimeSeconds <= 0 {
+		t.Errorf("expected positive duration and queue time, got duration=%f, queue=%f", searchRes.Msg.Jobs[0].DurationSeconds, searchRes.Msg.Jobs[0].QueueTimeSeconds)
+	}
+
+	// 2b. Filter by status
+	statusReq := connect.NewRequest(&supervisorv1.GetJobHistoryRequest{
+		Status: "success",
+	})
+	statusReq.Header().Set("Cookie", "session_token="+rawCookie)
+	statusRes, err := client.GetJobHistory(ctx, statusReq)
+	if err != nil {
+		t.Fatalf("status filter GetJobHistory failed: %v", err)
+	}
+	if statusRes.Msg.TotalCount != 2 || len(statusRes.Msg.Jobs) != 2 {
+		t.Fatalf("expected 2 success jobs, got: %d", statusRes.Msg.TotalCount)
+	}
+
+	// 2c. Pagination: limit 1, offset 1
+	pageReq := connect.NewRequest(&supervisorv1.GetJobHistoryRequest{
+		Limit:  1,
+		Offset: 1,
+	})
+	pageReq.Header().Set("Cookie", "session_token="+rawCookie)
+	pageRes, err := client.GetJobHistory(ctx, pageReq)
+	if err != nil {
+		t.Fatalf("paginated GetJobHistory failed: %v", err)
+	}
+	if pageRes.Msg.TotalCount != 3 || len(pageRes.Msg.Jobs) != 1 {
+		t.Fatalf("expected total 3, page length 1, got total=%d, len=%d", pageRes.Msg.TotalCount, len(pageRes.Msg.Jobs))
+	}
+
 	// 3. GetSystemStats
 	statsReq := connect.NewRequest(&supervisorv1.GetSystemStatsRequest{})
 	statsReq.Header().Set("Cookie", "session_token="+rawCookie)

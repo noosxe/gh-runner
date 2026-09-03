@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 export function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useSystemStats();
   const { data: pools, isLoading: poolsLoading } = usePools();
-  const { data: history } = useJobHistory(undefined, 5, 0);
+  const { data: history } = useJobHistory({ limit: 5 });
 
   return (
     <div className="space-y-8">

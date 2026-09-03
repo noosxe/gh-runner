@@ -140,10 +140,13 @@ export function useWatchDashboard(options?: StreamOptions) {
         }
       }
       if (res.recentJobs && res.recentJobs.length > 0) {
-        queryClient.setQueryData(queryKeys.jobHistory(undefined, 5, 0), {
-          jobs: res.recentJobs.slice(0, 5),
-          totalCount: res.recentJobs.length,
-        });
+        queryClient.setQueryData(
+          queryKeys.jobHistory({ poolId: 0n, limit: 5, offset: 0, search: "", status: "" }),
+          {
+            jobs: res.recentJobs.slice(0, 5),
+            totalCount: res.recentJobs.length,
+          },
+        );
       }
     },
     [queryClient],

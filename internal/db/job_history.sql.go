@@ -34,6 +34,26 @@ func (q *Queries) CountJobHistoryByPoolId(ctx context.Context, poolID int64) (in
 	return count, err
 }
 
+const countSearchJobHistory = `-- name: CountSearchJobHistory :one
+SELECT COUNT(*) FROM job_history
+WHERE (?1 = 0 OR pool_id = ?1)
+  AND (?2 = '' OR runner_name LIKE '%' || ?2 || '%')
+  AND (?3 = '' OR status = ?3)
+`
+
+type CountSearchJobHistoryParams struct {
+	PoolID interface{} `json:"pool_id"`
+	Search interface{} `json:"search"`
+	Status interface{} `json:"status"`
+}
+
+func (q *Queries) CountSearchJobHistory(ctx context.Context, arg CountSearchJobHistoryParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSearchJobHistory, arg.PoolID, arg.Search, arg.Status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createJobHistory = `-- name: CreateJobHistory :one
 INSERT INTO job_history (
     pool_id,
@@ -264,6 +284,62 @@ func (q *Queries) PruneJobHistoryOlderThan(ctx context.Context, arg PruneJobHist
 	for rows.Next() {
 		var i PruneJobHistoryOlderThanRow
 		if err := rows.Scan(&i.ID, &i.LogRetentionPath); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchJobHistory = `-- name: SearchJobHistory :many
+SELECT id, pool_id, runner_name, status, queued_at, started_at, completed_at, log_retention_path, created_at FROM job_history
+WHERE (?1 = 0 OR pool_id = ?1)
+  AND (?2 = '' OR runner_name LIKE '%' || ?2 || '%')
+  AND (?3 = '' OR status = ?3)
+ORDER BY id DESC
+LIMIT ?5 OFFSET ?4
+`
+
+type SearchJobHistoryParams struct {
+	PoolID interface{} `json:"pool_id"`
+	Search interface{} `json:"search"`
+	Status interface{} `json:"status"`
+	Offset int64       `json:"offset"`
+	Limit  int64       `json:"limit"`
+}
+
+func (q *Queries) SearchJobHistory(ctx context.Context, arg SearchJobHistoryParams) ([]JobHistory, error) {
+	rows, err := q.db.QueryContext(ctx, searchJobHistory,
+		arg.PoolID,
+		arg.Search,
+		arg.Status,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []JobHistory{}
+	for rows.Next() {
+		var i JobHistory
+		if err := rows.Scan(
+			&i.ID,
+			&i.PoolID,
+			&i.RunnerName,
+			&i.Status,
+			&i.QueuedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.LogRetentionPath,
+			&i.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

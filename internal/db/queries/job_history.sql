@@ -45,6 +45,20 @@ SELECT COUNT(*) FROM job_history;
 SELECT COUNT(*) FROM job_history
 WHERE pool_id = ?;
 
+-- name: SearchJobHistory :many
+SELECT * FROM job_history
+WHERE (sqlc.arg('pool_id') = 0 OR pool_id = sqlc.arg('pool_id'))
+  AND (sqlc.arg('search') = '' OR runner_name LIKE '%' || sqlc.arg('search') || '%')
+  AND (sqlc.arg('status') = '' OR status = sqlc.arg('status'))
+ORDER BY id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: CountSearchJobHistory :one
+SELECT COUNT(*) FROM job_history
+WHERE (sqlc.arg('pool_id') = 0 OR pool_id = sqlc.arg('pool_id'))
+  AND (sqlc.arg('search') = '' OR runner_name LIKE '%' || sqlc.arg('search') || '%')
+  AND (sqlc.arg('status') = '' OR status = sqlc.arg('status'));
+
 -- name: PruneJobHistoryOlderThan :many
 DELETE FROM job_history
 WHERE (completed_at IS NOT NULL AND completed_at < ?)
