@@ -57,14 +57,23 @@ export function useSetAppSetting() {
 
 // Direct Query Helpers (used for route guards and preloading)
 export async function fetchOnboardingStatus(qc: QueryClient) {
-  return await qc.ensureQueryData({
-    queryKey: queryKeys.onboardingStatus,
-    queryFn: async () => {
-      const res = await onboardingClient.getOnboardingStatus({});
-      return res;
-    },
-    staleTime: 30_000,
-  });
+  try {
+    return await qc.ensureQueryData({
+      queryKey: queryKeys.onboardingStatus,
+      queryFn: async () => {
+        const res = await onboardingClient.getOnboardingStatus({});
+        return res;
+      },
+      staleTime: 30_000,
+    });
+  } catch {
+    return {
+      setupComplete: false,
+      adminCreated: false,
+      authProfileExists: false,
+      poolExists: false,
+    };
+  }
 }
 
 export async function fetchSession(qc: QueryClient) {
