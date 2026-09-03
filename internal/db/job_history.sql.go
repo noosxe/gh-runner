@@ -115,6 +115,38 @@ func (q *Queries) GetJobHistoryById(ctx context.Context, id int64) (JobHistory, 
 	return i, err
 }
 
+const getJobStatsSince = `-- name: GetJobStatsSince :one
+SELECT
+    COUNT(*) as total_jobs,
+    COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as successful_jobs,
+    COALESCE(SUM(CASE WHEN status = 'failure' OR status = 'failed' THEN 1 ELSE 0 END), 0) as failed_jobs,
+    COALESCE(AVG(CASE WHEN started_at IS NOT NULL AND queued_at IS NOT NULL THEN (CAST(strftime('%s', replace(substr(started_at, 1, 19), 'T', ' ')) AS REAL) - CAST(strftime('%s', replace(substr(queued_at, 1, 19), 'T', ' ')) AS REAL)) END), 0.0) as avg_queue_seconds,
+    COALESCE(AVG(CASE WHEN completed_at IS NOT NULL AND started_at IS NOT NULL THEN (CAST(strftime('%s', replace(substr(completed_at, 1, 19), 'T', ' ')) AS REAL) - CAST(strftime('%s', replace(substr(started_at, 1, 19), 'T', ' ')) AS REAL)) END), 0.0) as avg_runtime_seconds
+FROM job_history
+WHERE created_at >= ?
+`
+
+type GetJobStatsSinceRow struct {
+	TotalJobs         int64       `json:"total_jobs"`
+	SuccessfulJobs    interface{} `json:"successful_jobs"`
+	FailedJobs        interface{} `json:"failed_jobs"`
+	AvgQueueSeconds   interface{} `json:"avg_queue_seconds"`
+	AvgRuntimeSeconds interface{} `json:"avg_runtime_seconds"`
+}
+
+func (q *Queries) GetJobStatsSince(ctx context.Context, createdAt time.Time) (GetJobStatsSinceRow, error) {
+	row := q.db.QueryRowContext(ctx, getJobStatsSince, createdAt)
+	var i GetJobStatsSinceRow
+	err := row.Scan(
+		&i.TotalJobs,
+		&i.SuccessfulJobs,
+		&i.FailedJobs,
+		&i.AvgQueueSeconds,
+		&i.AvgRuntimeSeconds,
+	)
+	return i, err
+}
+
 const listJobHistory = `-- name: ListJobHistory :many
 SELECT id, pool_id, runner_name, status, queued_at, started_at, completed_at, log_retention_path, created_at FROM job_history
 ORDER BY id DESC

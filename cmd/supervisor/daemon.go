@@ -87,6 +87,8 @@ func runDaemonContext(ctx context.Context) error {
 		AuthDB:           database,
 		PoolDB:           database,
 		AuthProfileDB:    database,
+		OnboardingDB:     database,
+		AnalyticsDB:      database,
 		DBEncryptionKey:  derivedKeys.DBEncryptionKey,
 		JWTSigningSecret: derivedKeys.JWTSigningSecret,
 	})

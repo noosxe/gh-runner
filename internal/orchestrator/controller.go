@@ -923,6 +923,28 @@ func (c *PoolController) PoolStats(poolName string) (active int32, idle int32) {
 	return active, idle
 }
 
+// SystemRunnerStats returns the total active (busy executing job) and idle runner counts across all pools.
+func (c *PoolController) SystemRunnerStats() (active int32, idle int32) {
+	if c.reconciler == nil {
+		return 0, 0
+	}
+	c.reconciler.mu.RLock()
+	defer c.reconciler.mu.RUnlock()
+
+	for _, poolMap := range c.reconciler.tracked {
+		for _, r := range poolMap {
+			if r.State == "running" {
+				if r.IsBusy {
+					active++
+				} else {
+					idle++
+				}
+			}
+		}
+	}
+	return active, idle
+}
+
 // QueueLength returns the number of currently queued provisioning requests.
 func (c *PoolController) QueueLength() int {
 	c.mu.RLock()

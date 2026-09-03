@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CheckImageUpdateRequest, CheckImageUpdateResponse, CreateAuthProfileRequest, CreateAuthProfileResponse, CreatePoolRequest, CreatePoolResponse, DeleteAuthProfileRequest, DeleteAuthProfileResponse, DeletePoolRequest, DeletePoolResponse, DismissImageUpdateRequest, DismissImageUpdateResponse, GetJobHistoryRequest, GetJobHistoryResponse, GetOnboardingStatusRequest, GetOnboardingStatusResponse, GetRenovateStatusRequest, GetRenovateStatusResponse, GetRunnerLogsRequest, GetRunnerLogsResponse, GetSessionRequest, GetSessionResponse, GetSystemStatsRequest, GetSystemStatsResponse, ListAuthProfilesRequest, ListAuthProfilesResponse, ListImageUpdatesRequest, ListImageUpdatesResponse, ListPoolsRequest, ListPoolsResponse, ListRenovateHistoryRequest, ListRenovateHistoryResponse, LogChunk, LoginRequest, LoginResponse, PullImageRequest, PullImageResponse, SetupAdminRequest, SetupAdminResponse, StreamRunnerLogsRequest, TriggerRenovateRunRequest, TriggerRenovateRunResponse, UpdatePoolRequest, UpdatePoolResponse } from "./api_pb.js";
+import { CheckImageUpdateRequest, CheckImageUpdateResponse, CreateAuthProfileRequest, CreateAuthProfileResponse, CreatePoolRequest, CreatePoolResponse, DeleteAuthProfileRequest, DeleteAuthProfileResponse, DeletePoolRequest, DeletePoolResponse, DismissImageUpdateRequest, DismissImageUpdateResponse, GetAppSettingsRequest, GetAppSettingsResponse, GetJobHistoryRequest, GetJobHistoryResponse, GetOnboardingStatusRequest, GetOnboardingStatusResponse, GetRenovateStatusRequest, GetRenovateStatusResponse, GetRunnerLogsRequest, GetRunnerLogsResponse, GetSessionRequest, GetSessionResponse, GetSystemStatsRequest, GetSystemStatsResponse, ListAuthProfilesRequest, ListAuthProfilesResponse, ListImageUpdatesRequest, ListImageUpdatesResponse, ListPoolsRequest, ListPoolsResponse, ListRenovateHistoryRequest, ListRenovateHistoryResponse, LogChunk, LoginRequest, LoginResponse, PullImageRequest, PullImageResponse, SetAppSettingRequest, SetAppSettingResponse, SetupAdminRequest, SetupAdminResponse, StreamRunnerLogsRequest, TriggerRenovateRunRequest, TriggerRenovateRunResponse, UpdatePoolRequest, UpdatePoolResponse } from "./api_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -142,6 +142,24 @@ export const OnboardingService = {
       name: "GetOnboardingStatus",
       I: GetOnboardingStatusRequest,
       O: GetOnboardingStatusResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc supervisor.v1.OnboardingService.GetAppSettings
+     */
+    getAppSettings: {
+      name: "GetAppSettings",
+      I: GetAppSettingsRequest,
+      O: GetAppSettingsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc supervisor.v1.OnboardingService.SetAppSetting
+     */
+    setAppSetting: {
+      name: "SetAppSetting",
+      I: SetAppSettingRequest,
+      O: SetAppSettingResponse,
       kind: MethodKind.Unary,
     },
   }

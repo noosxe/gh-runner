@@ -86,6 +86,17 @@ type Options struct {
 	// CredentialValidator optionally validates credentials against upstream providers on profile create.
 	CredentialValidator CredentialValidator
 
+	// OnboardingDB is the database interface used for onboarding checks and app settings.
+	// If nil, OnboardingService is not automatically mounted.
+	OnboardingDB OnboardingDatabase
+
+	// AnalyticsDB is the database interface used for job history and metrics.
+	// If nil, AnalyticsService is not automatically mounted.
+	AnalyticsDB AnalyticsDatabase
+
+	// SystemStats provides live system-wide runner counts (RUN-48).
+	SystemStats SystemStatsProvider
+
 	// JWTSigningSecret is the 256-bit HMAC key derived from SUPERVISOR_DB_ENCRYPTION_KEY
 	// used to cryptographically sign session JWT tokens (docs/05 §5, keys.LabelJWTSigning).
 	JWTSigningSecret []byte
@@ -156,6 +167,20 @@ func New(opts Options) *Server {
 	if opts.AuthProfileDB != nil {
 		authProfileSvc := NewAuthProfileService(opts.AuthProfileDB, opts.DBEncryptionKey, opts.CredentialValidator)
 		path, handler := supervisorv1connect.NewAuthProfileServiceHandler(authProfileSvc, s.ConnectHandlerOptions()...)
+		s.MountConnectHandler(path, handler)
+	}
+
+	// Mount OnboardingService if onboarding database is provided (RUN-48)
+	if opts.OnboardingDB != nil {
+		onboardingSvc := NewOnboardingService(opts.OnboardingDB)
+		path, handler := supervisorv1connect.NewOnboardingServiceHandler(onboardingSvc, s.ConnectHandlerOptions()...)
+		s.MountConnectHandler(path, handler)
+	}
+
+	// Mount AnalyticsService if analytics database is provided (RUN-48)
+	if opts.AnalyticsDB != nil {
+		analyticsSvc := NewAnalyticsService(opts.AnalyticsDB, opts.SystemStats)
+		path, handler := supervisorv1connect.NewAnalyticsServiceHandler(analyticsSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}
 
