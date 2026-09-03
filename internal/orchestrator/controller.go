@@ -40,6 +40,11 @@ type ProvisionRequest struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// JobHistoryRecorder records runner job execution statuses into the database (docs/03 §4, §7).
+type JobHistoryRecorder interface {
+	RecordJobTimeout(ctx context.Context, poolID int64, runnerName, logPath string, startedAt, completedAt time.Time) error
+}
+
 // PoolRepository abstracts loading active runner pools from the database.
 type PoolRepository interface {
 	ListRunnerPools(ctx context.Context) ([]db.RunnerPool, error)
@@ -77,6 +82,7 @@ const (
 // ControllerOptions configures the PoolController.
 type ControllerOptions struct {
 	DB               PoolRepository
+	JobRecorder      JobHistoryRecorder
 	ContainerEngine  ContainerProvider
 	ProviderResolver GitProviderResolver
 	Reconciler       *Reconciler
@@ -91,6 +97,7 @@ type PoolController struct {
 	mu               sync.RWMutex
 	provisionMu      sync.Mutex // single-writer provisioning lock (RUN-38)
 	db               PoolRepository
+	jobRecorder      JobHistoryRecorder
 	engine           ContainerProvider
 	providerResolver GitProviderResolver
 	reconciler       *Reconciler
@@ -119,8 +126,16 @@ func NewPoolController(opts ControllerOptions) *PoolController {
 		globalMax = DefaultTotalAllowedRunners
 	}
 
+	jobRec := opts.JobRecorder
+	if jobRec == nil && opts.DB != nil {
+		if rec, ok := opts.DB.(JobHistoryRecorder); ok {
+			jobRec = rec
+		}
+	}
+
 	return &PoolController{
 		db:               opts.DB,
+		jobRecorder:      jobRec,
 		engine:           opts.ContainerEngine,
 		providerResolver: opts.ProviderResolver,
 		reconciler:       opts.Reconciler,
@@ -254,7 +269,10 @@ func (c *PoolController) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("loading pools for reconcile: %w", err)
 	}
 
-	// 4. Reconcile pool targets
+	// 4. Force-terminate hung runners exceeding max_runner_lifetime_seconds (docs/03 §4, §7)
+	c.checkHungRunners(ctx, pools)
+
+	// 5. Reconcile pool targets
 	for _, p := range pools {
 		if err := c.reconcilePool(ctx, p); err != nil {
 			c.logger.Error("failed reconciling pool target", "pool", p.Name, "err", err)
@@ -266,6 +284,84 @@ func (c *PoolController) Reconcile(ctx context.Context) error {
 	c.mu.Unlock()
 
 	return nil
+}
+
+// CheckHungRunners inspects all pools and force-terminates any running containers
+// that exceed the pool's max_runner_lifetime_seconds, marking their job_history row 'timeout' (docs/03 §4, §7).
+func (c *PoolController) CheckHungRunners(ctx context.Context) error {
+	c.provisionMu.Lock()
+	defer c.provisionMu.Unlock()
+
+	pools, err := c.loadPools(ctx)
+	if err != nil {
+		return fmt.Errorf("loading pools for hung check: %w", err)
+	}
+
+	c.checkHungRunners(ctx, pools)
+	return nil
+}
+
+func (c *PoolController) checkHungRunners(ctx context.Context, pools []db.RunnerPool) {
+	if c.engine == nil || c.reconciler == nil {
+		return
+	}
+
+	now := time.Now().UTC()
+	for _, p := range pools {
+		if p.MaxRunnerLifetimeSeconds <= 0 {
+			continue
+		}
+
+		lifetimeLimit := time.Duration(p.MaxRunnerLifetimeSeconds) * time.Second
+		tracked := c.reconciler.TrackedPoolRunners(p.Name)
+		for _, r := range tracked {
+			if r.State != "running" || r.SpawnedAt.IsZero() {
+				continue
+			}
+
+			elapsed := now.Sub(r.SpawnedAt)
+			if elapsed > lifetimeLimit {
+				c.logger.Warn("hung runner exceeded max lifetime, force terminating",
+					"pool", p.Name,
+					"runner_id", r.ID,
+					"runner_name", r.Name,
+					"elapsed", elapsed,
+					"limit", lifetimeLimit,
+				)
+
+				var logPath string
+				if c.dataDir != "" {
+					var err error
+					logPath, err = c.engine.CaptureLogs(ctx, r.ID, c.dataDir)
+					if err != nil {
+						c.logger.Warn("capturing exit logs for hung runner", "id", r.ID, "err", err)
+					}
+				}
+
+				// Force terminate container immediately
+				if err := c.engine.TerminateRunner(ctx, r.ID); err != nil {
+					c.logger.Error("failed to force terminate hung runner", "id", r.ID, "err", err)
+				}
+
+				// Untrack runner from active pool state
+				c.reconciler.UntrackRunner(p.Name, r.ID)
+
+				// Record timeout in job_history
+				if c.jobRecorder != nil {
+					runnerName := r.Name
+					if runnerName == "" {
+						runnerName = r.ID
+					}
+					if err := c.jobRecorder.RecordJobTimeout(ctx, p.ID, runnerName, logPath, r.SpawnedAt, now); err != nil {
+						c.logger.Error("failed recording job timeout", "runner", runnerName, "err", err)
+					}
+				}
+
+				// Capacity freed up, drain internal queue
+				c.drainQueue(ctx)
+			}
+		}
+	}
 }
 
 // HandleContainerEvent processes real-time Docker events ("die", "destroy").

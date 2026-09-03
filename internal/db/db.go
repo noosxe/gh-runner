@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -194,4 +195,20 @@ func (d *DB) SQL() *sql.DB {
 // Path returns the configured database file path.
 func (d *DB) Path() string {
 	return d.path
+}
+
+// RecordJobTimeout records a timeout event into job_history for a force-terminated hung runner (docs/03 §4, §7).
+func (d *DB) RecordJobTimeout(ctx context.Context, poolID int64, runnerName, logPath string, startedAt, completedAt time.Time) error {
+	_, err := d.CreateJobHistory(ctx, CreateJobHistoryParams{
+		PoolID:           poolID,
+		RunnerName:       runnerName,
+		Status:           "timeout",
+		StartedAt:        sql.NullTime{Time: startedAt, Valid: !startedAt.IsZero()},
+		CompletedAt:      sql.NullTime{Time: completedAt, Valid: !completedAt.IsZero()},
+		LogRetentionPath: sql.NullString{String: logPath, Valid: logPath != ""},
+	})
+	if err != nil {
+		return fmt.Errorf("recording job timeout: %w", err)
+	}
+	return nil
 }

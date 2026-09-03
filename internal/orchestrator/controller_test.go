@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/noosxe/gh-runner/internal/db"
 	"github.com/noosxe/gh-runner/internal/orchestrator"
@@ -463,6 +464,136 @@ func TestPoolController_GlobalQuotaSaturationAndFairQueueDrain(t *testing.T) {
 	}
 	if ctrl.TotalActiveRunners() != 3 {
 		t.Fatalf("expected total active runners to remain at global limit 3, got %d", ctrl.TotalActiveRunners())
+	}
+}
+
+type mockJobRecorder struct {
+	records []struct {
+		poolID     int64
+		runnerName string
+		status     string
+		logPath    string
+	}
+}
+
+func (m *mockJobRecorder) RecordJobTimeout(ctx context.Context, poolID int64, runnerName, logPath string, startedAt, completedAt time.Time) error {
+	m.records = append(m.records, struct {
+		poolID     int64
+		runnerName string
+		status     string
+		logPath    string
+	}{
+		poolID:     poolID,
+		runnerName: runnerName,
+		status:     "timeout",
+		logPath:    logPath,
+	})
+	return nil
+}
+
+func TestPoolController_HungRunnerAutoTermination(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+
+	pool := db.RunnerPool{
+		ID:                       42,
+		Name:                     "timeout-pool",
+		Provider:                 "github",
+		RepositoryUrl:            "https://github.com/owner/timeout-repo",
+		Scope:                    "repo",
+		AuthProfileID:            10,
+		MinIdleRunners:           2,
+		MaxConcurrency:           5,
+		MaxRunnerLifetimeSeconds: 5, // 5 second limit
+		RunnerImage:              "ghcr.io/noosxe/gh-runner:latest",
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{10: gitProv},
+	}
+
+	terminatedIDs := make([]string, 0)
+	logsCapturedIDs := make([]string, 0)
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			return "runner-" + config.Name, nil
+		},
+		TerminateRunnerFn: func(ctx context.Context, containerID string) error {
+			terminatedIDs = append(terminatedIDs, containerID)
+			return nil
+		},
+		CaptureLogsFn: func(ctx context.Context, containerID, dataDir string) (string, error) {
+			logsCapturedIDs = append(logsCapturedIDs, containerID)
+			return orchestrator.LogPath(dataDir, containerID), nil
+		},
+	}
+
+	reconciler := orchestrator.NewReconciler(mockEngine)
+	jobRecorder := &mockJobRecorder{}
+
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		JobRecorder:      jobRecorder,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler,
+		DataDir:          tempDir,
+	})
+
+	// Add a synthetic hung container spawned 10 seconds ago (limit is 5s)
+	hungRunner := orchestrator.RunnerStatus{
+		ID:        "hung-container-1",
+		Name:      "hung-runner-1",
+		PoolName:  "timeout-pool",
+		State:     "running",
+		SpawnedAt: time.Now().UTC().Add(-10 * time.Second),
+	}
+	// Add a healthy fresh container spawned 1 second ago
+	freshRunner := orchestrator.RunnerStatus{
+		ID:        "fresh-container-2",
+		Name:      "fresh-runner-2",
+		PoolName:  "timeout-pool",
+		State:     "running",
+		SpawnedAt: time.Now().UTC().Add(-1 * time.Second),
+	}
+
+	reconciler.TrackRunner(hungRunner)
+	reconciler.TrackRunner(freshRunner)
+
+	if len(reconciler.TrackedPoolRunners("timeout-pool")) != 2 {
+		t.Fatalf("expected 2 runners tracked initially")
+	}
+
+	// Trigger hung runner inspection
+	if err := ctrl.CheckHungRunners(ctx); err != nil {
+		t.Fatalf("CheckHungRunners failed: %v", err)
+	}
+
+	// 1. Acceptance: synthetic hung container killed at limit
+	if len(terminatedIDs) != 1 || terminatedIDs[0] != "hung-container-1" {
+		t.Fatalf("expected hung-container-1 to be terminated, got: %v", terminatedIDs)
+	}
+
+	// 2. Logs captured before container termination
+	if len(logsCapturedIDs) != 1 || logsCapturedIDs[0] != "hung-container-1" {
+		t.Errorf("expected logs captured for hung-container-1, got: %v", logsCapturedIDs)
+	}
+
+	// 3. job_history record created with status 'timeout'
+	if len(jobRecorder.records) != 1 {
+		t.Fatalf("expected 1 job_history record, got %d", len(jobRecorder.records))
+	}
+	record := jobRecorder.records[0]
+	if record.poolID != 42 || record.runnerName != "hung-runner-1" || record.status != "timeout" {
+		t.Errorf("unexpected timeout record: %+v", record)
+	}
+
+	// 4. Fresh runner is NOT terminated and remains tracked
+	tracked := reconciler.TrackedPoolRunners("timeout-pool")
+	if len(tracked) != 1 || tracked[0].ID != "fresh-container-2" {
+		t.Errorf("fresh container should still be running, tracked: %+v", tracked)
 	}
 }
 
