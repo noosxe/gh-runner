@@ -313,7 +313,18 @@ pools:
 	done1 := make(chan error, 1)
 	go func() { done1 <- runDaemonContext(ctx1) }()
 
-	time.Sleep(100 * time.Millisecond)
+	// First boot: wait for daemon to become ready
+	deadline1 := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline1) {
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	cancel1()
 	<-done1
 
@@ -358,7 +369,17 @@ pools:
 	done2 := make(chan error, 1)
 	go func() { done2 <- runDaemonContext(ctx2) }()
 
-	time.Sleep(100 * time.Millisecond)
+	deadline2 := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline2) {
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port2))
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	cancel2()
 	<-done2
 
