@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../hooks/use-theme";
 import { useSystemStats, useSession, useLogout } from "../../lib/api/query-hooks";
+import { useWatchDashboard } from "../../lib/api/streaming-hooks";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -41,6 +42,9 @@ export function AppShell() {
   const logout = useLogout();
   const { data: stats } = useSystemStats();
   const { data: session } = useSession();
+  const { isConnected } = useWatchDashboard({
+    enabled: Boolean(session?.username),
+  });
 
   const activeRunners = stats?.totalActiveRunners ?? 0;
   const idleRunners = stats?.totalIdleRunners ?? 0;
@@ -180,6 +184,25 @@ export function AppShell() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Realtime Stream Status Pill */}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                isConnected
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60"
+                  : "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
+              }`}
+              title={isConnected ? "Realtime stream active" : "Reconnecting to realtime stream..."}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  isConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+                }`}
+              />
+              <span className="hidden sm:inline font-mono">
+                {isConnected ? "Live" : "Connecting"}
+              </span>
+            </span>
+
             {/* Active / Idle Runners Counter */}
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
               <span className="hidden sm:inline font-medium text-slate-900 dark:text-white">

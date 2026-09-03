@@ -190,7 +190,7 @@ func New(opts Options) *Server {
 
 	// Mount AnalyticsService if analytics database is provided (RUN-48)
 	if opts.AnalyticsDB != nil {
-		analyticsSvc := NewAnalyticsService(opts.AnalyticsDB, opts.SystemStats)
+		analyticsSvc := NewAnalyticsService(opts.AnalyticsDB, opts.SystemStats, opts.PoolStats)
 		path, handler := supervisorv1connect.NewAnalyticsServiceHandler(analyticsSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}

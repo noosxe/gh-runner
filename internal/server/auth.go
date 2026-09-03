@@ -143,38 +143,70 @@ func IsPublicProcedure(procedure string) bool {
 	}
 }
 
-// NewAuthInterceptor returns a Connect UnaryInterceptor enforcing valid cookie session authentication
-// on all protected procedures.
-func NewAuthInterceptor(authDB AuthDatabase, jwtSecret []byte) connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			if IsPublicProcedure(req.Spec().Procedure) {
-				return next(ctx, req)
-			}
+// AuthInterceptor enforces valid cookie session authentication on protected procedures (unary and streaming).
+type AuthInterceptor struct {
+	authDB    AuthDatabase
+	jwtSecret []byte
+}
 
-			tokenString := ExtractSessionToken(req.Header())
-			if tokenString == "" {
-				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized: missing session token"))
-			}
+// NewAuthInterceptor returns a Connect Interceptor enforcing valid cookie session authentication
+// on all protected procedures (both unary and streaming).
+func NewAuthInterceptor(authDB AuthDatabase, jwtSecret []byte) connect.Interceptor {
+	return &AuthInterceptor{
+		authDB:    authDB,
+		jwtSecret: jwtSecret,
+	}
+}
 
-			claims, err := ValidateToken(tokenString, jwtSecret)
-			if err != nil {
-				return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("unauthorized: %w", err))
-			}
+func (a *AuthInterceptor) authenticate(ctx context.Context, header http.Header, procedure string) (context.Context, error) {
+	if IsPublicProcedure(procedure) {
+		return ctx, nil
+	}
 
-			tokenHash := HashToken(tokenString)
-			sess, err := authDB.GetSessionByTokenHash(ctx, tokenHash)
-			if err != nil || sess.ExpiresAt.Before(time.Now()) {
-				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized: session revoked or expired"))
-			}
+	tokenString := ExtractSessionToken(header)
+	if tokenString == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized: missing session token"))
+	}
 
-			ctx = WithUserContext(ctx, &UserContext{
-				UserID:   claims.UserID,
-				Username: claims.Username,
-			})
+	claims, err := ValidateToken(tokenString, a.jwtSecret)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("unauthorized: %w", err))
+	}
 
-			return next(ctx, req)
+	tokenHash := HashToken(tokenString)
+	sess, err := a.authDB.GetSessionByTokenHash(ctx, tokenHash)
+	if err != nil || sess.ExpiresAt.Before(time.Now()) {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("unauthorized: session revoked or expired"))
+	}
+
+	ctx = WithUserContext(ctx, &UserContext{
+		UserID:   claims.UserID,
+		Username: claims.Username,
+	})
+	return ctx, nil
+}
+
+func (a *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		authCtx, err := a.authenticate(ctx, req.Header(), req.Spec().Procedure)
+		if err != nil {
+			return nil, err
 		}
+		return next(authCtx, req)
+	}
+}
+
+func (a *AuthInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (a *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		authCtx, err := a.authenticate(ctx, conn.RequestHeader(), conn.Spec().Procedure)
+		if err != nil {
+			return err
+		}
+		return next(authCtx, conn)
 	}
 }
 

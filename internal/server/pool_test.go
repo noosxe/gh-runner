@@ -264,3 +264,107 @@ func TestPoolServiceCRUDAndValidation(t *testing.T) {
 		t.Fatalf("second DeletePool want CodeNotFound, got: %v", err)
 	}
 }
+
+func TestPoolServiceWatchPools(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	database, jwtSecret := setupTestDB(t)
+	stats := newMockStatsProvider()
+	stats.activeCounts["watch-pool"] = 4
+	stats.idleCounts["watch-pool"] = 1
+
+	srv := server.New(server.Options{
+		Port:             8080,
+		AuthDB:           database,
+		PoolDB:           database,
+		PoolStats:        stats,
+		JWTSigningSecret: jwtSecret,
+	})
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Authenticate
+	authClient := supervisorv1connect.NewAuthServiceClient(ts.Client(), ts.URL)
+	_, err := authClient.SetupAdmin(ctx, connect.NewRequest(&supervisorv1.SetupAdminRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("SetupAdmin failed: %v", err)
+	}
+
+	loginRes, err := authClient.Login(ctx, connect.NewRequest(&supervisorv1.LoginRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("Login failed: %v", err)
+	}
+	rawCookie := strings.Split(strings.Split(loginRes.Header().Get("Set-Cookie"), ";")[0], "=")[1]
+
+	// Create Auth Profile
+	authProf, err := database.CreateAuthProfile(ctx, db.CreateAuthProfileParams{
+		Name:           "watch-auth",
+		AuthMethod:     "pat",
+		TokenEncrypted: sql.NullString{String: "dummy-token", Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateAuthProfile failed: %v", err)
+	}
+
+	// Create Pool
+	client := supervisorv1connect.NewPoolServiceClient(ts.Client(), ts.URL)
+	createReq := connect.NewRequest(&supervisorv1.CreatePoolRequest{
+		Pool: &supervisorv1.Pool{
+			Name:           "watch-pool",
+			Provider:       "github",
+			RepositoryUrl:  "https://github.com/org/repo",
+			AuthProfileId:  authProf.ID,
+			MinIdleRunners: 1,
+			MaxConcurrency: 5,
+		},
+	})
+	createReq.Header().Set("Cookie", "session_token="+rawCookie)
+	if _, err := client.CreatePool(ctx, createReq); err != nil {
+		t.Fatalf("CreatePool failed: %v", err)
+	}
+
+	// Watch Pools stream
+	watchReq := connect.NewRequest(&supervisorv1.WatchPoolsRequest{
+		IntervalMs: 250,
+	})
+	watchReq.Header().Set("Cookie", "session_token="+rawCookie)
+
+	stream, err := client.WatchPools(ctx, watchReq)
+	if err != nil {
+		t.Fatalf("WatchPools failed: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	// First message: immediate snapshot
+	if !stream.Receive() {
+		t.Fatalf("expected initial message from WatchPools, got none (err: %v)", stream.Err())
+	}
+
+	msg := stream.Msg()
+	if len(msg.Pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(msg.Pools))
+	}
+	if msg.Pools[0].Name != "watch-pool" {
+		t.Errorf("expected pool name 'watch-pool', got %s", msg.Pools[0].Name)
+	}
+	if msg.Pools[0].ActiveRunners != 4 || msg.Pools[0].IdleRunners != 1 {
+		t.Errorf("expected 4 active, 1 idle, got active=%d, idle=%d", msg.Pools[0].ActiveRunners, msg.Pools[0].IdleRunners)
+	}
+
+	// Cancel context to ensure clean shutdown
+	cancel()
+	for stream.Receive() {
+		// drain remaining
+	}
+	if err := stream.Err(); err != nil && !strings.Contains(err.Error(), "canceled") {
+		t.Errorf("unexpected error on stream cancel: %v", err)
+	}
+}

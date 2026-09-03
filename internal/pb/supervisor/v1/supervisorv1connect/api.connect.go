@@ -61,6 +61,8 @@ const (
 	PoolServiceUpdatePoolProcedure = "/supervisor.v1.PoolService/UpdatePool"
 	// PoolServiceDeletePoolProcedure is the fully-qualified name of the PoolService's DeletePool RPC.
 	PoolServiceDeletePoolProcedure = "/supervisor.v1.PoolService/DeletePool"
+	// PoolServiceWatchPoolsProcedure is the fully-qualified name of the PoolService's WatchPools RPC.
+	PoolServiceWatchPoolsProcedure = "/supervisor.v1.PoolService/WatchPools"
 	// AuthProfileServiceListAuthProfilesProcedure is the fully-qualified name of the
 	// AuthProfileService's ListAuthProfiles RPC.
 	AuthProfileServiceListAuthProfilesProcedure = "/supervisor.v1.AuthProfileService/ListAuthProfiles"
@@ -85,6 +87,9 @@ const (
 	// AnalyticsServiceGetSystemStatsProcedure is the fully-qualified name of the AnalyticsService's
 	// GetSystemStats RPC.
 	AnalyticsServiceGetSystemStatsProcedure = "/supervisor.v1.AnalyticsService/GetSystemStats"
+	// AnalyticsServiceWatchDashboardProcedure is the fully-qualified name of the AnalyticsService's
+	// WatchDashboard RPC.
+	AnalyticsServiceWatchDashboardProcedure = "/supervisor.v1.AnalyticsService/WatchDashboard"
 	// LogServiceStreamRunnerLogsProcedure is the fully-qualified name of the LogService's
 	// StreamRunnerLogs RPC.
 	LogServiceStreamRunnerLogsProcedure = "/supervisor.v1.LogService/StreamRunnerLogs"
@@ -248,6 +253,8 @@ type PoolServiceClient interface {
 	CreatePool(context.Context, *connect.Request[v1.CreatePoolRequest]) (*connect.Response[v1.CreatePoolResponse], error)
 	UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error)
 	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
+	// WatchPools provides near-realtime server-streaming push of pool states and runner counts
+	WatchPools(context.Context, *connect.Request[v1.WatchPoolsRequest]) (*connect.ServerStreamForClient[v1.WatchPoolsResponse], error)
 }
 
 // NewPoolServiceClient constructs a client for the supervisor.v1.PoolService service. By default,
@@ -285,6 +292,12 @@ func NewPoolServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(poolServiceMethods.ByName("DeletePool")),
 			connect.WithClientOptions(opts...),
 		),
+		watchPools: connect.NewClient[v1.WatchPoolsRequest, v1.WatchPoolsResponse](
+			httpClient,
+			baseURL+PoolServiceWatchPoolsProcedure,
+			connect.WithSchema(poolServiceMethods.ByName("WatchPools")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -294,6 +307,7 @@ type poolServiceClient struct {
 	createPool *connect.Client[v1.CreatePoolRequest, v1.CreatePoolResponse]
 	updatePool *connect.Client[v1.UpdatePoolRequest, v1.UpdatePoolResponse]
 	deletePool *connect.Client[v1.DeletePoolRequest, v1.DeletePoolResponse]
+	watchPools *connect.Client[v1.WatchPoolsRequest, v1.WatchPoolsResponse]
 }
 
 // ListPools calls supervisor.v1.PoolService.ListPools.
@@ -316,12 +330,19 @@ func (c *poolServiceClient) DeletePool(ctx context.Context, req *connect.Request
 	return c.deletePool.CallUnary(ctx, req)
 }
 
+// WatchPools calls supervisor.v1.PoolService.WatchPools.
+func (c *poolServiceClient) WatchPools(ctx context.Context, req *connect.Request[v1.WatchPoolsRequest]) (*connect.ServerStreamForClient[v1.WatchPoolsResponse], error) {
+	return c.watchPools.CallServerStream(ctx, req)
+}
+
 // PoolServiceHandler is an implementation of the supervisor.v1.PoolService service.
 type PoolServiceHandler interface {
 	ListPools(context.Context, *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error)
 	CreatePool(context.Context, *connect.Request[v1.CreatePoolRequest]) (*connect.Response[v1.CreatePoolResponse], error)
 	UpdatePool(context.Context, *connect.Request[v1.UpdatePoolRequest]) (*connect.Response[v1.UpdatePoolResponse], error)
 	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
+	// WatchPools provides near-realtime server-streaming push of pool states and runner counts
+	WatchPools(context.Context, *connect.Request[v1.WatchPoolsRequest], *connect.ServerStream[v1.WatchPoolsResponse]) error
 }
 
 // NewPoolServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -355,6 +376,12 @@ func NewPoolServiceHandler(svc PoolServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(poolServiceMethods.ByName("DeletePool")),
 		connect.WithHandlerOptions(opts...),
 	)
+	poolServiceWatchPoolsHandler := connect.NewServerStreamHandler(
+		PoolServiceWatchPoolsProcedure,
+		svc.WatchPools,
+		connect.WithSchema(poolServiceMethods.ByName("WatchPools")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/supervisor.v1.PoolService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PoolServiceListPoolsProcedure:
@@ -365,6 +392,8 @@ func NewPoolServiceHandler(svc PoolServiceHandler, opts ...connect.HandlerOption
 			poolServiceUpdatePoolHandler.ServeHTTP(w, r)
 		case PoolServiceDeletePoolProcedure:
 			poolServiceDeletePoolHandler.ServeHTTP(w, r)
+		case PoolServiceWatchPoolsProcedure:
+			poolServiceWatchPoolsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -388,6 +417,10 @@ func (UnimplementedPoolServiceHandler) UpdatePool(context.Context, *connect.Requ
 
 func (UnimplementedPoolServiceHandler) DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.PoolService.DeletePool is not implemented"))
+}
+
+func (UnimplementedPoolServiceHandler) WatchPools(context.Context, *connect.Request[v1.WatchPoolsRequest], *connect.ServerStream[v1.WatchPoolsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.PoolService.WatchPools is not implemented"))
 }
 
 // AuthProfileServiceClient is a client for the supervisor.v1.AuthProfileService service.
@@ -638,6 +671,8 @@ func (UnimplementedOnboardingServiceHandler) SetAppSetting(context.Context, *con
 type AnalyticsServiceClient interface {
 	GetJobHistory(context.Context, *connect.Request[v1.GetJobHistoryRequest]) (*connect.Response[v1.GetJobHistoryResponse], error)
 	GetSystemStats(context.Context, *connect.Request[v1.GetSystemStatsRequest]) (*connect.Response[v1.GetSystemStatsResponse], error)
+	// WatchDashboard provides near-realtime server-streaming push of dashboard statistics, pool states, and recent jobs
+	WatchDashboard(context.Context, *connect.Request[v1.WatchDashboardRequest]) (*connect.ServerStreamForClient[v1.WatchDashboardResponse], error)
 }
 
 // NewAnalyticsServiceClient constructs a client for the supervisor.v1.AnalyticsService service. By
@@ -663,6 +698,12 @@ func NewAnalyticsServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(analyticsServiceMethods.ByName("GetSystemStats")),
 			connect.WithClientOptions(opts...),
 		),
+		watchDashboard: connect.NewClient[v1.WatchDashboardRequest, v1.WatchDashboardResponse](
+			httpClient,
+			baseURL+AnalyticsServiceWatchDashboardProcedure,
+			connect.WithSchema(analyticsServiceMethods.ByName("WatchDashboard")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -670,6 +711,7 @@ func NewAnalyticsServiceClient(httpClient connect.HTTPClient, baseURL string, op
 type analyticsServiceClient struct {
 	getJobHistory  *connect.Client[v1.GetJobHistoryRequest, v1.GetJobHistoryResponse]
 	getSystemStats *connect.Client[v1.GetSystemStatsRequest, v1.GetSystemStatsResponse]
+	watchDashboard *connect.Client[v1.WatchDashboardRequest, v1.WatchDashboardResponse]
 }
 
 // GetJobHistory calls supervisor.v1.AnalyticsService.GetJobHistory.
@@ -682,10 +724,17 @@ func (c *analyticsServiceClient) GetSystemStats(ctx context.Context, req *connec
 	return c.getSystemStats.CallUnary(ctx, req)
 }
 
+// WatchDashboard calls supervisor.v1.AnalyticsService.WatchDashboard.
+func (c *analyticsServiceClient) WatchDashboard(ctx context.Context, req *connect.Request[v1.WatchDashboardRequest]) (*connect.ServerStreamForClient[v1.WatchDashboardResponse], error) {
+	return c.watchDashboard.CallServerStream(ctx, req)
+}
+
 // AnalyticsServiceHandler is an implementation of the supervisor.v1.AnalyticsService service.
 type AnalyticsServiceHandler interface {
 	GetJobHistory(context.Context, *connect.Request[v1.GetJobHistoryRequest]) (*connect.Response[v1.GetJobHistoryResponse], error)
 	GetSystemStats(context.Context, *connect.Request[v1.GetSystemStatsRequest]) (*connect.Response[v1.GetSystemStatsResponse], error)
+	// WatchDashboard provides near-realtime server-streaming push of dashboard statistics, pool states, and recent jobs
+	WatchDashboard(context.Context, *connect.Request[v1.WatchDashboardRequest], *connect.ServerStream[v1.WatchDashboardResponse]) error
 }
 
 // NewAnalyticsServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -707,12 +756,20 @@ func NewAnalyticsServiceHandler(svc AnalyticsServiceHandler, opts ...connect.Han
 		connect.WithSchema(analyticsServiceMethods.ByName("GetSystemStats")),
 		connect.WithHandlerOptions(opts...),
 	)
+	analyticsServiceWatchDashboardHandler := connect.NewServerStreamHandler(
+		AnalyticsServiceWatchDashboardProcedure,
+		svc.WatchDashboard,
+		connect.WithSchema(analyticsServiceMethods.ByName("WatchDashboard")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/supervisor.v1.AnalyticsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AnalyticsServiceGetJobHistoryProcedure:
 			analyticsServiceGetJobHistoryHandler.ServeHTTP(w, r)
 		case AnalyticsServiceGetSystemStatsProcedure:
 			analyticsServiceGetSystemStatsHandler.ServeHTTP(w, r)
+		case AnalyticsServiceWatchDashboardProcedure:
+			analyticsServiceWatchDashboardHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -728,6 +785,10 @@ func (UnimplementedAnalyticsServiceHandler) GetJobHistory(context.Context, *conn
 
 func (UnimplementedAnalyticsServiceHandler) GetSystemStats(context.Context, *connect.Request[v1.GetSystemStatsRequest]) (*connect.Response[v1.GetSystemStatsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.AnalyticsService.GetSystemStats is not implemented"))
+}
+
+func (UnimplementedAnalyticsServiceHandler) WatchDashboard(context.Context, *connect.Request[v1.WatchDashboardRequest], *connect.ServerStream[v1.WatchDashboardResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.AnalyticsService.WatchDashboard is not implemented"))
 }
 
 // LogServiceClient is a client for the supervisor.v1.LogService service.
