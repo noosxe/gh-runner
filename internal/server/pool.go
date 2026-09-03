@@ -1,0 +1,310 @@
+package server
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+
+	"connectrpc.com/connect"
+	"github.com/noosxe/gh-runner/internal/db"
+	supervisorv1 "github.com/noosxe/gh-runner/internal/pb/supervisor/v1"
+	"github.com/noosxe/gh-runner/internal/pb/supervisor/v1/supervisorv1connect"
+)
+
+// PoolDatabase defines the database queries required by PoolService.
+// *db.DB satisfies this interface.
+type PoolDatabase interface {
+	ListRunnerPools(ctx context.Context) ([]db.RunnerPool, error)
+	GetRunnerPoolById(ctx context.Context, id int64) (db.RunnerPool, error)
+	GetRunnerPoolByName(ctx context.Context, name string) (db.RunnerPool, error)
+	CreateRunnerPool(ctx context.Context, arg db.CreateRunnerPoolParams) (db.RunnerPool, error)
+	UpdateRunnerPool(ctx context.Context, arg db.UpdateRunnerPoolParams) (db.RunnerPool, error)
+	DeleteRunnerPool(ctx context.Context, id int64) error
+	CreateAuditLog(ctx context.Context, arg db.CreateAuditLogParams) (db.AuditLog, error)
+}
+
+// PoolStatsProvider provides live active/idle runner counts and runtime reload capabilities.
+// *orchestrator.PoolController satisfies this interface.
+type PoolStatsProvider interface {
+	PoolStats(poolName string) (active int32, idle int32)
+	Reload(ctx context.Context) error
+}
+
+// PoolService implements supervisorv1connect.PoolServiceHandler.
+type PoolService struct {
+	supervisorv1connect.UnimplementedPoolServiceHandler
+	db            PoolDatabase
+	statsProvider PoolStatsProvider
+}
+
+// NewPoolService constructs a PoolService instance.
+func NewPoolService(database PoolDatabase, statsProvider PoolStatsProvider) *PoolService {
+	return &PoolService{
+		db:            database,
+		statsProvider: statsProvider,
+	}
+}
+
+func parseLabels(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}
+	}
+	parts := strings.Split(raw, ",")
+	res := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			res = append(res, trimmed)
+		}
+	}
+	return res
+}
+
+func (s *PoolService) toProto(p db.RunnerPool) *supervisorv1.Pool {
+	protoPool := &supervisorv1.Pool{
+		Id:                       p.ID,
+		Name:                     p.Name,
+		Provider:                 p.Provider,
+		RepositoryUrl:            p.RepositoryUrl,
+		MinIdleRunners:           int32(p.MinIdleRunners),
+		MaxConcurrency:           int32(p.MaxConcurrency),
+		Labels:                   parseLabels(p.Labels),
+		RunnerImage:              p.RunnerImage,
+		AllowDocker:              p.AllowDocker,
+		AuthProfileId:            p.AuthProfileID,
+		Scope:                    p.Scope,
+		CpuLimit:                 p.CpuLimit.String,
+		MemoryLimit:              p.MemoryLimit.String,
+		MaxRunnerLifetimeSeconds: int32(p.MaxRunnerLifetimeSeconds),
+	}
+
+	if s.statsProvider != nil {
+		active, idle := s.statsProvider.PoolStats(p.Name)
+		protoPool.ActiveRunners = active
+		protoPool.IdleRunners = idle
+	}
+
+	return protoPool
+}
+
+func validatePoolInput(p *supervisorv1.Pool) error {
+	if p == nil {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("pool payload is required"))
+	}
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("pool name must not be empty"))
+	}
+
+	provider := strings.ToLower(strings.TrimSpace(p.Provider))
+	switch provider {
+	case "github", "gitea", "forgejo":
+	default:
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unsupported provider %q; must be 'github', 'gitea', or 'forgejo'", p.Provider))
+	}
+
+	if strings.TrimSpace(p.RepositoryUrl) == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("repository_url must not be empty"))
+	}
+
+	// Gitea and Forgejo require allow_docker=true (docs/05 §4)
+	if (provider == "gitea" || provider == "forgejo") && !p.AllowDocker {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("gitea and forgejo pools require allow_docker=true (docs/05 §4)"))
+	}
+
+	if p.AuthProfileId <= 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("auth_profile_id must be a valid positive identifier"))
+	}
+
+	if p.MinIdleRunners < 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("min_idle_runners must be non-negative"))
+	}
+	if p.MaxConcurrency < 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("max_concurrency must be non-negative"))
+	}
+	if p.MaxRunnerLifetimeSeconds < 0 {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("max_runner_lifetime_seconds must be non-negative"))
+	}
+
+	return nil
+}
+
+// ListPools retrieves all runner pools with live active/idle stats.
+func (s *PoolService) ListPools(ctx context.Context, _ *connect.Request[supervisorv1.ListPoolsRequest]) (*connect.Response[supervisorv1.ListPoolsResponse], error) {
+	pools, err := s.db.ListRunnerPools(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("listing runner pools: %w", err))
+	}
+
+	resp := &supervisorv1.ListPoolsResponse{
+		Pools: make([]*supervisorv1.Pool, 0, len(pools)),
+	}
+	for _, p := range pools {
+		resp.Pools = append(resp.Pools, s.toProto(p))
+	}
+
+	return connect.NewResponse(resp), nil
+}
+
+// CreatePool persists a new runner pool, creates an audit log, and notifies the controller loop.
+func (s *PoolService) CreatePool(ctx context.Context, req *connect.Request[supervisorv1.CreatePoolRequest]) (*connect.Response[supervisorv1.CreatePoolResponse], error) {
+	pool := req.Msg.Pool
+	if err := validatePoolInput(pool); err != nil {
+		return nil, err
+	}
+
+	scope := strings.TrimSpace(pool.Scope)
+	if scope == "" {
+		scope = "repo"
+	}
+
+	labelsStr := strings.Join(pool.Labels, ",")
+
+	created, err := s.db.CreateRunnerPool(ctx, db.CreateRunnerPoolParams{
+		Name:                     strings.TrimSpace(pool.Name),
+		Provider:                 strings.ToLower(strings.TrimSpace(pool.Provider)),
+		RepositoryUrl:            strings.TrimSpace(pool.RepositoryUrl),
+		Scope:                    scope,
+		AuthProfileID:            pool.AuthProfileId,
+		MinIdleRunners:           int64(pool.MinIdleRunners),
+		MaxConcurrency:           int64(pool.MaxConcurrency),
+		Labels:                   labelsStr,
+		RunnerImage:              strings.TrimSpace(pool.RunnerImage),
+		AllowDocker:              pool.AllowDocker,
+		MaxRunnerLifetimeSeconds: int64(pool.MaxRunnerLifetimeSeconds),
+		CpuLimit:                 sql.NullString{String: pool.CpuLimit, Valid: pool.CpuLimit != ""},
+		MemoryLimit:              sql.NullString{String: pool.MemoryLimit, Valid: pool.MemoryLimit != ""},
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "FOREIGN KEY") {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("auth_profile_id %d does not exist", pool.AuthProfileId))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating runner pool: %w", err))
+	}
+
+	var userID sql.NullInt64
+	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
+		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
+	}
+
+	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
+		UserID:       userID,
+		Action:       "pool_create",
+		ResourceType: sql.NullString{String: "runner_pool", Valid: true},
+		ResourceID:   sql.NullInt64{Int64: created.ID, Valid: true},
+		Details:      sql.NullString{String: fmt.Sprintf("Created runner pool %s (%s)", created.Name, created.Provider), Valid: true},
+	})
+
+	if s.statsProvider != nil {
+		_ = s.statsProvider.Reload(ctx)
+	}
+
+	return connect.NewResponse(&supervisorv1.CreatePoolResponse{
+		Pool: s.toProto(created),
+	}), nil
+}
+
+// UpdatePool updates an existing runner pool, creates an audit log, and notifies the controller loop.
+func (s *PoolService) UpdatePool(ctx context.Context, req *connect.Request[supervisorv1.UpdatePoolRequest]) (*connect.Response[supervisorv1.UpdatePoolResponse], error) {
+	pool := req.Msg.Pool
+	if err := validatePoolInput(pool); err != nil {
+		return nil, err
+	}
+	if pool.Id <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("pool id must be specified for update"))
+	}
+
+	existing, err := s.db.GetRunnerPoolById(ctx, pool.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("pool id %d not found: %w", pool.Id, err))
+	}
+
+	scope := strings.TrimSpace(pool.Scope)
+	if scope == "" {
+		scope = existing.Scope
+	}
+
+	labelsStr := strings.Join(pool.Labels, ",")
+
+	updated, err := s.db.UpdateRunnerPool(ctx, db.UpdateRunnerPoolParams{
+		ID:                       pool.Id,
+		Name:                     strings.TrimSpace(pool.Name),
+		Provider:                 strings.ToLower(strings.TrimSpace(pool.Provider)),
+		RepositoryUrl:            strings.TrimSpace(pool.RepositoryUrl),
+		Scope:                    scope,
+		AuthProfileID:            pool.AuthProfileId,
+		MinIdleRunners:           int64(pool.MinIdleRunners),
+		MaxConcurrency:           int64(pool.MaxConcurrency),
+		Labels:                   labelsStr,
+		RunnerImage:              strings.TrimSpace(pool.RunnerImage),
+		AllowDocker:              pool.AllowDocker,
+		MaxRunnerLifetimeSeconds: int64(pool.MaxRunnerLifetimeSeconds),
+		CpuLimit:                 sql.NullString{String: pool.CpuLimit, Valid: pool.CpuLimit != ""},
+		MemoryLimit:              sql.NullString{String: pool.MemoryLimit, Valid: pool.MemoryLimit != ""},
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "FOREIGN KEY") {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("auth_profile_id %d does not exist", pool.AuthProfileId))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("updating runner pool: %w", err))
+	}
+
+	var userID sql.NullInt64
+	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
+		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
+	}
+
+	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
+		UserID:       userID,
+		Action:       "pool_update",
+		ResourceType: sql.NullString{String: "runner_pool", Valid: true},
+		ResourceID:   sql.NullInt64{Int64: updated.ID, Valid: true},
+		Details:      sql.NullString{String: fmt.Sprintf("Updated runner pool %s", updated.Name), Valid: true},
+	})
+
+	if s.statsProvider != nil {
+		_ = s.statsProvider.Reload(ctx)
+	}
+
+	return connect.NewResponse(&supervisorv1.UpdatePoolResponse{
+		Pool: s.toProto(updated),
+	}), nil
+}
+
+// DeletePool removes a runner pool from the database, emits an audit log, and notifies the controller.
+func (s *PoolService) DeletePool(ctx context.Context, req *connect.Request[supervisorv1.DeletePoolRequest]) (*connect.Response[supervisorv1.DeletePoolResponse], error) {
+	if req.Msg.Id <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid pool id"))
+	}
+
+	existing, err := s.db.GetRunnerPoolById(ctx, req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("pool id %d not found: %w", req.Msg.Id, err))
+	}
+
+	if err := s.db.DeleteRunnerPool(ctx, req.Msg.Id); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("deleting runner pool: %w", err))
+	}
+
+	var userID sql.NullInt64
+	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
+		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
+	}
+
+	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
+		UserID:       userID,
+		Action:       "pool_delete",
+		ResourceType: sql.NullString{String: "runner_pool", Valid: true},
+		ResourceID:   sql.NullInt64{Int64: existing.ID, Valid: true},
+		Details:      sql.NullString{String: fmt.Sprintf("Deleted runner pool %s", existing.Name), Valid: true},
+	})
+
+	if s.statsProvider != nil {
+		_ = s.statsProvider.Reload(ctx)
+	}
+
+	return connect.NewResponse(&supervisorv1.DeletePoolResponse{
+		Success: true,
+	}), nil
+}

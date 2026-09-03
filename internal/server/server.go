@@ -68,6 +68,13 @@ type Options struct {
 	// sessions, and audit logs. If nil, AuthService is not automatically mounted.
 	AuthDB AuthDatabase
 
+	// PoolDB is the database interface used for runner pools and audit logs.
+	// If nil, PoolService is not automatically mounted.
+	PoolDB PoolDatabase
+
+	// PoolStats provides live runtime runner counts and reload capabilities (RUN-46).
+	PoolStats PoolStatsProvider
+
 	// JWTSigningSecret is the 256-bit HMAC key derived from SUPERVISOR_DB_ENCRYPTION_KEY
 	// used to cryptographically sign session JWT tokens (docs/05 §5, keys.LabelJWTSigning).
 	JWTSigningSecret []byte
@@ -124,6 +131,13 @@ func New(opts Options) *Server {
 	if s.authDB != nil && len(s.jwtSecret) > 0 {
 		authSvc := NewAuthService(s.authDB, s.jwtSecret, opts.IsSecureCookie)
 		path, handler := supervisorv1connect.NewAuthServiceHandler(authSvc, s.ConnectHandlerOptions()...)
+		s.MountConnectHandler(path, handler)
+	}
+
+	// Mount PoolService if pool database is provided (RUN-46)
+	if opts.PoolDB != nil {
+		poolSvc := NewPoolService(opts.PoolDB, opts.PoolStats)
+		path, handler := supervisorv1connect.NewPoolServiceHandler(poolSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}
 

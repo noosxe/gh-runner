@@ -85,6 +85,7 @@ func runDaemonContext(ctx context.Context) error {
 		Port:             cfg.Port,
 		Health:           health,
 		AuthDB:           database,
+		PoolDB:           database,
 		JWTSigningSecret: derivedKeys.JWTSigningSecret,
 	})
 
