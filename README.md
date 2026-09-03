@@ -200,3 +200,6 @@ The repository is actively developing the following advanced runner solutions:
 
 - **GitHub, Gitea & Forgejo Actions Runner AIO Supervisor** `*[Design Phase]*`  
   A database-driven and GUI-configured containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub, Gitea, and Forgejo repositories. High-level requirements and architecture specifications can be found in the [docs/](docs/) directory (see [01-product-requirements.md](docs/01-product-requirements.md) and [02-architecture-design.md](docs/02-architecture-design.md)).
+- **Supervisor Web UI & Onboarding Wizard (M8)** `*[Design Phase]*`  
+  A responsive single-page application built with React 19, TypeScript, Vite, TanStack Router & Query, and TailwindCSS. Features a 5-step zero-config onboarding wizard, real-time streaming logs viewer, dynamic pool monitoring, and authenticated management interfaces. Detailed layout wireframes, route trees, and component specifications are documented in [docs/09-frontend-design.md](docs/09-frontend-design.md).
+

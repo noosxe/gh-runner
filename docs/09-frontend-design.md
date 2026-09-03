@@ -1,0 +1,576 @@
+# 09. Frontend Design Specification (Web UI)
+
+This document establishes the formal frontend architecture, layout system, component hierarchy, interaction workflows, and ASCII wireframes for the **GitHub Actions Runner AIO Supervisor Web Control Interface** (docs/01 §2, docs/06 §2, OQ #29, #30).
+
+---
+
+## 1. Architectural Foundations
+
+### 1.1 Tech Stack & Ecosystem
+The Web Control Interface is an embedded Single Page Application (SPA) compiled into static assets and served by the Echo v5 Go backend via `go:embed` with fallback SPA routing.
+
+| Layer | Technology | Rationale & Standards |
+| :--- | :--- | :--- |
+| **Framework** | **React 19** + **TypeScript** | Strict type safety aligned with generated Protobuf stubs (`web/src/gen/*`). |
+| **Build Tooling** | **Vite** | Fast HMR in development; optimized Rollup chunks for Alpine multi-stage Docker build. |
+| **Routing** | **TanStack Router** (`@tanstack/react-router`) | Type-safe search params, nested layouts, route loaders, and redirect guards. |
+| **State & API** | **TanStack Query** (`@tanstack/react-query`) + **Connect-Web** | Binary Protobuf transport client (`@connectrpc/connect-web`), zero JSON transport. |
+| **Styling** | **TailwindCSS** | Strictly utility-first CSS; zero custom `.css` stylesheets or manual selectors. |
+| **Icons** | **Lucide React** (`lucide-react`) | Clean, consistent, lightweight SVG iconography. |
+
+### 1.2 Binary Transport & Error Handling
+Per docs/06 §1 and RUN-44:
+- All RPC communication uses the ConnectRPC **binary wire protocol** (`application/proto` over HTTP/1.1 chunked or HTTP/2).
+- The Go backend enforces `DisabledJSONCodec` and rejects `application/json` with `415 Unsupported Media Type`.
+- The frontend Connect client is configured exclusively with binary serialization.
+- Server errors (`connect.Code`) map deterministically to UI feedback:
+  - `CodeUnauthenticated`: Clears local session cache and triggers redirect to `/login`.
+  - `CodePermissionDenied` / `CodeFailedPrecondition`: Surfaces inline banner or modal error (e.g., cannot delete profile referenced by pools).
+  - `CodeInvalidArgument`: Inline form field validation errors.
+  - `CodeNotFound`: Empty state or 404 page.
+  - `CodeInternal` / `CodeUnavailable`: Toast notification with action retry.
+
+### 1.3 Theming & Design Tokens
+The interface supports both **Light** and **Dark** modes based on system preference (`prefers-color-scheme`) with an optional user toggle in the header:
+
+```text
+Light Mode:
+  Background:     #F8FAFC (slate-50)
+  Surface/Card:   #FFFFFF (white)
+  Border:         #E2E8F0 (slate-200)
+  Text Primary:   #0F172A (slate-900)
+  Text Secondary: #64748B (slate-500)
+  Primary Accent: #2563EB (blue-600)
+
+Dark Mode:
+  Background:     #0F172A (slate-900)
+  Surface/Card:   #1E293B (slate-800)
+  Border:         #334155 (slate-700)
+  Text Primary:   #F8FAFC (slate-50)
+  Text Secondary: #94A3B8 (slate-400)
+  Primary Accent: #3B82F6 (blue-500)
+
+Status Indicators:
+  Active / Success: #10B981 (emerald-500)
+  Idle / Standby:   #6366F1 (indigo-500)
+  Warning / Degraded: #F59E0B (amber-500)
+  Error / Failure:  #EF4444 (rose-500)
+```
+
+---
+
+## 2. TanStack Router Route Tree & Navigation Model
+
+```mermaid
+graph TD
+    Root["__root.tsx (Session Context, Theme, Toast Provider)"]
+    Root --> Guard{"GetOnboardingStatus()"}
+    
+    Guard -->|!setup_complete| Onboarding["/onboarding (5-Step Wizard)"]
+    Guard -->|setup_complete & !authenticated| Login["/login (Admin Sign-In)"]
+    Guard -->|setup_complete & authenticated| AppShell["_authenticated (App Shell Layout)"]
+    
+    AppShell --> Dashboard["/ (Dashboard & Analytics)"]
+    AppShell --> Pools["/pools (Runner Pools List)"]
+    AppShell --> PoolDetail["/pools/$poolId (Pool Details, Runners, Config)"]
+    AppShell --> History["/history (Job Execution Log)"]
+    AppShell --> Profiles["/profiles (Git Auth Profiles)"]
+    AppShell --> Renovate["/renovate (Renovate Bot Control)"]
+    AppShell --> Settings["/settings (Global Constraints, Backups, Audit)"]
+```
+
+### 2.1 Route Guard & Redirect Matrix
+
+| Current State | Requested Route | Action |
+| :--- | :--- | :--- |
+| `setup_complete: false` | Any route (except `/onboarding`) | **Redirect to `/onboarding`** |
+| `setup_complete: false` | `/onboarding` | Allow access (public RPC `GetOnboardingStatus`) |
+| `setup_complete: true`, Unauthenticated | `/onboarding` | Redirect to `/login` |
+| `setup_complete: true`, Unauthenticated | Any protected route (`/`, `/pools`, etc.) | **Redirect to `/login?redirect=...`** |
+| `setup_complete: true`, Authenticated | `/login` or `/onboarding` | Redirect to `/` |
+| `setup_complete: true`, Authenticated | Any protected route | Allow access |
+
+---
+
+## 3. Global App Shell Layout
+
+The authenticated layout (`_authenticated.tsx`) consists of a fixed sidebar navigation, top header bar, and main scrollable content area.
+
+```text
++-----------------------------------------------------------------------------------------------+
+|  [LOGO] Runnero Supervisor      |  [Status: Healthy]  Runners: 3/5  |  [Theme]  [User: admin v] |
++---------------------------------+-------------------------------------------------------------+
+|  NAVIGATION                     |  BREADCRUMB: Dashboard > Pools > pool-arm64-prod           |
+|                                 +-------------------------------------------------------------+
+|  [D] Dashboard                  |                                                             |
+|  [P] Runner Pools (3)           |  MAIN CONTENT VIEW                                          |
+|  [H] Job History                |  (Rendered via <Outlet />)                                  |
+|  [K] Auth Profiles (2)          |                                                             |
+|  [R] Renovate Bot               |                                                             |
+|  [S] Settings & Backups         |                                                             |
+|                                 |                                                             |
+|  -----------------------------  |                                                             |
+|  [Doc] Architecture Docs        |                                                             |
+|  [Out] Logout                   |                                                             |
++---------------------------------+-------------------------------------------------------------+
+```
+
+### 3.1 Sidebar Navigation Spec
+- **Collapsible**: Toggles between expanded (240px) and icon-only rail (64px) on desktop; full drawer on mobile.
+- **Active State**: High-contrast indicator with tinted accent background (`bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold`).
+- **Badge Indicators**: Runner count on `Pools`, pending updates badge on `Settings`.
+
+---
+
+## 4. Comprehensive Page Specifications & Wireframes
+
+### 4.1 Page 1: 5-Step Onboarding Wizard (`/onboarding`)
+
+**Goal**: Seamless zero-config first boot initialization (OQ #15, docs/01 §2.1).
+
+```text
++---------------------------------------------------------------------------------------+
+|                                    RUNNERO SUPERVISOR                                  |
+|                                Initial System Onboarding                               |
+|                                                                                       |
+|   (1) Admin Setup  -->  (2) Git Auth  -->  (3) Constraints  -->  (4) Initial Pool  -->  (5) Review
++---------------------------------------------------------------------------------------+
+|                                                                                       |
+|   Step 1 of 5: Create Master Administrator                                            |
+|   Set the primary administrative credentials for your supervisor instance.             |
+|                                                                                       |
+|   +-------------------------------------------------------------------------------+   |
+|   | Username                                                                      |   |
+|   | [ admin                                                                     ] |   |
+|   +-------------------------------------------------------------------------------+   |
+|   | Password (min 10 characters)                                                  |   |
+|   | [ •••••••••••••••••••••                                                     ] |   |
+|   +-------------------------------------------------------------------------------+   |
+|   | Confirm Password                                                              |   |
+|   | [ •••••••••••••••••••••                                                     ] |   |
+|   +-------------------------------------------------------------------------------+   |
+|                                                                                       |
+|   [ Security Notice: Admin credentials are protected with bcrypt + session tokens. ]  |
+|                                                                                       |
+|                                                            [ Next: Git Provider -> ]  |
++---------------------------------------------------------------------------------------+
+```
+
+#### Step Details:
+1. **Step 1: Admin Setup**
+   - Calls `AuthService.SetupAdmin(username, password)`.
+   - On success, automatically establishes session cookie.
+2. **Step 2: Git Provider Auth Profile**
+   - Options: `GitHub App (Recommended)`, `GitHub PAT`, `Gitea PAT`, `Forgejo PAT`.
+   - Inputs: Name, App ID, Installation ID, Private Key PEM upload, or Personal Access Token.
+   - Action: `[ Test Connection ]` button verifies upstream credentials via `ValidateCredentials`.
+   - Calls `AuthProfileService.CreateAuthProfile`.
+3. **Step 3: Global Scaling Constraints**
+   - Configures system-wide safeguards:
+     - `total_allowed_runners`: Max concurrency across all pools (Default: `20`).
+     - `total_idle_warm_pool`: Idle reserve ceiling (Default: `5`).
+     - `shutdown_timeout_seconds`: Graceful termination deadline (Default: `300`).
+     - `job_retention_days`: History pruning age (Default: `30`).
+   - Calls `OnboardingService.SetAppSetting` for each constraint.
+4. **Step 4: Initial Runner Pool Setup**
+   - Inputs: Pool Name, Repository/Org URL, Scope (`repo`, `org`), Labels (comma-separated), Runner Image.
+   - Resource Quotas: CPU Limit (e.g. `2.0`), Memory Limit (e.g. `4GB`).
+   - Concurrency: `min_idle_runners` (Default: `1`), `max_concurrency` (Default: `5`).
+   - Provider Enforcement: If provider is Gitea or Forgejo, `Allow Docker (dind/host)` toggle is locked to **Enabled** (`true`) per docs/05 §4.
+   - Calls `PoolService.CreatePool`.
+5. **Step 5: Review & Confirm Launch**
+   - Displays summary card of all settings.
+   - Action: `[ Confirm & Start Supervisor ]` -> redirects to `/` and triggers reconciler convergence.
+
+---
+
+### 4.2 Page 2: Authentication Screen (`/login`)
+
+```text
++---------------------------------------------------------------------------------------+
+|                                                                                       |
+|                                    +-----------------------------+                    |
+|                                    |      RUNNERO SUPERVISOR     |                    |
+|                                    |      Sign in to continue    |                    |
+|                                    +-----------------------------+                    |
+|                                    | Username                    |                    |
+|                                    | [ admin                   ] |                    |
+|                                    |                             |                    |
+|                                    | Password                    |                    |
+|                                    | [ •••••••••••••••••••••   ] |                    |
+|                                    |                             |                    |
+|                                    | [ Sign In ]                 |                    |
+|                                    +-----------------------------+                    |
+|                                    |  SameSite=Strict • 24h JWT  |                    |
+|                                    +-----------------------------+                    |
+|                                                                                       |
++---------------------------------------------------------------------------------------+
+```
+
+---
+
+### 4.3 Page 3: Main Dashboard (`/` or `/dashboard`)
+
+**Goal**: Real-time observability of runner utilization, health alerts, and quick actions.
+
+```text
++-----------------------------------------------------------------------------------------------+
+| Dashboard Overview                                            [ Refresh ] [ + Create Pool ]   |
++-----------------------------------------------------------------------------------------------+
+|  KPI CARDS                                                                                    |
+|  +--------------------+ +--------------------+ +--------------------+ +--------------------+  |
+|  | ACTIVE RUNNERS     | | IDLE WARM POOL     | | 24H JOBS (TOTAL)   | | SUCCESS RATE       |  |
+|  |  3 / 20            | |  2                 | |  142 jobs          | |  97.8%             |  |
+|  |  Capacity: 15%     | |  Target: 2         | |  Avg Queue: 4.2s   | |  Avg Runtime: 3m12s|  |
+|  +--------------------+ +--------------------+ +--------------------+ +--------------------+  |
++-----------------------------------------------------------------------------------------------+
+|  SYSTEM HEALTH & ALERTS                                                                       |
+|  [ OK ] Docker Engine: Connected (unix:///var/run/docker.sock) • 5 active containers          |
+|  [ !  ] Runner Image Update Available: ghcr.io/noosxe/runner-aio:v1.2.0 (Pool: pool-linux-ci) |
++-----------------------------------------------------------------------------------------------+
+|  ACTIVE RUNNER POOLS                                                        [ View All Pools ] |
+|  +-----------------------------------------------------------------------------------------+  |
+|  | POOL NAME          | PROVIDER  | RUNNERS (ACT/IDL) | CONCURRENCY | CPU / MEM    | ACTIONS   |  |
+|  +--------------------+-----------+-------------------+-------------+--------------+-----------+  |
+|  | pool-arm64-prod    | GitHub    | 2 active / 1 idle | 3 / 10      | 4.0 / 8GB    | [Logs][>] |  |
+|  | pool-gitea-dind    | Gitea     | 1 active / 1 idle | 2 / 5       | 2.0 / 4GB    | [Logs][>] |  |
+|  +-----------------------------------------------------------------------------------------+  |
++-----------------------------------------------------------------------------------------------+
+|  RECENT JOB EXECUTIONS (24h)                                              [ View Full History]|
+|  +-----------------------------------------------------------------------------------------+  |
+|  | STATUS  | RUNNER NAME             | POOL             | DURATION | QUEUE TIME | COMPLETED    |  |
+|  +---------+-------------------------+------------------+----------+------------+--------------+  |
+|  | SUCCESS | ghrs-arm64-prod-a8f12c  | pool-arm64-prod  | 2m 45s   | 3.1s       | 2 mins ago   |  |
+|  | SUCCESS | ghrs-gitea-dind-99c01b  | pool-gitea-dind  | 4m 12s   | 5.4s       | 14 mins ago  |  |
+|  | FAILED  | ghrs-arm64-prod-33e14a  | pool-arm64-prod  | 0m 18s   | 2.8s       | 1 hour ago   |  |
+|  +-----------------------------------------------------------------------------------------+  |
++-----------------------------------------------------------------------------------------------+
+```
+
+---
+
+### 4.4 Page 4: Runner Pools Management (`/pools`)
+
+```text
++-----------------------------------------------------------------------------------------------+
+| Runner Pools                                                        [ + Create New Pool ]     |
+| Manage ephemeral runner pools, scaling targets, and provider bindings.                        |
++-----------------------------------------------------------------------------------------------+
+| Filters: [ Search by name... ]  Provider: [ All v ]  Scope: [ All v ]  Status: [ All v ]       |
++-----------------------------------------------------------------------------------------------+
+| +-------------------------------------------------------------------------------------------+ |
+| | pool-arm64-prod  [GitHub] [Repo]                             [ Edit ] [ Trigger ] [ ... ] | |
+| | Target: https://github.com/noosxe/gh-runner • Auth Profile: github-app-prod               | |
+| | Labels: self-hosted, linux, arm64, high-perf                                              | |
+| | Active: 2  |  Idle: 1 (Target: 1)  |  Max Concurrency: 10  |  Quotas: 4 CPU / 8 GB        | |
+| | Lifetime Limit: 7200s (2h)  |  Docker: Disabled (Rootless)                                 | |
+| | [Progress Bar: ========================---------------------------- 30% Capacity]         | |
+| +-------------------------------------------------------------------------------------------+ |
+| +-------------------------------------------------------------------------------------------+ |
+| | pool-forgejo-main  [Forgejo] [Org]                           [ Edit ] [ Trigger ] [ ... ] | |
+| | Target: https://git.internal.net/devops • Auth Profile: forgejo-token                     | |
+| | Labels: self-hosted, linux, amd64, docker                                                 | |
+| | Active: 0  |  Idle: 1 (Target: 1)  |  Max Concurrency: 4   |  Quotas: 2 CPU / 4 GB        | |
+| | Lifetime Limit: 3600s (1h)  |  Docker: Enabled (Mandatory for Forgejo)                    | |
+| | [Progress Bar: =======--------------------------------------------- 25% Capacity]         | |
+| +-------------------------------------------------------------------------------------------+ |
++-----------------------------------------------------------------------------------------------+
+```
+
+---
+
+### 4.5 Page 5: Pool Detail & Live Containers (`/pools/$poolId`)
+
+```text
++-----------------------------------------------------------------------------------------------+
+| < Back to Pools    pool-arm64-prod                                    [ Edit Pool ] [ Reload ]|
+| https://github.com/noosxe/gh-runner • Profile: github-app-prod                                |
++-----------------------------------------------------------------------------------------------+
+| Tabs: [ Runners & Containers (3) ]  [ Job History (89) ]  [ Configuration ]  [ Renovate Bot ] |
++-----------------------------------------------------------------------------------------------+
+| LIVE CONTAINER INSTANCES                                                                      |
+| +-------------------------------------------------------------------------------------------+ |
+| | CONTAINER ID    | RUNNER NAME            | STATUS | IP ADDRESS   | UPTIME   | ACTIONS     | |
+| +-----------------+------------------------+--------+--------------+----------+-------------+ |
+| | d8f102a4b8c9    | ghrs-arm64-prod-a8f12c | BUSY   | 172.18.0.4   | 8m 12s   | [Live Logs] | |
+| | 44c91ef23a01    | ghrs-arm64-prod-99b11e | BUSY   | 172.18.0.5   | 2m 44s   | [Live Logs] | |
+| | 12a87b640e32    | ghrs-arm64-prod-00c14f | IDLE   | 172.18.0.6   | 18m 02s  | [Live Logs] | |
+| +-------------------------------------------------------------------------------------------+ |
++-----------------------------------------------------------------------------------------------+
+```
+
+---
+
+### 4.6 Page 6: Job Execution History (`/history`)
+
+```text
++-----------------------------------------------------------------------------------------------+
+| Job Execution History                                                  [ Export Sanitized CSV]|
+| Historical execution records, queue latencies, and compressed execution logs.                 |
++-----------------------------------------------------------------------------------------------+
+| Filters: [ Search runner name... ]  Pool: [ All Pools v ]  Status: [ All v ]  Time: [ Last 7d v]|
++-----------------------------------------------------------------------------------------------+
+| +-------------------------------------------------------------------------------------------+ |
+| | ID  | STATUS  | RUNNER NAME            | POOL            | QUEUE WAIT | DURATION | ACTIONS    | |
+| +-----+---------+------------------------+-----------------+------------+----------+------------+ |
+| | 104 | SUCCESS | ghrs-arm64-prod-a8f12c | pool-arm64-prod | 2.4s       | 3m 12s   | [View Logs]| |
+| | 103 | SUCCESS | ghrs-gitea-dind-88e21a | pool-gitea-dind | 4.1s       | 5m 01s   | [View Logs]| |
+| | 102 | TIMEOUT | ghrs-arm64-prod-77b01a | pool-arm64-prod | 1.8s       | 2h 00s   | [View Logs]| |
+| | 101 | FAILED  | ghrs-arm64-prod-44c99b | pool-arm64-prod | 3.0s       | 0m 22s   | [View Logs]| |
+| +-------------------------------------------------------------------------------------------+ |
+| Showing 1 - 25 of 1,482 jobs                                 < Previous  [ 1 ] 2  3  Next >   |
++-----------------------------------------------------------------------------------------------+
+```
+
+---
+
+### 4.7 Page 7: Unified Terminal Log Viewer (`/history/$jobId` or Live Modal)
+
+```text
++-----------------------------------------------------------------------------------------------+
+| Terminal: ghrs-arm64-prod-a8f12c (Live Stream)                 [ Pause ] [ Auto-scroll: ON ]  |
+| Stream: stdout/stderr multiplexed • Connection: Active (sub-second follow)     [ Download Log]|
++-----------------------------------------------------------------------------------------------+
+| 1 | 2026-09-04T00:50:01Z [stdout] √ Connected to GitHub Actions API                          |
+| 2 | 2026-09-04T00:50:02Z [stdout] Current runner version: '2.322.0'                           |
+| 3 | 2026-09-04T00:50:03Z [stdout] Listening for Jobs...                                       |
+| 4 | 2026-09-04T00:52:14Z [stdout] Running job: Build & Test Matrix (amd64)                    |
+| 5 | 2026-09-04T00:52:18Z [stderr] Warning: Node.js 16 actions deprecated                      |
+| 6 | 2026-09-04T00:54:32Z [stdout] Job succeeded with exit code 0                              |
+| 7 | 2026-09-04T00:54:33Z [stdout] Cleaning up and deregistering runner...                     |
++-----------------------------------------------------------------------------------------------+
+| Terminal Controls: [ Filter: All / stdout / stderr ]  [ Clear ]       Lines: 7 (Auto-scrolled)|
++-----------------------------------------------------------------------------------------------+
+```
+
+#### Features:
+- **Streaming Mode**: Consumes `LogService.StreamRunnerLogs(runner_id)`. Automatically parses 8-byte Docker headers (`stdout`/`stderr`). Reconnects on transient disconnects, tears down immediately on modal close.
+- **Historical Mode**: Consumes `LogService.GetRunnerLogs(runner_id)`. Decompresses gzipped JSONL on backend and displays lines with copy/download options.
+
+---
+
+### 4.8 Page 8: Git Auth Profiles (`/profiles`)
+
+```text
++-----------------------------------------------------------------------------------------------+
+| Git Authentication Profiles                                            [ + New Auth Profile ] |
+| Credentials used by the supervisor to dynamically request ephemeral registration tokens.      |
++-----------------------------------------------------------------------------------------------+
+| +-------------------------------------------------------------------------------------------+ |
+| | github-app-prod  [GitHub App]                                              [ Delete ]     | |
+| | App ID: 1049281 • Installation ID: 58921049                                                | |
+| | Private Key: [ Configured (AES-256 encrypted) ] • Token: [ Not Applicable ]                | |
+| | Referencing Pools: 2 pools (pool-arm64-prod, pool-linux-staging)                          | |
+| +-------------------------------------------------------------------------------------------+ |
+| +-------------------------------------------------------------------------------------------+ |
+| | gitea-pat-token  [Gitea PAT]                                               [ Delete ]     | |
+| | Instance: https://gitea.corp.internal                                                      | |
+| | Private Key: [ None ] • Token: [ Configured (AES-256 encrypted) ]                          | |
+| | Referencing Pools: 1 pool (pool-gitea-dind)                                                | |
+| +-------------------------------------------------------------------------------------------+ |
++-----------------------------------------------------------------------------------------------+
+```
+
+---
+
+### 4.9 Page 9: Renovate Bot Management (`/renovate`)
+
+```text
++-----------------------------------------------------------------------------------------------+
+| Managed Renovate Bot                                                    [ Trigger Run Now ]   |
+| Ephemeral task container scheduling for automated dependency updates (docs/03 §6).            |
++-----------------------------------------------------------------------------------------------+
+| +-------------------------------------------------------------------------------------------+ |
+| | POOL NAME          | CRON SCHEDULE       | LAST RUN STATUS | NEXT RUN         | ACTIONS     | |
+| +--------------------+---------------------+-----------------+------------------+-------------+ |
+| | pool-arm64-prod    | 0 2 * * * (2am UTC) | SUCCESS (3 PRs) | in 4 hours       | [Run Now]   | |
+| | pool-gitea-dind    | 0 4 * * 1 (Mon 4am) | NO_CHANGES      | in 3 days        | [Run Now]   | |
+| +-------------------------------------------------------------------------------------------+ |
++-----------------------------------------------------------------------------------------------+
+| RECENT RENOVATE TASK RUNS                                                                     |
+| +-------------------------------------------------------------------------------------------+ |
+| | RUN ID | POOL            | STATUS  | DURATION | BRANCHES CREATED | COMPLETED               | |
+| +--------+-----------------+---------+----------+------------------+-------------------------+ |
+| | ren-42 | pool-arm64-prod | SUCCESS | 1m 45s   | 3 updates        | Yesterday at 02:01 UTC  | |
+| +-------------------------------------------------------------------------------------------+ |
++-----------------------------------------------------------------------------------------------+
+```
+
+---
+
+### 4.10 Page 10: Settings, Backups & Administration (`/settings`)
+
+```text
++-----------------------------------------------------------------------------------------------+
+| Supervisor Settings & Administration                                                          |
++-----------------------------------------------------------------------------------------------+
+| Tabs: [ Global Constraints ]  [ Database Backups ]  [ Audit Logs ]  [ Runner Image Updates ]  |
++-----------------------------------------------------------------------------------------------+
+| TAB: Global Constraints                                                                       |
+| +-------------------------------------------------------------------------------------------+ |
+| | Global Runner Quota (total_allowed_runners): [ 20      ] runners                          | |
+| | Warm Idle Pool Limit (total_idle_warm_pool):  [ 5       ] runners                          | |
+| | Graceful Shutdown Timeout (seconds):         [ 300     ] seconds                          | |
+| | History Retention Period (days):             [ 30      ] days                             | |
+| |                                                                                           | |
+| |                                                                [ Save Changes ]           | |
+| +-------------------------------------------------------------------------------------------+ |
+|                                                                                               |
+| TAB: Database Snapshots & Backups (DATA_DIR/backups/)                   [ + Create Backup Now]|
+| +-------------------------------------------------------------------------------------------+ |
+| | FILENAME                          | CREATED AT          | SIZE     | ACTIONS              | |
+| +-----------------------------------+---------------------+----------+----------------------+ |
+| | supervisor-backup-20260904-000000 | 2026-09-04 00:00:00 | 1.4 MB   | [Download] [Restore] | |
+| | supervisor-backup-20260903-180000 | 2026-09-03 18:00:00 | 1.3 MB   | [Download] [Restore] | |
+| +-------------------------------------------------------------------------------------------+ |
++-----------------------------------------------------------------------------------------------+
+```
+
+---
+
+## 5. Dialogs & Modal Specifications
+
+### 5.1 `CreatePoolModal` / `EditPoolModal`
+- **Fields**:
+  - Pool Name (Slug format: `^[a-z0-9-]+$`, max 40 chars).
+  - Git Provider: Radio buttons (`GitHub`, `Gitea`, `Forgejo`).
+  - Target URL: Full repository or organization URL.
+  - Scope: `repo` or `org`.
+  - Auth Profile: Dropdown populated from `AuthProfileService.ListAuthProfiles`.
+  - Labels: Chip input (e.g. `self-hosted`, `linux`, `arm64`).
+  - Concurrency: `min_idle_runners` (number, min 0), `max_concurrency` (number, min 1).
+  - Runner Image: Text input (default: `ghcr.io/noosxe/runner-aio:latest`).
+  - Resource Quotas: CPU Limit (e.g. `2.0`), Memory Limit (e.g. `4GB`).
+  - Max Runner Lifetime: Seconds (default `7200`).
+  - Docker Privileges: `Allow Docker in runner` checkbox. **Rule**: Automatically checked and disabled (read-only true) if Provider is `Gitea` or `Forgejo` per docs/05 §4.
+
+### 5.2 `CreateAuthProfileModal`
+- **Fields**:
+  - Name: Identifier string.
+  - Provider & Method Tabs:
+    - **GitHub App**: App ID, Installation ID, Private Key PEM file dropzone or paste textarea.
+    - **GitHub PAT**: Personal Access Token input.
+    - **Gitea / Forgejo PAT**: Instance URL + Token input.
+  - Actions:
+    - `[ Test Connection ]`: Validates credentials with upstream provider without closing modal.
+    - `[ Save Profile ]`: Submits to `AuthProfileService.CreateAuthProfile`.
+
+### 5.3 `DeleteConfirmationModal`
+- Reusable danger confirmation modal.
+- Shows resource name, warns of impact (e.g., active containers will be gracefully drained).
+- Input confirmation: Type name of resource to confirm if high-impact.
+
+---
+
+## 6. Interaction Workflows (Mermaid Diagrams)
+
+### 6.1 Real-Time Streaming Log Follow Workflow
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Admin UI
+    participant Term as Terminal Component
+    participant Client as ConnectRPC Client
+    participant Server as Echo Server (LogService)
+    participant Engine as Docker Engine
+    
+    User->>Term: Click "View Live Logs"
+    Term->>Client: StreamRunnerLogs({ runner_id })
+    Client->>Server: HTTP POST /supervisor.v1.LogService/StreamRunnerLogs
+    Server->>Engine: ContainerLogs(Follow=true, Timestamps=true)
+    
+    loop Real-Time Chunk Push
+        Engine-->>Server: 8-byte Header + Multiplexed Payload
+        Server-->>Client: stream LogChunk { timestamp, stream, content }
+        Client-->>Term: Append to Virtualized Buffer & Auto-Scroll
+    end
+    
+    User->>Term: Close Modal / Navigate Away
+    Term->>Client: AbortController.abort()
+    Client->>Server: HTTP TCP Cancel / Reset Stream
+    Server->>Engine: Close Log Stream Reader
+    Note over Server,Engine: Clean stream teardown, zero goroutine leak
+```
+
+### 6.2 Pool Mutation & Hot-Reload Workflow
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Admin UI
+    participant UI as Pool Form
+    participant Server as PoolService
+    participant DB as SQLite DB
+    participant Ctrl as PoolController
+    
+    User->>UI: Update min_idle (1 -> 3)
+    UI->>Server: UpdatePool({ id, min_idle_runners: 3 })
+    Server->>DB: UPDATE runner_pools SET min_idle_runners = 3
+    Server->>DB: INSERT INTO audit_logs (pool_update)
+    Server->>Ctrl: Reload(ctx)
+    Note over Ctrl: Control loop immediately reconciles<br/>target idle deficit without restart
+    Server-->>UI: UpdatePoolResponse
+    UI->>User: Show Success Toast & Update Active Count
+```
+
+---
+
+## 7. Component Hierarchy & Reusable Primitives
+
+```text
+web/src/
+├── components/
+│   ├── ui/                         # Atomic Design Primitives
+│   │   ├── button.tsx              # Primary, secondary, danger, ghost, loading states
+│   │   ├── input.tsx               # Text, number, password, search inputs
+│   │   ├── select.tsx              # Styled dropdown selects
+│   │   ├── checkbox.tsx            # Form checkboxes
+│   │   ├── badge.tsx               # Status badges (success, error, warning, info)
+│   │   ├── card.tsx                # Container cards with header, body, footer
+│   │   ├── modal.tsx               # Accessible dialogs with focus traps
+│   │   ├── table.tsx               # Data tables with sorting and pagination
+│   │   ├── tabs.tsx                # Tabbed interfaces
+│   │   ├── toast.tsx               # Floating feedback notifications
+│   │   └── stat-card.tsx           # Dashboard KPI display cards
+│   ├── layout/
+│   │   ├── app-shell.tsx           # Global sidebar + header layout
+│   │   ├── sidebar.tsx             # Collapsible navigation sidebar
+│   │   ├── header.tsx              # Top bar with status pill & profile
+│   │   └── page-header.tsx         # Page title, breadcrumbs, and actions
+│   ├── terminal/
+│   │   ├── terminal-viewer.tsx     # Virtualized monospace log viewer
+│   │   └── terminal-controls.tsx   # Filter, auto-scroll, clear, download
+│   └── forms/
+│       ├── pool-form.tsx           # Reusable Create/Edit pool form
+│       └── auth-profile-form.tsx   # Credentials input with test button
+├── hooks/
+│   ├── use-session.ts              # Session validation & logout handler
+│   ├── use-theme.ts                # System preference listener & theme toggle
+│   ├── use-log-stream.ts           # ConnectRPC streaming log consumer
+│   └── use-pools.ts                # Pool queries, mutations, and cache invalidation
+├── routes/
+│   ├── __root.tsx                  # Root layout, QueryClient, ToastProvider
+│   ├── login.tsx                   # Auth page
+│   ├── onboarding.tsx              # 5-step wizard container
+│   ├── _authenticated.tsx          # Authenticated App Shell layout
+│   ├── _authenticated/
+│   │   ├── index.tsx               # Dashboard view
+│   │   ├── pools/
+│   │   │   ├── index.tsx           # Pools list
+│   │   │   └── $poolId.tsx         # Pool detail & runners
+│   │   ├── history/
+│   │   │   ├── index.tsx           # Job history list
+│   │   │   └── $jobId.tsx          # Historical job & log viewer
+│   │   ├── profiles.tsx            # Auth profiles management
+│   │   ├── renovate.tsx            # Renovate bot management
+│   │   └── settings.tsx            # Global settings & backups
+└── main.tsx                        # Entrypoint, TanStack Router mount
+```
+
+---
+
+## 8. Summary of Validation & Safety Guardrails
+
+1. **Write-Only Credentials**: The UI never expects, requests, or stores raw private keys or tokens on read operations. Displays boolean badges (`has_private_key`, `has_token`).
+2. **Provider Enforcement**: If Gitea or Forgejo is selected as the pool provider, the `allow_docker` checkbox is automatically checked and locked to `true` to ensure container workflows function.
+3. **Referential Integrity Protection**: Pools referencing an auth profile warn the user, and profile deletion is blocked with an informative dialog if pools still reference it.
+4. **Clean Stream Teardown**: Closing log viewer components triggers `AbortController.abort()`, releasing server streams and Docker follow readers immediately.
