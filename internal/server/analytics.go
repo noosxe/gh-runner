@@ -24,6 +24,7 @@ type AnalyticsDatabase interface {
 	SearchJobHistory(ctx context.Context, arg db.SearchJobHistoryParams) ([]db.JobHistory, error)
 	CountSearchJobHistory(ctx context.Context, arg db.CountSearchJobHistoryParams) (int64, error)
 	GetJobStatsSince(ctx context.Context, createdAt time.Time) (db.GetJobStatsSinceRow, error)
+	GetHourlyJobStatsSince(ctx context.Context, createdAt time.Time) ([]db.GetHourlyJobStatsSinceRow, error)
 	ListRunnerPools(ctx context.Context) ([]db.RunnerPool, error)
 }
 
@@ -233,38 +234,72 @@ func (s *AnalyticsService) GetJobRecord(ctx context.Context, req *connect.Reques
 }
 
 // GetSystemStats aggregates system metrics across live runner state and historical DB executions.
-func (s *AnalyticsService) GetSystemStats(ctx context.Context, _ *connect.Request[supervisorv1.GetSystemStatsRequest]) (*connect.Response[supervisorv1.GetSystemStatsResponse], error) {
+func (s *AnalyticsService) GetSystemStats(ctx context.Context, req *connect.Request[supervisorv1.GetSystemStatsRequest]) (*connect.Response[supervisorv1.GetSystemStatsResponse], error) {
 	var active, idle int32
 	if s.statsProvider != nil {
 		active, idle = s.statsProvider.SystemRunnerStats()
 	}
 
-	cutoff := time.Now().UTC().Add(-24 * time.Hour)
+	timeframeHours := int(req.Msg.TimeframeHours)
+	if timeframeHours <= 0 {
+		timeframeHours = 24
+	}
+	cutoff := time.Now().UTC().Add(-time.Duration(timeframeHours) * time.Hour)
+
 	row, err := s.db.GetJobStatsSince(ctx, cutoff)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("calculating job metrics: %w", err))
 	}
 
-	total24h := int32(row.TotalJobs)
-	successful24h := toInt32(row.SuccessfulJobs)
-	failed24h := toInt32(row.FailedJobs)
+	totalJobs := int32(row.TotalJobs)
+	successfulJobs := toInt32(row.SuccessfulJobs)
+	failedJobs := toInt32(row.FailedJobs)
 	avgQueue := toFloat64(row.AvgQueueSeconds)
 	avgRuntime := toFloat64(row.AvgRuntimeSeconds)
 
 	successRate := 0.0
-	if total24h > 0 {
-		successRate = (float64(successful24h) / float64(total24h)) * 100.0
+	if totalJobs > 0 {
+		successRate = (float64(successfulJobs) / float64(totalJobs)) * 100.0
+	}
+
+	hourlyRows, err := s.db.GetHourlyJobStatsSince(ctx, cutoff)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("calculating hourly latency trend: %w", err))
+	}
+
+	trend := make([]*supervisorv1.LatencyBucket, 0, len(hourlyRows))
+	for _, hr := range hourlyRows {
+		ts := ""
+		switch val := hr.BucketHour.(type) {
+		case string:
+			ts = val
+		case []byte:
+			ts = string(val)
+		default:
+			if val != nil {
+				ts = fmt.Sprintf("%v", val)
+			}
+		}
+		trend = append(trend, &supervisorv1.LatencyBucket{
+			Timestamp:         ts,
+			AvgQueueSeconds:   toFloat64(hr.AvgQueueSeconds),
+			AvgRuntimeSeconds: toFloat64(hr.AvgRuntimeSeconds),
+			TotalJobs:         int32(hr.TotalJobs),
+			SuccessfulJobs:    toInt32(hr.SuccessfulJobs),
+			FailedJobs:        toInt32(hr.FailedJobs),
+		})
 	}
 
 	return connect.NewResponse(&supervisorv1.GetSystemStatsResponse{
 		TotalActiveRunners:      active,
 		TotalIdleRunners:        idle,
 		AverageQueueTimeSeconds: avgQueue,
-		TotalJobs_24H:           total24h,
-		SuccessfulJobs_24H:      successful24h,
-		FailedJobs_24H:          failed24h,
+		TotalJobs_24H:           totalJobs,
+		SuccessfulJobs_24H:      successfulJobs,
+		FailedJobs_24H:          failedJobs,
 		AverageRuntimeSeconds:   avgRuntime,
 		SuccessRatePercent:      successRate,
+		QueueLatencyTrend:       trend,
 	}), nil
 }
 

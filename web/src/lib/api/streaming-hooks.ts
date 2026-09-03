@@ -130,6 +130,7 @@ export function useWatchDashboard(options?: StreamOptions) {
     (res: WatchDashboardResponse) => {
       if (res.stats) {
         queryClient.setQueryData(queryKeys.systemStats, res.stats);
+        queryClient.setQueriesData({ queryKey: queryKeys.systemStats }, res.stats);
       }
       if (res.pools) {
         queryClient.setQueryData(queryKeys.pools, res.pools);
