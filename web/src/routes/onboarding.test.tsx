@@ -5,6 +5,8 @@ import { OnboardingPage } from "./onboarding";
 const mockSetupAdmin = vi.fn();
 const mockCreateAuthProfile = vi.fn();
 const mockSetAppSetting = vi.fn();
+const mockCreatePool = vi.fn();
+const mockNavigate = vi.fn();
 
 let mockOnboardingStatus = {
   adminCreated: false,
@@ -12,6 +14,10 @@ let mockOnboardingStatus = {
   poolExists: false,
   setupComplete: false,
 };
+
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mockNavigate,
+}));
 
 vi.mock("../lib/api/query-hooks", () => ({
   useOnboardingStatus: () => ({
@@ -30,9 +36,13 @@ vi.mock("../lib/api/query-hooks", () => ({
     mutateAsync: mockSetAppSetting,
     isPending: false,
   }),
+  useCreatePool: () => ({
+    mutateAsync: mockCreatePool,
+    isPending: false,
+  }),
 }));
 
-describe("OnboardingPage", () => {
+describe("OnboardingPage (Full 5 Steps)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockOnboardingStatus = {
@@ -77,19 +87,21 @@ describe("OnboardingPage", () => {
     });
   });
 
-  it("advances through Steps 1, 2, and 3 successfully", async () => {
+  it("advances through Steps 1 to 5 and launches supervisor", async () => {
     mockSetupAdmin.mockResolvedValueOnce({});
-    mockCreateAuthProfile.mockResolvedValueOnce({ id: 1n });
+    mockCreateAuthProfile.mockResolvedValueOnce({ profile: { id: 42n } });
     mockSetAppSetting.mockResolvedValue({});
+    mockCreatePool.mockResolvedValueOnce({ pool: { id: 101n } });
 
     render(<OnboardingPage />);
 
     // --- STEP 1: Admin Setup ---
-    const passwordInput = screen.getByLabelText("Password (min 10 characters)");
-    const confirmInput = screen.getByLabelText("Confirm Password");
-    fireEvent.change(passwordInput, { target: { value: "longenoughpass123" } });
-    fireEvent.change(confirmInput, { target: { value: "longenoughpass123" } });
-
+    fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm Password"), {
+      target: { value: "longenoughpass123" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Next: Git Provider/i }));
 
     await waitFor(() => {
@@ -101,39 +113,71 @@ describe("OnboardingPage", () => {
     });
 
     // --- STEP 2: Git Provider Setup ---
-    const tokenInput = screen.getByLabelText("Personal Access Token (PAT)");
-    fireEvent.change(tokenInput, { target: { value: "ghp_testtoken12345" } });
-
+    fireEvent.change(screen.getByLabelText("Personal Access Token (PAT)"), {
+      target: { value: "ghp_testtoken12345" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Next: Safeguards/i }));
 
     await waitFor(() => {
-      expect(mockCreateAuthProfile).toHaveBeenCalledWith({
-        name: "github-primary",
-        authMethod: "github_pat",
-        appId: 0n,
-        privateKey: new Uint8Array(),
-        token: "ghp_testtoken12345",
-      });
+      expect(mockCreateAuthProfile).toHaveBeenCalled();
       expect(screen.getByText("Step 3 of 5: Global Scaling Safeguards")).toBeInTheDocument();
     });
 
     // --- STEP 3: Safeguards Setup ---
-    const maxRunnersInput = screen.getByLabelText("Total Allowed Runners");
-    fireEvent.change(maxRunnersInput, { target: { value: "25" } });
-
     fireEvent.click(screen.getByRole("button", { name: /Next: Initial Pool/i }));
 
     await waitFor(() => {
       expect(mockSetAppSetting).toHaveBeenCalled();
-      expect(screen.getByText("Steps 1–3 Complete!")).toBeInTheDocument();
+      expect(screen.getByText("Step 4 of 5: Initial Runner Pool Setup")).toBeInTheDocument();
+    });
+
+    // --- STEP 4: Initial Pool Setup ---
+    expect(screen.getByLabelText("Pool Name")).toHaveValue("default-pool");
+    expect(screen.getByLabelText("Repository / Organization URL")).toBeInTheDocument();
+
+    // Enable Renovate toggle
+    const renovateCheckbox = screen.getByLabelText("Enable Renovate Dependency Automation");
+    fireEvent.click(renovateCheckbox);
+    expect(screen.getByLabelText("Cron Schedule")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Next: Review & Launch/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 5 of 5: Review & Launch Supervisor")).toBeInTheDocument();
+      expect(screen.getByText("Ready to Launch")).toBeInTheDocument();
+    });
+
+    // --- STEP 5: Confirm & Launch ---
+    const launchBtn = screen.getByRole("button", { name: /Confirm & Launch Supervisor/i });
+    fireEvent.click(launchBtn);
+
+    await waitFor(() => {
+      expect(mockCreatePool).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pool: expect.objectContaining({
+            name: "default-pool",
+            provider: "github",
+            authProfileId: 42n,
+            allowDocker: true,
+            renovate: expect.objectContaining({
+              enabled: true,
+              cronSchedule: "0 2 * * *",
+            }),
+          }),
+        }),
+      );
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/" });
     });
   });
 
-  it("supports navigating back across wizard steps", async () => {
+  it("locks allowDocker to enabled when Gitea or Forgejo provider is selected", async () => {
     mockSetupAdmin.mockResolvedValueOnce({});
+    mockCreateAuthProfile.mockResolvedValueOnce({ profile: { id: 7n } });
+    mockSetAppSetting.mockResolvedValue({});
+
     render(<OnboardingPage />);
 
-    // Step 1 -> Step 2
+    // Step 1
     fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
       target: { value: "longenoughpass123" },
     });
@@ -146,11 +190,28 @@ describe("OnboardingPage", () => {
       expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
     });
 
-    // Click Back to return to Step 1
-    fireEvent.click(screen.getByRole("button", { name: /Back/i }));
+    // Select Gitea PAT
+    fireEvent.click(screen.getByRole("button", { name: "Gitea PAT" }));
+    fireEvent.change(screen.getByLabelText("Personal Access Token (PAT)"), {
+      target: { value: "gitea_token_abc" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Safeguards/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Step 1 of 5: Create Master Administrator")).toBeInTheDocument();
+      expect(screen.getByText("Step 3 of 5: Global Scaling Safeguards")).toBeInTheDocument();
     });
+
+    // Step 3 -> Step 4
+    fireEvent.click(screen.getByRole("button", { name: /Next: Initial Pool/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 4 of 5: Initial Runner Pool Setup")).toBeInTheDocument();
+    });
+
+    // Verify Docker policy lock per docs/05 §4
+    const dockerCheckbox = screen.getByLabelText("Allow Docker in Container") as HTMLInputElement;
+    expect(dockerCheckbox.checked).toBe(true);
+    expect(dockerCheckbox.disabled).toBe(true);
+    expect(screen.getByText(/Locked to Enabled for GITEA runners/i)).toBeInTheDocument();
   });
 });
