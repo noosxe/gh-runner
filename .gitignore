@@ -24,3 +24,10 @@ Thumbs.db
 
 # Go build artifacts
 bin/
+
+# Frontend / Node artifacts
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+
+

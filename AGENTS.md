@@ -67,10 +67,10 @@ While working, keep your commits clean, focused, and well-described.
 * Ensure the code compiles and tests pass before committing.
 * **Pre-Commit Verification**: You MUST run formatting, unit tests, and static checks inside the Nix development shell before *every* commit:
   ```bash
-  # Check shell scripts using shellcheck inside the Nix development shell
-  nix develop --command shellcheck src/*.sh
+  # Run Go tests, runner script tests, frontend Vitest, linters (golangci-lint, oxlint, shellcheck, hadolint), and build
+  nix develop --command bash -c "make test && make test-scripts && make test-web && make lint && make lint-web && make vet && make build && make clean && shellcheck src/*.sh && shfmt -d src/*.sh && hadolint Dockerfile"
   ```
-  *(Note: Verify that your scripts do not have syntax or lint issues and conform to the project guidelines.)*
+  *(Note: Verify that all code, frontend assets, and shell scripts have zero syntax or lint issues.)*
 * Write clear, concise commit messages. **Do NOT** add any "co-authored by AI/LLM Agent" statements to your commits, as this is already covered by the global notice in the repository's `README.md`.
 * ⚠️ **Preserve Your Work**: Never blindly discard changes. When in doubt, stop and ask the user. If you are sure the changes are going to be needed later, stash them using `git stash`.
 
@@ -229,6 +229,13 @@ When creating new files, structure the repository logically as follows:
 * **Multi-Stage Builds:** Use multi-stage builds to keep the final runner image extremely slim.
 * **Caching Optimization:** Order directives to leverage Docker layer caching (e.g., copy package lists/dependencies before application scripts).
 * **Hadolint Compliance:** Ensure Dockerfile statements conform to `hadolint` rules (e.g., pin package versions, clean package caches in the same `RUN` layer).
+
+### C. Frontend / Web UI (`web/`)
+* **Package Management:** Use `pnpm` exclusively for all frontend package management (`pnpm install`, `pnpm run build`, etc.). Do NOT use `npm` or `yarn`.
+* **Linting & Formatting:** Use `oxlint` and `oxfmt` (the Rust-based Oxidation Compiler toolchain) for all static analysis and code formatting (`make lint-web` / `make fmt-web`). Legacy ESLint and Prettier are deprecated and disallowed.
+* **Testing:** Write frontend unit and component tests with `Vitest` and `@testing-library/react` (`make test-web`).
+* **Styling:** Strictly use TailwindCSS utility classes. Do NOT write custom `.css` rules or standalone stylesheets.
+* **Binary Transport:** The frontend ConnectRPC client must communicate exclusively via the binary wire protocol (`application/proto`). JSON transport is disabled on the backend.
 
 ---
 
