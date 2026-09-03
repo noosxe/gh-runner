@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"io"
+	"strings"
 	"sync"
 )
 
@@ -16,6 +18,7 @@ type MockContainerProvider struct {
 	PruneExitedContainersFn func(ctx context.Context) error
 	EnsureNetworkFn         func(ctx context.Context, name string) (string, error)
 	CaptureLogsFn           func(ctx context.Context, containerID, dataDir string) (string, error)
+	StreamLogsFn            func(ctx context.Context, containerID string) (io.ReadCloser, error)
 	PingFn                  func(ctx context.Context) error
 	CloseFn                 func() error
 
@@ -117,6 +120,18 @@ func (m *MockContainerProvider) CaptureLogs(ctx context.Context, containerID, da
 		return fn(ctx, containerID, dataDir)
 	}
 	return LogPath(dataDir, containerID), nil
+}
+
+// StreamLogs delegates to StreamLogsFn or returns a no-op ReadCloser.
+func (m *MockContainerProvider) StreamLogs(ctx context.Context, containerID string) (io.ReadCloser, error) {
+	m.mu.RLock()
+	fn := m.StreamLogsFn
+	m.mu.RUnlock()
+
+	if fn != nil {
+		return fn(ctx, containerID)
+	}
+	return io.NopCloser(strings.NewReader("")), nil
 }
 
 // Ping delegates to PingFn or returns nil.
