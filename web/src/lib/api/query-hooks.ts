@@ -1,0 +1,220 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  authClient,
+  poolClient,
+  authProfileClient,
+  onboardingClient,
+  analyticsClient,
+  logClient,
+} from "./transport";
+
+export const queryKeys = {
+  onboardingStatus: ["onboarding", "status"] as const,
+  appSettings: ["onboarding", "settings"] as const,
+  session: ["auth", "session"] as const,
+  pools: ["pools"] as const,
+  pool: (id: bigint) => ["pools", id.toString()] as const,
+  authProfiles: ["authProfiles"] as const,
+  systemStats: ["analytics", "systemStats"] as const,
+  jobHistory: (poolId?: bigint, limit?: number, offset?: number) =>
+    ["analytics", "jobHistory", { poolId: poolId?.toString(), limit, offset }] as const,
+  runnerLogs: (runnerId: string) => ["logs", runnerId] as const,
+};
+
+// Onboarding Service Hooks
+export function useOnboardingStatus() {
+  return useQuery({
+    queryKey: queryKeys.onboardingStatus,
+    queryFn: async () => {
+      const res = await onboardingClient.getOnboardingStatus({});
+      return res;
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useAppSettings() {
+  return useQuery({
+    queryKey: queryKeys.appSettings,
+    queryFn: async () => {
+      const res = await onboardingClient.getAppSettings({});
+      return res.settings;
+    },
+  });
+}
+
+export function useSetAppSetting() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (req: Parameters<typeof onboardingClient.setAppSetting>[0]) => {
+      return await onboardingClient.setAppSetting(req);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.appSettings });
+    },
+  });
+}
+
+// Auth Service Hooks
+export function useSession() {
+  return useQuery({
+    queryKey: queryKeys.session,
+    queryFn: async () => {
+      const res = await authClient.getSession({});
+      return res;
+    },
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+export function useLogin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (req: Parameters<typeof authClient.login>[0]) => {
+      return await authClient.login(req);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.session });
+    },
+  });
+}
+
+export function useSetupAdmin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (req: Parameters<typeof authClient.setupAdmin>[0]) => {
+      return await authClient.setupAdmin(req);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.session });
+      queryClient.invalidateQueries({ queryKey: queryKeys.onboardingStatus });
+    },
+  });
+}
+
+// Pool Service Hooks
+export function usePools() {
+  return useQuery({
+    queryKey: queryKeys.pools,
+    queryFn: async () => {
+      const res = await poolClient.listPools({});
+      return res.pools;
+    },
+    staleTime: 5_000,
+  });
+}
+
+export function useCreatePool() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (req: Parameters<typeof poolClient.createPool>[0]) => {
+      return await poolClient.createPool(req);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pools });
+      queryClient.invalidateQueries({ queryKey: queryKeys.onboardingStatus });
+      queryClient.invalidateQueries({ queryKey: queryKeys.systemStats });
+    },
+  });
+}
+
+export function useUpdatePool() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (req: Parameters<typeof poolClient.updatePool>[0]) => {
+      return await poolClient.updatePool(req);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pools });
+      queryClient.invalidateQueries({ queryKey: queryKeys.systemStats });
+    },
+  });
+}
+
+export function useDeletePool() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: bigint) => {
+      return await poolClient.deletePool({ id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pools });
+      queryClient.invalidateQueries({ queryKey: queryKeys.systemStats });
+    },
+  });
+}
+
+// Auth Profile Service Hooks
+export function useAuthProfiles() {
+  return useQuery({
+    queryKey: queryKeys.authProfiles,
+    queryFn: async () => {
+      const res = await authProfileClient.listAuthProfiles({});
+      return res.profiles;
+    },
+  });
+}
+
+export function useCreateAuthProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (req: Parameters<typeof authProfileClient.createAuthProfile>[0]) => {
+      return await authProfileClient.createAuthProfile(req);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.authProfiles });
+      queryClient.invalidateQueries({ queryKey: queryKeys.onboardingStatus });
+    },
+  });
+}
+
+export function useDeleteAuthProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: bigint) => {
+      return await authProfileClient.deleteAuthProfile({ id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.authProfiles });
+    },
+  });
+}
+
+// Analytics Service Hooks
+export function useSystemStats() {
+  return useQuery({
+    queryKey: queryKeys.systemStats,
+    queryFn: async () => {
+      const res = await analyticsClient.getSystemStats({});
+      return res;
+    },
+    staleTime: 5_000,
+  });
+}
+
+export function useJobHistory(poolId?: bigint, limit = 25, offset = 0) {
+  return useQuery({
+    queryKey: queryKeys.jobHistory(poolId, limit, offset),
+    queryFn: async () => {
+      const res = await analyticsClient.getJobHistory({
+        poolId: poolId ?? 0n,
+        limit,
+        offset,
+      });
+      return res;
+    },
+  });
+}
+
+// Historical Logs Hook
+export function useRunnerLogs(runnerId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.runnerLogs(runnerId),
+    queryFn: async () => {
+      const res = await logClient.getRunnerLogs({ runnerId });
+      return res.lines;
+    },
+    enabled: enabled && runnerId.length > 0,
+  });
+}

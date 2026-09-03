@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.2.3",
-    "@connectrpc/connect": "^1.6.1",
-    "@connectrpc/connect-web": "^1.6.1",
+    "@connectrpc/connect": "^2.1.2",
+    "@connectrpc/connect-web": "^2.1.2",
     "@tanstack/react-query": "^5.66.0",
     "@tanstack/react-router": "^1.95.0",
     "clsx": "^2.1.1",
