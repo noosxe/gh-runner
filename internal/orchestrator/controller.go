@@ -1076,3 +1076,37 @@ func (c *PoolController) drainPool(ctx context.Context, poolName string) {
 	c.mu.Unlock()
 }
 
+// PoolRunners returns all active/idle runners currently tracked for a pool as server.RunnerInstanceInfo.
+func (c *PoolController) PoolRunners(poolName string) []server.RunnerInstanceInfo {
+	if c.reconciler == nil {
+		return nil
+	}
+	statuses := c.reconciler.TrackedPoolRunners(poolName)
+	res := make([]server.RunnerInstanceInfo, 0, len(statuses))
+	for _, s := range statuses {
+		res = append(res, server.RunnerInstanceInfo{
+			ID:        s.ID,
+			Name:      s.Name,
+			PoolName:  s.PoolName,
+			State:     s.State,
+			IPAddress: s.IPAddress,
+			SpawnedAt: s.SpawnedAt,
+			IsBusy:    s.IsBusy,
+		})
+	}
+	return res
+}
+
+// TerminateRunner manually terminates a runner container and reconciles pool tracking state.
+func (c *PoolController) TerminateRunner(ctx context.Context, poolName, containerID string) error {
+	if c.engine != nil {
+		if err := c.engine.TerminateRunner(ctx, containerID); err != nil {
+			return err
+		}
+	}
+	if c.reconciler != nil {
+		c.reconciler.UntrackRunner(poolName, containerID)
+	}
+	return nil
+}
+

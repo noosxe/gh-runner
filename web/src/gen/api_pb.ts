@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file api.proto.
  */
 export const file_api: GenFile = /*@__PURE__*/
-  fileDesc("CglhcGkucHJvdG8SDXN1cGVydmlzb3IudjEiNwoRU2V0dXBBZG1pblJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEAoIcGFzc3dvcmQYAiABKAkiJQoSU2V0dXBBZG1pblJlc3BvbnNlEg8KB3N1Y2Nlc3MYASABKAgiMgoMTG9naW5SZXF1ZXN0EhAKCHVzZXJuYW1lGAEgASgJEhAKCHBhc3N3b3JkGAIgASgJIjIKDUxvZ2luUmVzcG9uc2USDwoHc3VjY2VzcxgBIAEoCBIQCgh1c2VybmFtZRgCIAEoCSITChFHZXRTZXNzaW9uUmVxdWVzdCI4ChJHZXRTZXNzaW9uUmVzcG9uc2USEAoIdXNlcm5hbWUYASABKAkSEAoIaXNfYWRtaW4YAiABKAgijgMKBFBvb2wSCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRIQCghwcm92aWRlchgDIAEoCRIWCg5yZXBvc2l0b3J5X3VybBgEIAEoCRIYChBtaW5faWRsZV9ydW5uZXJzGAUgASgFEhcKD21heF9jb25jdXJyZW5jeRgGIAEoBRIOCgZsYWJlbHMYByADKAkSFAoMcnVubmVyX2ltYWdlGAggASgJEhQKDGFsbG93X2RvY2tlchgJIAEoCBIvCghyZW5vdmF0ZRgKIAEoCzIdLnN1cGVydmlzb3IudjEuUmVub3ZhdGVDb25maWcSFgoOYWN0aXZlX3J1bm5lcnMYCyABKAUSFAoMaWRsZV9ydW5uZXJzGAwgASgFEhcKD2F1dGhfcHJvZmlsZV9pZBgNIAEoAxINCgVzY29wZRgOIAEoCRIRCgljcHVfbGltaXQYDyABKAkSFAoMbWVtb3J5X2xpbWl0GBAgASgJEiMKG21heF9ydW5uZXJfbGlmZXRpbWVfc2Vjb25kcxgRIAEoBSJHCg5SZW5vdmF0ZUNvbmZpZxIPCgdlbmFibGVkGAEgASgIEhUKDWNyb25fc2NoZWR1bGUYAiABKAkSDQoFaW1hZ2UYAyABKAkiEgoQTGlzdFBvb2xzUmVxdWVzdCI3ChFMaXN0UG9vbHNSZXNwb25zZRIiCgVwb29scxgBIAMoCzITLnN1cGVydmlzb3IudjEuUG9vbCI2ChFDcmVhdGVQb29sUmVxdWVzdBIhCgRwb29sGAEgASgLMhMuc3VwZXJ2aXNvci52MS5Qb29sIjcKEkNyZWF0ZVBvb2xSZXNwb25zZRIhCgRwb29sGAEgASgLMhMuc3VwZXJ2aXNvci52MS5Qb29sIjYKEVVwZGF0ZVBvb2xSZXF1ZXN0EiEKBHBvb2wYASABKAsyEy5zdXBlcnZpc29yLnYxLlBvb2wiNwoSVXBkYXRlUG9vbFJlc3BvbnNlEiEKBHBvb2wYASABKAsyEy5zdXBlcnZpc29yLnYxLlBvb2wiHwoRRGVsZXRlUG9vbFJlcXVlc3QSCgoCaWQYASABKAMiJQoSRGVsZXRlUG9vbFJlc3BvbnNlEg8KB3N1Y2Nlc3MYASABKAgiKAoRV2F0Y2hQb29sc1JlcXVlc3QSEwoLaW50ZXJ2YWxfbXMYASABKAUiOAoSV2F0Y2hQb29sc1Jlc3BvbnNlEiIKBXBvb2xzGAEgAygLMhMuc3VwZXJ2aXNvci52MS5Qb29sIngKC0F1dGhQcm9maWxlEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSEwoLYXV0aF9tZXRob2QYAyABKAkSDgoGYXBwX2lkGAQgASgDEhcKD2hhc19wcml2YXRlX2tleRgFIAEoCBIRCgloYXNfdG9rZW4YBiABKAgiGQoXTGlzdEF1dGhQcm9maWxlc1JlcXVlc3QiSAoYTGlzdEF1dGhQcm9maWxlc1Jlc3BvbnNlEiwKCHByb2ZpbGVzGAEgAygLMhouc3VwZXJ2aXNvci52MS5BdXRoUHJvZmlsZSJxChhDcmVhdGVBdXRoUHJvZmlsZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRITCgthdXRoX21ldGhvZBgCIAEoCRIOCgZhcHBfaWQYAyABKAMSEwoLcHJpdmF0ZV9rZXkYBCABKAwSDQoFdG9rZW4YBSABKAkiSAoZQ3JlYXRlQXV0aFByb2ZpbGVSZXNwb25zZRIrCgdwcm9maWxlGAEgASgLMhouc3VwZXJ2aXNvci52MS5BdXRoUHJvZmlsZSImChhEZWxldGVBdXRoUHJvZmlsZVJlcXVlc3QSCgoCaWQYASABKAMiLAoZRGVsZXRlQXV0aFByb2ZpbGVSZXNwb25zZRIPCgdzdWNjZXNzGAEgASgIIhwKGkdldE9uYm9hcmRpbmdTdGF0dXNSZXF1ZXN0In4KG0dldE9uYm9hcmRpbmdTdGF0dXNSZXNwb25zZRIVCg1hZG1pbl9jcmVhdGVkGAEgASgIEhsKE2F1dGhfcHJvZmlsZV9leGlzdHMYAiABKAgSEwoLcG9vbF9leGlzdHMYAyABKAgSFgoOc2V0dXBfY29tcGxldGUYBCABKAgiFwoVR2V0QXBwU2V0dGluZ3NSZXF1ZXN0IkEKD0FwcFNldHRpbmdFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAkSEgoKdXBkYXRlZF9hdBgDIAEoCSJKChZHZXRBcHBTZXR0aW5nc1Jlc3BvbnNlEjAKCHNldHRpbmdzGAEgAygLMh4uc3VwZXJ2aXNvci52MS5BcHBTZXR0aW5nRW50cnkiMgoUU2V0QXBwU2V0dGluZ1JlcXVlc3QSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJIjMKFVNldEFwcFNldHRpbmdSZXNwb25zZRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAkiigEKCUpvYlJlY29yZBIKCgJpZBgBIAEoAxIPCgdwb29sX2lkGAIgASgDEhMKC3J1bm5lcl9uYW1lGAMgASgJEg4KBnN0YXR1cxgEIAEoCRIRCglxdWV1ZWRfYXQYBSABKAkSEgoKc3RhcnRlZF9hdBgGIAEoCRIUCgxjb21wbGV0ZWRfYXQYByABKAkiRgoUR2V0Sm9iSGlzdG9yeVJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAxINCgVsaW1pdBgCIAEoBRIOCgZvZmZzZXQYAyABKAUiVAoVR2V0Sm9iSGlzdG9yeVJlc3BvbnNlEiYKBGpvYnMYASADKAsyGC5zdXBlcnZpc29yLnYxLkpvYlJlY29yZBITCgt0b3RhbF9jb3VudBgCIAEoBSIXChVHZXRTeXN0ZW1TdGF0c1JlcXVlc3QigwIKFkdldFN5c3RlbVN0YXRzUmVzcG9uc2USHAoUdG90YWxfYWN0aXZlX3J1bm5lcnMYASABKAUSGgoSdG90YWxfaWRsZV9ydW5uZXJzGAIgASgFEiIKGmF2ZXJhZ2VfcXVldWVfdGltZV9zZWNvbmRzGAMgASgBEhYKDnRvdGFsX2pvYnNfMjRoGAQgASgFEhsKE3N1Y2Nlc3NmdWxfam9ic18yNGgYBSABKAUSFwoPZmFpbGVkX2pvYnNfMjRoGAYgASgFEh8KF2F2ZXJhZ2VfcnVudGltZV9zZWNvbmRzGAcgASgBEhwKFHN1Y2Nlc3NfcmF0ZV9wZXJjZW50GAggASgBIiwKFVdhdGNoRGFzaGJvYXJkUmVxdWVzdBITCgtpbnRlcnZhbF9tcxgBIAEoBSKhAQoWV2F0Y2hEYXNoYm9hcmRSZXNwb25zZRI0CgVzdGF0cxgBIAEoCzIlLnN1cGVydmlzb3IudjEuR2V0U3lzdGVtU3RhdHNSZXNwb25zZRIiCgVwb29scxgCIAMoCzITLnN1cGVydmlzb3IudjEuUG9vbBItCgtyZWNlbnRfam9icxgDIAMoCzIYLnN1cGVydmlzb3IudjEuSm9iUmVjb3JkIiwKF1N0cmVhbVJ1bm5lckxvZ3NSZXF1ZXN0EhEKCXJ1bm5lcl9pZBgBIAEoCSI+CghMb2dDaHVuaxIRCgl0aW1lc3RhbXAYASABKAkSDgoGc3RyZWFtGAIgASgJEg8KB2NvbnRlbnQYAyABKAkiKQoUR2V0UnVubmVyTG9nc1JlcXVlc3QSEQoJcnVubmVyX2lkGAEgASgJIj8KFUdldFJ1bm5lckxvZ3NSZXNwb25zZRImCgVsaW5lcxgBIAMoCzIXLnN1cGVydmlzb3IudjEuTG9nQ2h1bmsidQoLUmVub3ZhdGVSdW4SCgoCaWQYASABKAMSDwoHcG9vbF9pZBgCIAEoAxIOCgZzdGF0dXMYAyABKAkSEgoKc3RhcnRlZF9hdBgEIAEoCRIUCgxjb21wbGV0ZWRfYXQYBSABKAkSDwoHc3VtbWFyeRgGIAEoCSIsChlUcmlnZ2VyUmVub3ZhdGVSdW5SZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMiPQoaVHJpZ2dlclJlbm92YXRlUnVuUmVzcG9uc2USDwoHc3VjY2VzcxgBIAEoCBIOCgZydW5faWQYAiABKAMiKwoYR2V0UmVub3ZhdGVTdGF0dXNSZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMiZQoZR2V0UmVub3ZhdGVTdGF0dXNSZXNwb25zZRIsCghsYXN0X3J1bhgBIAEoCzIaLnN1cGVydmlzb3IudjEuUmVub3ZhdGVSdW4SGgoSbmV4dF9zY2hlZHVsZWRfcnVuGAIgASgJIkwKGkxpc3RSZW5vdmF0ZUhpc3RvcnlSZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMSDQoFbGltaXQYAiABKAUSDgoGb2Zmc2V0GAMgASgFIlwKG0xpc3RSZW5vdmF0ZUhpc3RvcnlSZXNwb25zZRIoCgRydW5zGAEgAygLMhouc3VwZXJ2aXNvci52MS5SZW5vdmF0ZVJ1bhITCgt0b3RhbF9jb3VudBgCIAEoBSJ8CgtJbWFnZVVwZGF0ZRIKCgJpZBgBIAEoAxIPCgdwb29sX2lkGAIgASgDEhUKDWN1cnJlbnRfaW1hZ2UYAyABKAkSFQoNbGF0ZXN0X2RpZ2VzdBgEIAEoCRIOCgZzdGF0dXMYBSABKAkSEgoKY2hlY2tlZF9hdBgGIAEoCSIqChdDaGVja0ltYWdlVXBkYXRlUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDImAKGENoZWNrSW1hZ2VVcGRhdGVSZXNwb25zZRIYChB1cGRhdGVfYXZhaWxhYmxlGAEgASgIEioKBnVwZGF0ZRgCIAEoCzIaLnN1cGVydmlzb3IudjEuSW1hZ2VVcGRhdGUiIwoQUHVsbEltYWdlUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIjUKEVB1bGxJbWFnZVJlc3BvbnNlEg8KB3N1Y2Nlc3MYASABKAgSDwoHbWVzc2FnZRgCIAEoCSIqChdMaXN0SW1hZ2VVcGRhdGVzUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIkcKGExpc3RJbWFnZVVwZGF0ZXNSZXNwb25zZRIrCgd1cGRhdGVzGAEgAygLMhouc3VwZXJ2aXNvci52MS5JbWFnZVVwZGF0ZSInChlEaXNtaXNzSW1hZ2VVcGRhdGVSZXF1ZXN0EgoKAmlkGAEgASgDIi0KGkRpc21pc3NJbWFnZVVwZGF0ZVJlc3BvbnNlEg8KB3N1Y2Nlc3MYASABKAgy9wEKC0F1dGhTZXJ2aWNlElEKClNldHVwQWRtaW4SIC5zdXBlcnZpc29yLnYxLlNldHVwQWRtaW5SZXF1ZXN0GiEuc3VwZXJ2aXNvci52MS5TZXR1cEFkbWluUmVzcG9uc2USQgoFTG9naW4SGy5zdXBlcnZpc29yLnYxLkxvZ2luUmVxdWVzdBocLnN1cGVydmlzb3IudjEuTG9naW5SZXNwb25zZRJRCgpHZXRTZXNzaW9uEiAuc3VwZXJ2aXNvci52MS5HZXRTZXNzaW9uUmVxdWVzdBohLnN1cGVydmlzb3IudjEuR2V0U2Vzc2lvblJlc3BvbnNlMqsDCgtQb29sU2VydmljZRJOCglMaXN0UG9vbHMSHy5zdXBlcnZpc29yLnYxLkxpc3RQb29sc1JlcXVlc3QaIC5zdXBlcnZpc29yLnYxLkxpc3RQb29sc1Jlc3BvbnNlElEKCkNyZWF0ZVBvb2wSIC5zdXBlcnZpc29yLnYxLkNyZWF0ZVBvb2xSZXF1ZXN0GiEuc3VwZXJ2aXNvci52MS5DcmVhdGVQb29sUmVzcG9uc2USUQoKVXBkYXRlUG9vbBIgLnN1cGVydmlzb3IudjEuVXBkYXRlUG9vbFJlcXVlc3QaIS5zdXBlcnZpc29yLnYxLlVwZGF0ZVBvb2xSZXNwb25zZRJRCgpEZWxldGVQb29sEiAuc3VwZXJ2aXNvci52MS5EZWxldGVQb29sUmVxdWVzdBohLnN1cGVydmlzb3IudjEuRGVsZXRlUG9vbFJlc3BvbnNlElMKCldhdGNoUG9vbHMSIC5zdXBlcnZpc29yLnYxLldhdGNoUG9vbHNSZXF1ZXN0GiEuc3VwZXJ2aXNvci52MS5XYXRjaFBvb2xzUmVzcG9uc2UwATLJAgoSQXV0aFByb2ZpbGVTZXJ2aWNlEmMKEExpc3RBdXRoUHJvZmlsZXMSJi5zdXBlcnZpc29yLnYxLkxpc3RBdXRoUHJvZmlsZXNSZXF1ZXN0Gicuc3VwZXJ2aXNvci52MS5MaXN0QXV0aFByb2ZpbGVzUmVzcG9uc2USZgoRQ3JlYXRlQXV0aFByb2ZpbGUSJy5zdXBlcnZpc29yLnYxLkNyZWF0ZUF1dGhQcm9maWxlUmVxdWVzdBooLnN1cGVydmlzb3IudjEuQ3JlYXRlQXV0aFByb2ZpbGVSZXNwb25zZRJmChFEZWxldGVBdXRoUHJvZmlsZRInLnN1cGVydmlzb3IudjEuRGVsZXRlQXV0aFByb2ZpbGVSZXF1ZXN0Giguc3VwZXJ2aXNvci52MS5EZWxldGVBdXRoUHJvZmlsZVJlc3BvbnNlMrwCChFPbmJvYXJkaW5nU2VydmljZRJsChNHZXRPbmJvYXJkaW5nU3RhdHVzEikuc3VwZXJ2aXNvci52MS5HZXRPbmJvYXJkaW5nU3RhdHVzUmVxdWVzdBoqLnN1cGVydmlzb3IudjEuR2V0T25ib2FyZGluZ1N0YXR1c1Jlc3BvbnNlEl0KDkdldEFwcFNldHRpbmdzEiQuc3VwZXJ2aXNvci52MS5HZXRBcHBTZXR0aW5nc1JlcXVlc3QaJS5zdXBlcnZpc29yLnYxLkdldEFwcFNldHRpbmdzUmVzcG9uc2USWgoNU2V0QXBwU2V0dGluZxIjLnN1cGVydmlzb3IudjEuU2V0QXBwU2V0dGluZ1JlcXVlc3QaJC5zdXBlcnZpc29yLnYxLlNldEFwcFNldHRpbmdSZXNwb25zZTKuAgoQQW5hbHl0aWNzU2VydmljZRJaCg1HZXRKb2JIaXN0b3J5EiMuc3VwZXJ2aXNvci52MS5HZXRKb2JIaXN0b3J5UmVxdWVzdBokLnN1cGVydmlzb3IudjEuR2V0Sm9iSGlzdG9yeVJlc3BvbnNlEl0KDkdldFN5c3RlbVN0YXRzEiQuc3VwZXJ2aXNvci52MS5HZXRTeXN0ZW1TdGF0c1JlcXVlc3QaJS5zdXBlcnZpc29yLnYxLkdldFN5c3RlbVN0YXRzUmVzcG9uc2USXwoOV2F0Y2hEYXNoYm9hcmQSJC5zdXBlcnZpc29yLnYxLldhdGNoRGFzaGJvYXJkUmVxdWVzdBolLnN1cGVydmlzb3IudjEuV2F0Y2hEYXNoYm9hcmRSZXNwb25zZTABMr8BCgpMb2dTZXJ2aWNlElUKEFN0cmVhbVJ1bm5lckxvZ3MSJi5zdXBlcnZpc29yLnYxLlN0cmVhbVJ1bm5lckxvZ3NSZXF1ZXN0Ghcuc3VwZXJ2aXNvci52MS5Mb2dDaHVuazABEloKDUdldFJ1bm5lckxvZ3MSIy5zdXBlcnZpc29yLnYxLkdldFJ1bm5lckxvZ3NSZXF1ZXN0GiQuc3VwZXJ2aXNvci52MS5HZXRSdW5uZXJMb2dzUmVzcG9uc2Uy0gIKD1Jlbm92YXRlU2VydmljZRJpChJUcmlnZ2VyUmVub3ZhdGVSdW4SKC5zdXBlcnZpc29yLnYxLlRyaWdnZXJSZW5vdmF0ZVJ1blJlcXVlc3QaKS5zdXBlcnZpc29yLnYxLlRyaWdnZXJSZW5vdmF0ZVJ1blJlc3BvbnNlEmYKEUdldFJlbm92YXRlU3RhdHVzEicuc3VwZXJ2aXNvci52MS5HZXRSZW5vdmF0ZVN0YXR1c1JlcXVlc3QaKC5zdXBlcnZpc29yLnYxLkdldFJlbm92YXRlU3RhdHVzUmVzcG9uc2USbAoTTGlzdFJlbm92YXRlSGlzdG9yeRIpLnN1cGVydmlzb3IudjEuTGlzdFJlbm92YXRlSGlzdG9yeVJlcXVlc3QaKi5zdXBlcnZpc29yLnYxLkxpc3RSZW5vdmF0ZUhpc3RvcnlSZXNwb25zZTKZAwoSSW1hZ2VVcGRhdGVTZXJ2aWNlEmMKEENoZWNrSW1hZ2VVcGRhdGUSJi5zdXBlcnZpc29yLnYxLkNoZWNrSW1hZ2VVcGRhdGVSZXF1ZXN0Gicuc3VwZXJ2aXNvci52MS5DaGVja0ltYWdlVXBkYXRlUmVzcG9uc2USTgoJUHVsbEltYWdlEh8uc3VwZXJ2aXNvci52MS5QdWxsSW1hZ2VSZXF1ZXN0GiAuc3VwZXJ2aXNvci52MS5QdWxsSW1hZ2VSZXNwb25zZRJjChBMaXN0SW1hZ2VVcGRhdGVzEiYuc3VwZXJ2aXNvci52MS5MaXN0SW1hZ2VVcGRhdGVzUmVxdWVzdBonLnN1cGVydmlzb3IudjEuTGlzdEltYWdlVXBkYXRlc1Jlc3BvbnNlEmkKEkRpc21pc3NJbWFnZVVwZGF0ZRIoLnN1cGVydmlzb3IudjEuRGlzbWlzc0ltYWdlVXBkYXRlUmVxdWVzdBopLnN1cGVydmlzb3IudjEuRGlzbWlzc0ltYWdlVXBkYXRlUmVzcG9uc2VCRFpCZ2l0aHViLmNvbS9ub29zeGUvZ2gtcnVubmVyL2ludGVybmFsL3BiL3N1cGVydmlzb3IvdjE7c3VwZXJ2aXNvcnYxYgZwcm90bzM");
+  fileDesc("CglhcGkucHJvdG8SDXN1cGVydmlzb3IudjEiNwoRU2V0dXBBZG1pblJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEAoIcGFzc3dvcmQYAiABKAkiJQoSU2V0dXBBZG1pblJlc3BvbnNlEg8KB3N1Y2Nlc3MYASABKAgiMgoMTG9naW5SZXF1ZXN0EhAKCHVzZXJuYW1lGAEgASgJEhAKCHBhc3N3b3JkGAIgASgJIjIKDUxvZ2luUmVzcG9uc2USDwoHc3VjY2VzcxgBIAEoCBIQCgh1c2VybmFtZRgCIAEoCSITChFHZXRTZXNzaW9uUmVxdWVzdCI4ChJHZXRTZXNzaW9uUmVzcG9uc2USEAoIdXNlcm5hbWUYASABKAkSEAoIaXNfYWRtaW4YAiABKAgijgMKBFBvb2wSCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRIQCghwcm92aWRlchgDIAEoCRIWCg5yZXBvc2l0b3J5X3VybBgEIAEoCRIYChBtaW5faWRsZV9ydW5uZXJzGAUgASgFEhcKD21heF9jb25jdXJyZW5jeRgGIAEoBRIOCgZsYWJlbHMYByADKAkSFAoMcnVubmVyX2ltYWdlGAggASgJEhQKDGFsbG93X2RvY2tlchgJIAEoCBIvCghyZW5vdmF0ZRgKIAEoCzIdLnN1cGVydmlzb3IudjEuUmVub3ZhdGVDb25maWcSFgoOYWN0aXZlX3J1bm5lcnMYCyABKAUSFAoMaWRsZV9ydW5uZXJzGAwgASgFEhcKD2F1dGhfcHJvZmlsZV9pZBgNIAEoAxINCgVzY29wZRgOIAEoCRIRCgljcHVfbGltaXQYDyABKAkSFAoMbWVtb3J5X2xpbWl0GBAgASgJEiMKG21heF9ydW5uZXJfbGlmZXRpbWVfc2Vjb25kcxgRIAEoBSJHCg5SZW5vdmF0ZUNvbmZpZxIPCgdlbmFibGVkGAEgASgIEhUKDWNyb25fc2NoZWR1bGUYAiABKAkSDQoFaW1hZ2UYAyABKAkiEgoQTGlzdFBvb2xzUmVxdWVzdCI3ChFMaXN0UG9vbHNSZXNwb25zZRIiCgVwb29scxgBIAMoCzITLnN1cGVydmlzb3IudjEuUG9vbCI2ChFDcmVhdGVQb29sUmVxdWVzdBIhCgRwb29sGAEgASgLMhMuc3VwZXJ2aXNvci52MS5Qb29sIjcKEkNyZWF0ZVBvb2xSZXNwb25zZRIhCgRwb29sGAEgASgLMhMuc3VwZXJ2aXNvci52MS5Qb29sIjYKEVVwZGF0ZVBvb2xSZXF1ZXN0EiEKBHBvb2wYASABKAsyEy5zdXBlcnZpc29yLnYxLlBvb2wiNwoSVXBkYXRlUG9vbFJlc3BvbnNlEiEKBHBvb2wYASABKAsyEy5zdXBlcnZpc29yLnYxLlBvb2wiHwoRRGVsZXRlUG9vbFJlcXVlc3QSCgoCaWQYASABKAMiJQoSRGVsZXRlUG9vbFJlc3BvbnNlEg8KB3N1Y2Nlc3MYASABKAgiKAoRV2F0Y2hQb29sc1JlcXVlc3QSEwoLaW50ZXJ2YWxfbXMYASABKAUiOAoSV2F0Y2hQb29sc1Jlc3BvbnNlEiIKBXBvb2xzGAEgAygLMhMuc3VwZXJ2aXNvci52MS5Qb29sIsABCg5SdW5uZXJJbnN0YW5jZRIUCgxjb250YWluZXJfaWQYASABKAkSDAoEbmFtZRgCIAEoCRIRCglwb29sX25hbWUYAyABKAkSDgoGc3RhdHVzGAQgASgJEhIKCmlwX2FkZHJlc3MYBSABKAkSFgoOdXB0aW1lX3NlY29uZHMYBiABKAMSEgoKc3Bhd25lZF9hdBgHIAEoCRIRCgljcHVfbGltaXQYCCABKAkSFAoMbWVtb3J5X2xpbWl0GAkgASgJIiUKEkxpc3RSdW5uZXJzUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIkUKE0xpc3RSdW5uZXJzUmVzcG9uc2USLgoHcnVubmVycxgBIAMoCzIdLnN1cGVydmlzb3IudjEuUnVubmVySW5zdGFuY2UiPwoWVGVybWluYXRlUnVubmVyUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDEhQKDGNvbnRhaW5lcl9pZBgCIAEoCSIqChdUZXJtaW5hdGVSdW5uZXJSZXNwb25zZRIPCgdzdWNjZXNzGAEgASgIIjsKE1dhdGNoUnVubmVyc1JlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAxITCgtpbnRlcnZhbF9tcxgCIAEoBSJGChRXYXRjaFJ1bm5lcnNSZXNwb25zZRIuCgdydW5uZXJzGAEgAygLMh0uc3VwZXJ2aXNvci52MS5SdW5uZXJJbnN0YW5jZSJ4CgtBdXRoUHJvZmlsZRIKCgJpZBgBIAEoAxIMCgRuYW1lGAIgASgJEhMKC2F1dGhfbWV0aG9kGAMgASgJEg4KBmFwcF9pZBgEIAEoAxIXCg9oYXNfcHJpdmF0ZV9rZXkYBSABKAgSEQoJaGFzX3Rva2VuGAYgASgIIhkKF0xpc3RBdXRoUHJvZmlsZXNSZXF1ZXN0IkgKGExpc3RBdXRoUHJvZmlsZXNSZXNwb25zZRIsCghwcm9maWxlcxgBIAMoCzIaLnN1cGVydmlzb3IudjEuQXV0aFByb2ZpbGUicQoYQ3JlYXRlQXV0aFByb2ZpbGVSZXF1ZXN0EgwKBG5hbWUYASABKAkSEwoLYXV0aF9tZXRob2QYAiABKAkSDgoGYXBwX2lkGAMgASgDEhMKC3ByaXZhdGVfa2V5GAQgASgMEg0KBXRva2VuGAUgASgJIkgKGUNyZWF0ZUF1dGhQcm9maWxlUmVzcG9uc2USKwoHcHJvZmlsZRgBIAEoCzIaLnN1cGVydmlzb3IudjEuQXV0aFByb2ZpbGUiJgoYRGVsZXRlQXV0aFByb2ZpbGVSZXF1ZXN0EgoKAmlkGAEgASgDIiwKGURlbGV0ZUF1dGhQcm9maWxlUmVzcG9uc2USDwoHc3VjY2VzcxgBIAEoCCIcChpHZXRPbmJvYXJkaW5nU3RhdHVzUmVxdWVzdCJ+ChtHZXRPbmJvYXJkaW5nU3RhdHVzUmVzcG9uc2USFQoNYWRtaW5fY3JlYXRlZBgBIAEoCBIbChNhdXRoX3Byb2ZpbGVfZXhpc3RzGAIgASgIEhMKC3Bvb2xfZXhpc3RzGAMgASgIEhYKDnNldHVwX2NvbXBsZXRlGAQgASgIIhcKFUdldEFwcFNldHRpbmdzUmVxdWVzdCJBCg9BcHBTZXR0aW5nRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJEhIKCnVwZGF0ZWRfYXQYAyABKAkiSgoWR2V0QXBwU2V0dGluZ3NSZXNwb25zZRIwCghzZXR0aW5ncxgBIAMoCzIeLnN1cGVydmlzb3IudjEuQXBwU2V0dGluZ0VudHJ5IjIKFFNldEFwcFNldHRpbmdSZXF1ZXN0EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCSIzChVTZXRBcHBTZXR0aW5nUmVzcG9uc2USCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJIooBCglKb2JSZWNvcmQSCgoCaWQYASABKAMSDwoHcG9vbF9pZBgCIAEoAxITCgtydW5uZXJfbmFtZRgDIAEoCRIOCgZzdGF0dXMYBCABKAkSEQoJcXVldWVkX2F0GAUgASgJEhIKCnN0YXJ0ZWRfYXQYBiABKAkSFAoMY29tcGxldGVkX2F0GAcgASgJIkYKFEdldEpvYkhpc3RvcnlSZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMSDQoFbGltaXQYAiABKAUSDgoGb2Zmc2V0GAMgASgFIlQKFUdldEpvYkhpc3RvcnlSZXNwb25zZRImCgRqb2JzGAEgAygLMhguc3VwZXJ2aXNvci52MS5Kb2JSZWNvcmQSEwoLdG90YWxfY291bnQYAiABKAUiFwoVR2V0U3lzdGVtU3RhdHNSZXF1ZXN0IoMCChZHZXRTeXN0ZW1TdGF0c1Jlc3BvbnNlEhwKFHRvdGFsX2FjdGl2ZV9ydW5uZXJzGAEgASgFEhoKEnRvdGFsX2lkbGVfcnVubmVycxgCIAEoBRIiChphdmVyYWdlX3F1ZXVlX3RpbWVfc2Vjb25kcxgDIAEoARIWCg50b3RhbF9qb2JzXzI0aBgEIAEoBRIbChNzdWNjZXNzZnVsX2pvYnNfMjRoGAUgASgFEhcKD2ZhaWxlZF9qb2JzXzI0aBgGIAEoBRIfChdhdmVyYWdlX3J1bnRpbWVfc2Vjb25kcxgHIAEoARIcChRzdWNjZXNzX3JhdGVfcGVyY2VudBgIIAEoASIsChVXYXRjaERhc2hib2FyZFJlcXVlc3QSEwoLaW50ZXJ2YWxfbXMYASABKAUioQEKFldhdGNoRGFzaGJvYXJkUmVzcG9uc2USNAoFc3RhdHMYASABKAsyJS5zdXBlcnZpc29yLnYxLkdldFN5c3RlbVN0YXRzUmVzcG9uc2USIgoFcG9vbHMYAiADKAsyEy5zdXBlcnZpc29yLnYxLlBvb2wSLQoLcmVjZW50X2pvYnMYAyADKAsyGC5zdXBlcnZpc29yLnYxLkpvYlJlY29yZCIsChdTdHJlYW1SdW5uZXJMb2dzUmVxdWVzdBIRCglydW5uZXJfaWQYASABKAkiPgoITG9nQ2h1bmsSEQoJdGltZXN0YW1wGAEgASgJEg4KBnN0cmVhbRgCIAEoCRIPCgdjb250ZW50GAMgASgJIikKFEdldFJ1bm5lckxvZ3NSZXF1ZXN0EhEKCXJ1bm5lcl9pZBgBIAEoCSI/ChVHZXRSdW5uZXJMb2dzUmVzcG9uc2USJgoFbGluZXMYASADKAsyFy5zdXBlcnZpc29yLnYxLkxvZ0NodW5rInUKC1Jlbm92YXRlUnVuEgoKAmlkGAEgASgDEg8KB3Bvb2xfaWQYAiABKAMSDgoGc3RhdHVzGAMgASgJEhIKCnN0YXJ0ZWRfYXQYBCABKAkSFAoMY29tcGxldGVkX2F0GAUgASgJEg8KB3N1bW1hcnkYBiABKAkiLAoZVHJpZ2dlclJlbm92YXRlUnVuUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIj0KGlRyaWdnZXJSZW5vdmF0ZVJ1blJlc3BvbnNlEg8KB3N1Y2Nlc3MYASABKAgSDgoGcnVuX2lkGAIgASgDIisKGEdldFJlbm92YXRlU3RhdHVzUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDImUKGUdldFJlbm92YXRlU3RhdHVzUmVzcG9uc2USLAoIbGFzdF9ydW4YASABKAsyGi5zdXBlcnZpc29yLnYxLlJlbm92YXRlUnVuEhoKEm5leHRfc2NoZWR1bGVkX3J1bhgCIAEoCSJMChpMaXN0UmVub3ZhdGVIaXN0b3J5UmVxdWVzdBIPCgdwb29sX2lkGAEgASgDEg0KBWxpbWl0GAIgASgFEg4KBm9mZnNldBgDIAEoBSJcChtMaXN0UmVub3ZhdGVIaXN0b3J5UmVzcG9uc2USKAoEcnVucxgBIAMoCzIaLnN1cGVydmlzb3IudjEuUmVub3ZhdGVSdW4SEwoLdG90YWxfY291bnQYAiABKAUifAoLSW1hZ2VVcGRhdGUSCgoCaWQYASABKAMSDwoHcG9vbF9pZBgCIAEoAxIVCg1jdXJyZW50X2ltYWdlGAMgASgJEhUKDWxhdGVzdF9kaWdlc3QYBCABKAkSDgoGc3RhdHVzGAUgASgJEhIKCmNoZWNrZWRfYXQYBiABKAkiKgoXQ2hlY2tJbWFnZVVwZGF0ZVJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAyJgChhDaGVja0ltYWdlVXBkYXRlUmVzcG9uc2USGAoQdXBkYXRlX2F2YWlsYWJsZRgBIAEoCBIqCgZ1cGRhdGUYAiABKAsyGi5zdXBlcnZpc29yLnYxLkltYWdlVXBkYXRlIiMKEFB1bGxJbWFnZVJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAyI1ChFQdWxsSW1hZ2VSZXNwb25zZRIPCgdzdWNjZXNzGAEgASgIEg8KB21lc3NhZ2UYAiABKAkiKgoXTGlzdEltYWdlVXBkYXRlc1JlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAyJHChhMaXN0SW1hZ2VVcGRhdGVzUmVzcG9uc2USKwoHdXBkYXRlcxgBIAMoCzIaLnN1cGVydmlzb3IudjEuSW1hZ2VVcGRhdGUiJwoZRGlzbWlzc0ltYWdlVXBkYXRlUmVxdWVzdBIKCgJpZBgBIAEoAyItChpEaXNtaXNzSW1hZ2VVcGRhdGVSZXNwb25zZRIPCgdzdWNjZXNzGAEgASgIMvcBCgtBdXRoU2VydmljZRJRCgpTZXR1cEFkbWluEiAuc3VwZXJ2aXNvci52MS5TZXR1cEFkbWluUmVxdWVzdBohLnN1cGVydmlzb3IudjEuU2V0dXBBZG1pblJlc3BvbnNlEkIKBUxvZ2luEhsuc3VwZXJ2aXNvci52MS5Mb2dpblJlcXVlc3QaHC5zdXBlcnZpc29yLnYxLkxvZ2luUmVzcG9uc2USUQoKR2V0U2Vzc2lvbhIgLnN1cGVydmlzb3IudjEuR2V0U2Vzc2lvblJlcXVlc3QaIS5zdXBlcnZpc29yLnYxLkdldFNlc3Npb25SZXNwb25zZTK+BQoLUG9vbFNlcnZpY2USTgoJTGlzdFBvb2xzEh8uc3VwZXJ2aXNvci52MS5MaXN0UG9vbHNSZXF1ZXN0GiAuc3VwZXJ2aXNvci52MS5MaXN0UG9vbHNSZXNwb25zZRJRCgpDcmVhdGVQb29sEiAuc3VwZXJ2aXNvci52MS5DcmVhdGVQb29sUmVxdWVzdBohLnN1cGVydmlzb3IudjEuQ3JlYXRlUG9vbFJlc3BvbnNlElEKClVwZGF0ZVBvb2wSIC5zdXBlcnZpc29yLnYxLlVwZGF0ZVBvb2xSZXF1ZXN0GiEuc3VwZXJ2aXNvci52MS5VcGRhdGVQb29sUmVzcG9uc2USUQoKRGVsZXRlUG9vbBIgLnN1cGVydmlzb3IudjEuRGVsZXRlUG9vbFJlcXVlc3QaIS5zdXBlcnZpc29yLnYxLkRlbGV0ZVBvb2xSZXNwb25zZRJTCgpXYXRjaFBvb2xzEiAuc3VwZXJ2aXNvci52MS5XYXRjaFBvb2xzUmVxdWVzdBohLnN1cGVydmlzb3IudjEuV2F0Y2hQb29sc1Jlc3BvbnNlMAESVAoLTGlzdFJ1bm5lcnMSIS5zdXBlcnZpc29yLnYxLkxpc3RSdW5uZXJzUmVxdWVzdBoiLnN1cGVydmlzb3IudjEuTGlzdFJ1bm5lcnNSZXNwb25zZRJgCg9UZXJtaW5hdGVSdW5uZXISJS5zdXBlcnZpc29yLnYxLlRlcm1pbmF0ZVJ1bm5lclJlcXVlc3QaJi5zdXBlcnZpc29yLnYxLlRlcm1pbmF0ZVJ1bm5lclJlc3BvbnNlElkKDFdhdGNoUnVubmVycxIiLnN1cGVydmlzb3IudjEuV2F0Y2hSdW5uZXJzUmVxdWVzdBojLnN1cGVydmlzb3IudjEuV2F0Y2hSdW5uZXJzUmVzcG9uc2UwATLJAgoSQXV0aFByb2ZpbGVTZXJ2aWNlEmMKEExpc3RBdXRoUHJvZmlsZXMSJi5zdXBlcnZpc29yLnYxLkxpc3RBdXRoUHJvZmlsZXNSZXF1ZXN0Gicuc3VwZXJ2aXNvci52MS5MaXN0QXV0aFByb2ZpbGVzUmVzcG9uc2USZgoRQ3JlYXRlQXV0aFByb2ZpbGUSJy5zdXBlcnZpc29yLnYxLkNyZWF0ZUF1dGhQcm9maWxlUmVxdWVzdBooLnN1cGVydmlzb3IudjEuQ3JlYXRlQXV0aFByb2ZpbGVSZXNwb25zZRJmChFEZWxldGVBdXRoUHJvZmlsZRInLnN1cGVydmlzb3IudjEuRGVsZXRlQXV0aFByb2ZpbGVSZXF1ZXN0Giguc3VwZXJ2aXNvci52MS5EZWxldGVBdXRoUHJvZmlsZVJlc3BvbnNlMrwCChFPbmJvYXJkaW5nU2VydmljZRJsChNHZXRPbmJvYXJkaW5nU3RhdHVzEikuc3VwZXJ2aXNvci52MS5HZXRPbmJvYXJkaW5nU3RhdHVzUmVxdWVzdBoqLnN1cGVydmlzb3IudjEuR2V0T25ib2FyZGluZ1N0YXR1c1Jlc3BvbnNlEl0KDkdldEFwcFNldHRpbmdzEiQuc3VwZXJ2aXNvci52MS5HZXRBcHBTZXR0aW5nc1JlcXVlc3QaJS5zdXBlcnZpc29yLnYxLkdldEFwcFNldHRpbmdzUmVzcG9uc2USWgoNU2V0QXBwU2V0dGluZxIjLnN1cGVydmlzb3IudjEuU2V0QXBwU2V0dGluZ1JlcXVlc3QaJC5zdXBlcnZpc29yLnYxLlNldEFwcFNldHRpbmdSZXNwb25zZTKuAgoQQW5hbHl0aWNzU2VydmljZRJaCg1HZXRKb2JIaXN0b3J5EiMuc3VwZXJ2aXNvci52MS5HZXRKb2JIaXN0b3J5UmVxdWVzdBokLnN1cGVydmlzb3IudjEuR2V0Sm9iSGlzdG9yeVJlc3BvbnNlEl0KDkdldFN5c3RlbVN0YXRzEiQuc3VwZXJ2aXNvci52MS5HZXRTeXN0ZW1TdGF0c1JlcXVlc3QaJS5zdXBlcnZpc29yLnYxLkdldFN5c3RlbVN0YXRzUmVzcG9uc2USXwoOV2F0Y2hEYXNoYm9hcmQSJC5zdXBlcnZpc29yLnYxLldhdGNoRGFzaGJvYXJkUmVxdWVzdBolLnN1cGVydmlzb3IudjEuV2F0Y2hEYXNoYm9hcmRSZXNwb25zZTABMr8BCgpMb2dTZXJ2aWNlElUKEFN0cmVhbVJ1bm5lckxvZ3MSJi5zdXBlcnZpc29yLnYxLlN0cmVhbVJ1bm5lckxvZ3NSZXF1ZXN0Ghcuc3VwZXJ2aXNvci52MS5Mb2dDaHVuazABEloKDUdldFJ1bm5lckxvZ3MSIy5zdXBlcnZpc29yLnYxLkdldFJ1bm5lckxvZ3NSZXF1ZXN0GiQuc3VwZXJ2aXNvci52MS5HZXRSdW5uZXJMb2dzUmVzcG9uc2Uy0gIKD1Jlbm92YXRlU2VydmljZRJpChJUcmlnZ2VyUmVub3ZhdGVSdW4SKC5zdXBlcnZpc29yLnYxLlRyaWdnZXJSZW5vdmF0ZVJ1blJlcXVlc3QaKS5zdXBlcnZpc29yLnYxLlRyaWdnZXJSZW5vdmF0ZVJ1blJlc3BvbnNlEmYKEUdldFJlbm92YXRlU3RhdHVzEicuc3VwZXJ2aXNvci52MS5HZXRSZW5vdmF0ZVN0YXR1c1JlcXVlc3QaKC5zdXBlcnZpc29yLnYxLkdldFJlbm92YXRlU3RhdHVzUmVzcG9uc2USbAoTTGlzdFJlbm92YXRlSGlzdG9yeRIpLnN1cGVydmlzb3IudjEuTGlzdFJlbm92YXRlSGlzdG9yeVJlcXVlc3QaKi5zdXBlcnZpc29yLnYxLkxpc3RSZW5vdmF0ZUhpc3RvcnlSZXNwb25zZTKZAwoSSW1hZ2VVcGRhdGVTZXJ2aWNlEmMKEENoZWNrSW1hZ2VVcGRhdGUSJi5zdXBlcnZpc29yLnYxLkNoZWNrSW1hZ2VVcGRhdGVSZXF1ZXN0Gicuc3VwZXJ2aXNvci52MS5DaGVja0ltYWdlVXBkYXRlUmVzcG9uc2USTgoJUHVsbEltYWdlEh8uc3VwZXJ2aXNvci52MS5QdWxsSW1hZ2VSZXF1ZXN0GiAuc3VwZXJ2aXNvci52MS5QdWxsSW1hZ2VSZXNwb25zZRJjChBMaXN0SW1hZ2VVcGRhdGVzEiYuc3VwZXJ2aXNvci52MS5MaXN0SW1hZ2VVcGRhdGVzUmVxdWVzdBonLnN1cGVydmlzb3IudjEuTGlzdEltYWdlVXBkYXRlc1Jlc3BvbnNlEmkKEkRpc21pc3NJbWFnZVVwZGF0ZRIoLnN1cGVydmlzb3IudjEuRGlzbWlzc0ltYWdlVXBkYXRlUmVxdWVzdBopLnN1cGVydmlzb3IudjEuRGlzbWlzc0ltYWdlVXBkYXRlUmVzcG9uc2VCRFpCZ2l0aHViLmNvbS9ub29zeGUvZ2gtcnVubmVyL2ludGVybmFsL3BiL3N1cGVydmlzb3IvdjE7c3VwZXJ2aXNvcnYxYgZwcm90bzM");
 
 /**
  * @generated from message supervisor.v1.SetupAdminRequest
@@ -427,6 +427,177 @@ export const WatchPoolsResponseSchema: GenMessage<WatchPoolsResponse> = /*@__PUR
   messageDesc(file_api, 17);
 
 /**
+ * @generated from message supervisor.v1.RunnerInstance
+ */
+export type RunnerInstance = Message<"supervisor.v1.RunnerInstance"> & {
+  /**
+   * @generated from field: string container_id = 1;
+   */
+  containerId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string pool_name = 3;
+   */
+  poolName: string;
+
+  /**
+   * "idle", "busy", "degraded", "exited"
+   *
+   * @generated from field: string status = 4;
+   */
+  status: string;
+
+  /**
+   * @generated from field: string ip_address = 5;
+   */
+  ipAddress: string;
+
+  /**
+   * @generated from field: int64 uptime_seconds = 6;
+   */
+  uptimeSeconds: bigint;
+
+  /**
+   * @generated from field: string spawned_at = 7;
+   */
+  spawnedAt: string;
+
+  /**
+   * @generated from field: string cpu_limit = 8;
+   */
+  cpuLimit: string;
+
+  /**
+   * @generated from field: string memory_limit = 9;
+   */
+  memoryLimit: string;
+};
+
+/**
+ * Describes the message supervisor.v1.RunnerInstance.
+ * Use `create(RunnerInstanceSchema)` to create a new message.
+ */
+export const RunnerInstanceSchema: GenMessage<RunnerInstance> = /*@__PURE__*/
+  messageDesc(file_api, 18);
+
+/**
+ * @generated from message supervisor.v1.ListRunnersRequest
+ */
+export type ListRunnersRequest = Message<"supervisor.v1.ListRunnersRequest"> & {
+  /**
+   * @generated from field: int64 pool_id = 1;
+   */
+  poolId: bigint;
+};
+
+/**
+ * Describes the message supervisor.v1.ListRunnersRequest.
+ * Use `create(ListRunnersRequestSchema)` to create a new message.
+ */
+export const ListRunnersRequestSchema: GenMessage<ListRunnersRequest> = /*@__PURE__*/
+  messageDesc(file_api, 19);
+
+/**
+ * @generated from message supervisor.v1.ListRunnersResponse
+ */
+export type ListRunnersResponse = Message<"supervisor.v1.ListRunnersResponse"> & {
+  /**
+   * @generated from field: repeated supervisor.v1.RunnerInstance runners = 1;
+   */
+  runners: RunnerInstance[];
+};
+
+/**
+ * Describes the message supervisor.v1.ListRunnersResponse.
+ * Use `create(ListRunnersResponseSchema)` to create a new message.
+ */
+export const ListRunnersResponseSchema: GenMessage<ListRunnersResponse> = /*@__PURE__*/
+  messageDesc(file_api, 20);
+
+/**
+ * @generated from message supervisor.v1.TerminateRunnerRequest
+ */
+export type TerminateRunnerRequest = Message<"supervisor.v1.TerminateRunnerRequest"> & {
+  /**
+   * @generated from field: int64 pool_id = 1;
+   */
+  poolId: bigint;
+
+  /**
+   * @generated from field: string container_id = 2;
+   */
+  containerId: string;
+};
+
+/**
+ * Describes the message supervisor.v1.TerminateRunnerRequest.
+ * Use `create(TerminateRunnerRequestSchema)` to create a new message.
+ */
+export const TerminateRunnerRequestSchema: GenMessage<TerminateRunnerRequest> = /*@__PURE__*/
+  messageDesc(file_api, 21);
+
+/**
+ * @generated from message supervisor.v1.TerminateRunnerResponse
+ */
+export type TerminateRunnerResponse = Message<"supervisor.v1.TerminateRunnerResponse"> & {
+  /**
+   * @generated from field: bool success = 1;
+   */
+  success: boolean;
+};
+
+/**
+ * Describes the message supervisor.v1.TerminateRunnerResponse.
+ * Use `create(TerminateRunnerResponseSchema)` to create a new message.
+ */
+export const TerminateRunnerResponseSchema: GenMessage<TerminateRunnerResponse> = /*@__PURE__*/
+  messageDesc(file_api, 22);
+
+/**
+ * @generated from message supervisor.v1.WatchRunnersRequest
+ */
+export type WatchRunnersRequest = Message<"supervisor.v1.WatchRunnersRequest"> & {
+  /**
+   * @generated from field: int64 pool_id = 1;
+   */
+  poolId: bigint;
+
+  /**
+   * @generated from field: int32 interval_ms = 2;
+   */
+  intervalMs: number;
+};
+
+/**
+ * Describes the message supervisor.v1.WatchRunnersRequest.
+ * Use `create(WatchRunnersRequestSchema)` to create a new message.
+ */
+export const WatchRunnersRequestSchema: GenMessage<WatchRunnersRequest> = /*@__PURE__*/
+  messageDesc(file_api, 23);
+
+/**
+ * @generated from message supervisor.v1.WatchRunnersResponse
+ */
+export type WatchRunnersResponse = Message<"supervisor.v1.WatchRunnersResponse"> & {
+  /**
+   * @generated from field: repeated supervisor.v1.RunnerInstance runners = 1;
+   */
+  runners: RunnerInstance[];
+};
+
+/**
+ * Describes the message supervisor.v1.WatchRunnersResponse.
+ * Use `create(WatchRunnersResponseSchema)` to create a new message.
+ */
+export const WatchRunnersResponseSchema: GenMessage<WatchRunnersResponse> = /*@__PURE__*/
+  messageDesc(file_api, 24);
+
+/**
  * @generated from message supervisor.v1.AuthProfile
  */
 export type AuthProfile = Message<"supervisor.v1.AuthProfile"> & {
@@ -474,7 +645,7 @@ export type AuthProfile = Message<"supervisor.v1.AuthProfile"> & {
  * Use `create(AuthProfileSchema)` to create a new message.
  */
 export const AuthProfileSchema: GenMessage<AuthProfile> = /*@__PURE__*/
-  messageDesc(file_api, 18);
+  messageDesc(file_api, 25);
 
 /**
  * @generated from message supervisor.v1.ListAuthProfilesRequest
@@ -487,7 +658,7 @@ export type ListAuthProfilesRequest = Message<"supervisor.v1.ListAuthProfilesReq
  * Use `create(ListAuthProfilesRequestSchema)` to create a new message.
  */
 export const ListAuthProfilesRequestSchema: GenMessage<ListAuthProfilesRequest> = /*@__PURE__*/
-  messageDesc(file_api, 19);
+  messageDesc(file_api, 26);
 
 /**
  * @generated from message supervisor.v1.ListAuthProfilesResponse
@@ -504,7 +675,7 @@ export type ListAuthProfilesResponse = Message<"supervisor.v1.ListAuthProfilesRe
  * Use `create(ListAuthProfilesResponseSchema)` to create a new message.
  */
 export const ListAuthProfilesResponseSchema: GenMessage<ListAuthProfilesResponse> = /*@__PURE__*/
-  messageDesc(file_api, 20);
+  messageDesc(file_api, 27);
 
 /**
  * @generated from message supervisor.v1.CreateAuthProfileRequest
@@ -547,7 +718,7 @@ export type CreateAuthProfileRequest = Message<"supervisor.v1.CreateAuthProfileR
  * Use `create(CreateAuthProfileRequestSchema)` to create a new message.
  */
 export const CreateAuthProfileRequestSchema: GenMessage<CreateAuthProfileRequest> = /*@__PURE__*/
-  messageDesc(file_api, 21);
+  messageDesc(file_api, 28);
 
 /**
  * @generated from message supervisor.v1.CreateAuthProfileResponse
@@ -564,7 +735,7 @@ export type CreateAuthProfileResponse = Message<"supervisor.v1.CreateAuthProfile
  * Use `create(CreateAuthProfileResponseSchema)` to create a new message.
  */
 export const CreateAuthProfileResponseSchema: GenMessage<CreateAuthProfileResponse> = /*@__PURE__*/
-  messageDesc(file_api, 22);
+  messageDesc(file_api, 29);
 
 /**
  * @generated from message supervisor.v1.DeleteAuthProfileRequest
@@ -581,7 +752,7 @@ export type DeleteAuthProfileRequest = Message<"supervisor.v1.DeleteAuthProfileR
  * Use `create(DeleteAuthProfileRequestSchema)` to create a new message.
  */
 export const DeleteAuthProfileRequestSchema: GenMessage<DeleteAuthProfileRequest> = /*@__PURE__*/
-  messageDesc(file_api, 23);
+  messageDesc(file_api, 30);
 
 /**
  * @generated from message supervisor.v1.DeleteAuthProfileResponse
@@ -598,7 +769,7 @@ export type DeleteAuthProfileResponse = Message<"supervisor.v1.DeleteAuthProfile
  * Use `create(DeleteAuthProfileResponseSchema)` to create a new message.
  */
 export const DeleteAuthProfileResponseSchema: GenMessage<DeleteAuthProfileResponse> = /*@__PURE__*/
-  messageDesc(file_api, 24);
+  messageDesc(file_api, 31);
 
 /**
  * @generated from message supervisor.v1.GetOnboardingStatusRequest
@@ -611,7 +782,7 @@ export type GetOnboardingStatusRequest = Message<"supervisor.v1.GetOnboardingSta
  * Use `create(GetOnboardingStatusRequestSchema)` to create a new message.
  */
 export const GetOnboardingStatusRequestSchema: GenMessage<GetOnboardingStatusRequest> = /*@__PURE__*/
-  messageDesc(file_api, 25);
+  messageDesc(file_api, 32);
 
 /**
  * @generated from message supervisor.v1.GetOnboardingStatusResponse
@@ -645,7 +816,7 @@ export type GetOnboardingStatusResponse = Message<"supervisor.v1.GetOnboardingSt
  * Use `create(GetOnboardingStatusResponseSchema)` to create a new message.
  */
 export const GetOnboardingStatusResponseSchema: GenMessage<GetOnboardingStatusResponse> = /*@__PURE__*/
-  messageDesc(file_api, 26);
+  messageDesc(file_api, 33);
 
 /**
  * @generated from message supervisor.v1.GetAppSettingsRequest
@@ -658,7 +829,7 @@ export type GetAppSettingsRequest = Message<"supervisor.v1.GetAppSettingsRequest
  * Use `create(GetAppSettingsRequestSchema)` to create a new message.
  */
 export const GetAppSettingsRequestSchema: GenMessage<GetAppSettingsRequest> = /*@__PURE__*/
-  messageDesc(file_api, 27);
+  messageDesc(file_api, 34);
 
 /**
  * @generated from message supervisor.v1.AppSettingEntry
@@ -685,7 +856,7 @@ export type AppSettingEntry = Message<"supervisor.v1.AppSettingEntry"> & {
  * Use `create(AppSettingEntrySchema)` to create a new message.
  */
 export const AppSettingEntrySchema: GenMessage<AppSettingEntry> = /*@__PURE__*/
-  messageDesc(file_api, 28);
+  messageDesc(file_api, 35);
 
 /**
  * @generated from message supervisor.v1.GetAppSettingsResponse
@@ -702,7 +873,7 @@ export type GetAppSettingsResponse = Message<"supervisor.v1.GetAppSettingsRespon
  * Use `create(GetAppSettingsResponseSchema)` to create a new message.
  */
 export const GetAppSettingsResponseSchema: GenMessage<GetAppSettingsResponse> = /*@__PURE__*/
-  messageDesc(file_api, 29);
+  messageDesc(file_api, 36);
 
 /**
  * @generated from message supervisor.v1.SetAppSettingRequest
@@ -724,7 +895,7 @@ export type SetAppSettingRequest = Message<"supervisor.v1.SetAppSettingRequest">
  * Use `create(SetAppSettingRequestSchema)` to create a new message.
  */
 export const SetAppSettingRequestSchema: GenMessage<SetAppSettingRequest> = /*@__PURE__*/
-  messageDesc(file_api, 30);
+  messageDesc(file_api, 37);
 
 /**
  * @generated from message supervisor.v1.SetAppSettingResponse
@@ -746,7 +917,7 @@ export type SetAppSettingResponse = Message<"supervisor.v1.SetAppSettingResponse
  * Use `create(SetAppSettingResponseSchema)` to create a new message.
  */
 export const SetAppSettingResponseSchema: GenMessage<SetAppSettingResponse> = /*@__PURE__*/
-  messageDesc(file_api, 31);
+  messageDesc(file_api, 38);
 
 /**
  * @generated from message supervisor.v1.JobRecord
@@ -793,7 +964,7 @@ export type JobRecord = Message<"supervisor.v1.JobRecord"> & {
  * Use `create(JobRecordSchema)` to create a new message.
  */
 export const JobRecordSchema: GenMessage<JobRecord> = /*@__PURE__*/
-  messageDesc(file_api, 32);
+  messageDesc(file_api, 39);
 
 /**
  * @generated from message supervisor.v1.GetJobHistoryRequest
@@ -822,7 +993,7 @@ export type GetJobHistoryRequest = Message<"supervisor.v1.GetJobHistoryRequest">
  * Use `create(GetJobHistoryRequestSchema)` to create a new message.
  */
 export const GetJobHistoryRequestSchema: GenMessage<GetJobHistoryRequest> = /*@__PURE__*/
-  messageDesc(file_api, 33);
+  messageDesc(file_api, 40);
 
 /**
  * @generated from message supervisor.v1.GetJobHistoryResponse
@@ -844,7 +1015,7 @@ export type GetJobHistoryResponse = Message<"supervisor.v1.GetJobHistoryResponse
  * Use `create(GetJobHistoryResponseSchema)` to create a new message.
  */
 export const GetJobHistoryResponseSchema: GenMessage<GetJobHistoryResponse> = /*@__PURE__*/
-  messageDesc(file_api, 34);
+  messageDesc(file_api, 41);
 
 /**
  * @generated from message supervisor.v1.GetSystemStatsRequest
@@ -857,7 +1028,7 @@ export type GetSystemStatsRequest = Message<"supervisor.v1.GetSystemStatsRequest
  * Use `create(GetSystemStatsRequestSchema)` to create a new message.
  */
 export const GetSystemStatsRequestSchema: GenMessage<GetSystemStatsRequest> = /*@__PURE__*/
-  messageDesc(file_api, 35);
+  messageDesc(file_api, 42);
 
 /**
  * @generated from message supervisor.v1.GetSystemStatsResponse
@@ -909,7 +1080,7 @@ export type GetSystemStatsResponse = Message<"supervisor.v1.GetSystemStatsRespon
  * Use `create(GetSystemStatsResponseSchema)` to create a new message.
  */
 export const GetSystemStatsResponseSchema: GenMessage<GetSystemStatsResponse> = /*@__PURE__*/
-  messageDesc(file_api, 36);
+  messageDesc(file_api, 43);
 
 /**
  * @generated from message supervisor.v1.WatchDashboardRequest
@@ -926,7 +1097,7 @@ export type WatchDashboardRequest = Message<"supervisor.v1.WatchDashboardRequest
  * Use `create(WatchDashboardRequestSchema)` to create a new message.
  */
 export const WatchDashboardRequestSchema: GenMessage<WatchDashboardRequest> = /*@__PURE__*/
-  messageDesc(file_api, 37);
+  messageDesc(file_api, 44);
 
 /**
  * @generated from message supervisor.v1.WatchDashboardResponse
@@ -953,7 +1124,7 @@ export type WatchDashboardResponse = Message<"supervisor.v1.WatchDashboardRespon
  * Use `create(WatchDashboardResponseSchema)` to create a new message.
  */
 export const WatchDashboardResponseSchema: GenMessage<WatchDashboardResponse> = /*@__PURE__*/
-  messageDesc(file_api, 38);
+  messageDesc(file_api, 45);
 
 /**
  * @generated from message supervisor.v1.StreamRunnerLogsRequest
@@ -970,7 +1141,7 @@ export type StreamRunnerLogsRequest = Message<"supervisor.v1.StreamRunnerLogsReq
  * Use `create(StreamRunnerLogsRequestSchema)` to create a new message.
  */
 export const StreamRunnerLogsRequestSchema: GenMessage<StreamRunnerLogsRequest> = /*@__PURE__*/
-  messageDesc(file_api, 39);
+  messageDesc(file_api, 46);
 
 /**
  * @generated from message supervisor.v1.LogChunk
@@ -999,7 +1170,7 @@ export type LogChunk = Message<"supervisor.v1.LogChunk"> & {
  * Use `create(LogChunkSchema)` to create a new message.
  */
 export const LogChunkSchema: GenMessage<LogChunk> = /*@__PURE__*/
-  messageDesc(file_api, 40);
+  messageDesc(file_api, 47);
 
 /**
  * @generated from message supervisor.v1.GetRunnerLogsRequest
@@ -1016,7 +1187,7 @@ export type GetRunnerLogsRequest = Message<"supervisor.v1.GetRunnerLogsRequest">
  * Use `create(GetRunnerLogsRequestSchema)` to create a new message.
  */
 export const GetRunnerLogsRequestSchema: GenMessage<GetRunnerLogsRequest> = /*@__PURE__*/
-  messageDesc(file_api, 41);
+  messageDesc(file_api, 48);
 
 /**
  * @generated from message supervisor.v1.GetRunnerLogsResponse
@@ -1033,7 +1204,7 @@ export type GetRunnerLogsResponse = Message<"supervisor.v1.GetRunnerLogsResponse
  * Use `create(GetRunnerLogsResponseSchema)` to create a new message.
  */
 export const GetRunnerLogsResponseSchema: GenMessage<GetRunnerLogsResponse> = /*@__PURE__*/
-  messageDesc(file_api, 42);
+  messageDesc(file_api, 49);
 
 /**
  * @generated from message supervisor.v1.RenovateRun
@@ -1077,7 +1248,7 @@ export type RenovateRun = Message<"supervisor.v1.RenovateRun"> & {
  * Use `create(RenovateRunSchema)` to create a new message.
  */
 export const RenovateRunSchema: GenMessage<RenovateRun> = /*@__PURE__*/
-  messageDesc(file_api, 43);
+  messageDesc(file_api, 50);
 
 /**
  * @generated from message supervisor.v1.TriggerRenovateRunRequest
@@ -1094,7 +1265,7 @@ export type TriggerRenovateRunRequest = Message<"supervisor.v1.TriggerRenovateRu
  * Use `create(TriggerRenovateRunRequestSchema)` to create a new message.
  */
 export const TriggerRenovateRunRequestSchema: GenMessage<TriggerRenovateRunRequest> = /*@__PURE__*/
-  messageDesc(file_api, 44);
+  messageDesc(file_api, 51);
 
 /**
  * @generated from message supervisor.v1.TriggerRenovateRunResponse
@@ -1116,7 +1287,7 @@ export type TriggerRenovateRunResponse = Message<"supervisor.v1.TriggerRenovateR
  * Use `create(TriggerRenovateRunResponseSchema)` to create a new message.
  */
 export const TriggerRenovateRunResponseSchema: GenMessage<TriggerRenovateRunResponse> = /*@__PURE__*/
-  messageDesc(file_api, 45);
+  messageDesc(file_api, 52);
 
 /**
  * @generated from message supervisor.v1.GetRenovateStatusRequest
@@ -1133,7 +1304,7 @@ export type GetRenovateStatusRequest = Message<"supervisor.v1.GetRenovateStatusR
  * Use `create(GetRenovateStatusRequestSchema)` to create a new message.
  */
 export const GetRenovateStatusRequestSchema: GenMessage<GetRenovateStatusRequest> = /*@__PURE__*/
-  messageDesc(file_api, 46);
+  messageDesc(file_api, 53);
 
 /**
  * @generated from message supervisor.v1.GetRenovateStatusResponse
@@ -1155,7 +1326,7 @@ export type GetRenovateStatusResponse = Message<"supervisor.v1.GetRenovateStatus
  * Use `create(GetRenovateStatusResponseSchema)` to create a new message.
  */
 export const GetRenovateStatusResponseSchema: GenMessage<GetRenovateStatusResponse> = /*@__PURE__*/
-  messageDesc(file_api, 47);
+  messageDesc(file_api, 54);
 
 /**
  * @generated from message supervisor.v1.ListRenovateHistoryRequest
@@ -1182,7 +1353,7 @@ export type ListRenovateHistoryRequest = Message<"supervisor.v1.ListRenovateHist
  * Use `create(ListRenovateHistoryRequestSchema)` to create a new message.
  */
 export const ListRenovateHistoryRequestSchema: GenMessage<ListRenovateHistoryRequest> = /*@__PURE__*/
-  messageDesc(file_api, 48);
+  messageDesc(file_api, 55);
 
 /**
  * @generated from message supervisor.v1.ListRenovateHistoryResponse
@@ -1204,7 +1375,7 @@ export type ListRenovateHistoryResponse = Message<"supervisor.v1.ListRenovateHis
  * Use `create(ListRenovateHistoryResponseSchema)` to create a new message.
  */
 export const ListRenovateHistoryResponseSchema: GenMessage<ListRenovateHistoryResponse> = /*@__PURE__*/
-  messageDesc(file_api, 49);
+  messageDesc(file_api, 56);
 
 /**
  * @generated from message supervisor.v1.ImageUpdate
@@ -1248,7 +1419,7 @@ export type ImageUpdate = Message<"supervisor.v1.ImageUpdate"> & {
  * Use `create(ImageUpdateSchema)` to create a new message.
  */
 export const ImageUpdateSchema: GenMessage<ImageUpdate> = /*@__PURE__*/
-  messageDesc(file_api, 50);
+  messageDesc(file_api, 57);
 
 /**
  * @generated from message supervisor.v1.CheckImageUpdateRequest
@@ -1265,7 +1436,7 @@ export type CheckImageUpdateRequest = Message<"supervisor.v1.CheckImageUpdateReq
  * Use `create(CheckImageUpdateRequestSchema)` to create a new message.
  */
 export const CheckImageUpdateRequestSchema: GenMessage<CheckImageUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_api, 51);
+  messageDesc(file_api, 58);
 
 /**
  * @generated from message supervisor.v1.CheckImageUpdateResponse
@@ -1287,7 +1458,7 @@ export type CheckImageUpdateResponse = Message<"supervisor.v1.CheckImageUpdateRe
  * Use `create(CheckImageUpdateResponseSchema)` to create a new message.
  */
 export const CheckImageUpdateResponseSchema: GenMessage<CheckImageUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_api, 52);
+  messageDesc(file_api, 59);
 
 /**
  * @generated from message supervisor.v1.PullImageRequest
@@ -1304,7 +1475,7 @@ export type PullImageRequest = Message<"supervisor.v1.PullImageRequest"> & {
  * Use `create(PullImageRequestSchema)` to create a new message.
  */
 export const PullImageRequestSchema: GenMessage<PullImageRequest> = /*@__PURE__*/
-  messageDesc(file_api, 53);
+  messageDesc(file_api, 60);
 
 /**
  * @generated from message supervisor.v1.PullImageResponse
@@ -1326,7 +1497,7 @@ export type PullImageResponse = Message<"supervisor.v1.PullImageResponse"> & {
  * Use `create(PullImageResponseSchema)` to create a new message.
  */
 export const PullImageResponseSchema: GenMessage<PullImageResponse> = /*@__PURE__*/
-  messageDesc(file_api, 54);
+  messageDesc(file_api, 61);
 
 /**
  * @generated from message supervisor.v1.ListImageUpdatesRequest
@@ -1345,7 +1516,7 @@ export type ListImageUpdatesRequest = Message<"supervisor.v1.ListImageUpdatesReq
  * Use `create(ListImageUpdatesRequestSchema)` to create a new message.
  */
 export const ListImageUpdatesRequestSchema: GenMessage<ListImageUpdatesRequest> = /*@__PURE__*/
-  messageDesc(file_api, 55);
+  messageDesc(file_api, 62);
 
 /**
  * @generated from message supervisor.v1.ListImageUpdatesResponse
@@ -1362,7 +1533,7 @@ export type ListImageUpdatesResponse = Message<"supervisor.v1.ListImageUpdatesRe
  * Use `create(ListImageUpdatesResponseSchema)` to create a new message.
  */
 export const ListImageUpdatesResponseSchema: GenMessage<ListImageUpdatesResponse> = /*@__PURE__*/
-  messageDesc(file_api, 56);
+  messageDesc(file_api, 63);
 
 /**
  * @generated from message supervisor.v1.DismissImageUpdateRequest
@@ -1379,7 +1550,7 @@ export type DismissImageUpdateRequest = Message<"supervisor.v1.DismissImageUpdat
  * Use `create(DismissImageUpdateRequestSchema)` to create a new message.
  */
 export const DismissImageUpdateRequestSchema: GenMessage<DismissImageUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_api, 57);
+  messageDesc(file_api, 64);
 
 /**
  * @generated from message supervisor.v1.DismissImageUpdateResponse
@@ -1396,7 +1567,7 @@ export type DismissImageUpdateResponse = Message<"supervisor.v1.DismissImageUpda
  * Use `create(DismissImageUpdateResponseSchema)` to create a new message.
  */
 export const DismissImageUpdateResponseSchema: GenMessage<DismissImageUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_api, 58);
+  messageDesc(file_api, 65);
 
 /**
  * @generated from service supervisor.v1.AuthService
@@ -1480,6 +1651,36 @@ export const PoolService: GenService<{
     methodKind: "server_streaming";
     input: typeof WatchPoolsRequestSchema;
     output: typeof WatchPoolsResponseSchema;
+  },
+  /**
+   * ListRunners lists active container instances for a pool
+   *
+   * @generated from rpc supervisor.v1.PoolService.ListRunners
+   */
+  listRunners: {
+    methodKind: "unary";
+    input: typeof ListRunnersRequestSchema;
+    output: typeof ListRunnersResponseSchema;
+  },
+  /**
+   * TerminateRunner manually kills an active runner container instance
+   *
+   * @generated from rpc supervisor.v1.PoolService.TerminateRunner
+   */
+  terminateRunner: {
+    methodKind: "unary";
+    input: typeof TerminateRunnerRequestSchema;
+    output: typeof TerminateRunnerResponseSchema;
+  },
+  /**
+   * WatchRunners provides near-realtime server-streaming push of active runner instances
+   *
+   * @generated from rpc supervisor.v1.PoolService.WatchRunners
+   */
+  watchRunners: {
+    methodKind: "server_streaming";
+    input: typeof WatchRunnersRequestSchema;
+    output: typeof WatchRunnersResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_api, 1);

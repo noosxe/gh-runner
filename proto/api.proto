@@ -56,6 +56,12 @@ service PoolService {
   rpc DeletePool (DeletePoolRequest) returns (DeletePoolResponse);
   // WatchPools provides near-realtime server-streaming push of pool states and runner counts
   rpc WatchPools (WatchPoolsRequest) returns (stream WatchPoolsResponse);
+  // ListRunners lists active container instances for a pool
+  rpc ListRunners (ListRunnersRequest) returns (ListRunnersResponse);
+  // TerminateRunner manually kills an active runner container instance
+  rpc TerminateRunner (TerminateRunnerRequest) returns (TerminateRunnerResponse);
+  // WatchRunners provides near-realtime server-streaming push of active runner instances
+  rpc WatchRunners (WatchRunnersRequest) returns (stream WatchRunnersResponse);
 }
 
 message Pool {
@@ -124,6 +130,44 @@ message WatchPoolsRequest {
 
 message WatchPoolsResponse {
   repeated Pool pools = 1;
+}
+
+message RunnerInstance {
+  string container_id = 1;
+  string name = 2;
+  string pool_name = 3;
+  string status = 4; // "idle", "busy", "degraded", "exited"
+  string ip_address = 5;
+  int64 uptime_seconds = 6;
+  string spawned_at = 7;
+  string cpu_limit = 8;
+  string memory_limit = 9;
+}
+
+message ListRunnersRequest {
+  int64 pool_id = 1;
+}
+
+message ListRunnersResponse {
+  repeated RunnerInstance runners = 1;
+}
+
+message TerminateRunnerRequest {
+  int64 pool_id = 1;
+  string container_id = 2;
+}
+
+message TerminateRunnerResponse {
+  bool success = 1;
+}
+
+message WatchRunnersRequest {
+  int64 pool_id = 1;
+  int32 interval_ms = 2;
+}
+
+message WatchRunnersResponse {
+  repeated RunnerInstance runners = 1;
 }
 
 // ----------------------------------------

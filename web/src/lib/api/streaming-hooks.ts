@@ -2,7 +2,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { analyticsClient, poolClient, logClient } from "./transport";
 import { queryKeys } from "./query-hooks";
-import type { WatchDashboardResponse, WatchPoolsResponse, LogChunk } from "../../gen/api_pb";
+import type {
+  WatchDashboardResponse,
+  WatchPoolsResponse,
+  WatchRunnersResponse,
+  LogChunk,
+} from "../../gen/api_pb";
 
 export type StreamStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error";
 
@@ -212,4 +217,33 @@ export function useStreamRunnerLogs(runnerId: string, options?: StreamOptions) {
     ...sub,
     logs,
   };
+}
+
+/**
+ * useWatchRunners streams near-realtime runner container instances for a specific pool.
+ */
+export function useWatchRunners(poolId: bigint, options?: StreamOptions) {
+  const queryClient = useQueryClient();
+  const intervalMs = options?.intervalMs ?? 1000;
+
+  const streamFn = useCallback(
+    (signal: AbortSignal) => {
+      return poolClient.watchRunners({ poolId, intervalMs }, { signal });
+    },
+    [poolId, intervalMs],
+  );
+
+  const onData = useCallback(
+    (res: WatchRunnersResponse) => {
+      if (res.runners) {
+        queryClient.setQueryData(queryKeys.runners(poolId), res.runners);
+      }
+    },
+    [queryClient, poolId],
+  );
+
+  return useStreamSubscription<WatchRunnersResponse>(streamFn, onData, {
+    ...options,
+    enabled: (options?.enabled ?? true) && poolId > 0n,
+  });
 }

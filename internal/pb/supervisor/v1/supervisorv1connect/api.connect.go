@@ -63,6 +63,14 @@ const (
 	PoolServiceDeletePoolProcedure = "/supervisor.v1.PoolService/DeletePool"
 	// PoolServiceWatchPoolsProcedure is the fully-qualified name of the PoolService's WatchPools RPC.
 	PoolServiceWatchPoolsProcedure = "/supervisor.v1.PoolService/WatchPools"
+	// PoolServiceListRunnersProcedure is the fully-qualified name of the PoolService's ListRunners RPC.
+	PoolServiceListRunnersProcedure = "/supervisor.v1.PoolService/ListRunners"
+	// PoolServiceTerminateRunnerProcedure is the fully-qualified name of the PoolService's
+	// TerminateRunner RPC.
+	PoolServiceTerminateRunnerProcedure = "/supervisor.v1.PoolService/TerminateRunner"
+	// PoolServiceWatchRunnersProcedure is the fully-qualified name of the PoolService's WatchRunners
+	// RPC.
+	PoolServiceWatchRunnersProcedure = "/supervisor.v1.PoolService/WatchRunners"
 	// AuthProfileServiceListAuthProfilesProcedure is the fully-qualified name of the
 	// AuthProfileService's ListAuthProfiles RPC.
 	AuthProfileServiceListAuthProfilesProcedure = "/supervisor.v1.AuthProfileService/ListAuthProfiles"
@@ -255,6 +263,12 @@ type PoolServiceClient interface {
 	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
 	// WatchPools provides near-realtime server-streaming push of pool states and runner counts
 	WatchPools(context.Context, *connect.Request[v1.WatchPoolsRequest]) (*connect.ServerStreamForClient[v1.WatchPoolsResponse], error)
+	// ListRunners lists active container instances for a pool
+	ListRunners(context.Context, *connect.Request[v1.ListRunnersRequest]) (*connect.Response[v1.ListRunnersResponse], error)
+	// TerminateRunner manually kills an active runner container instance
+	TerminateRunner(context.Context, *connect.Request[v1.TerminateRunnerRequest]) (*connect.Response[v1.TerminateRunnerResponse], error)
+	// WatchRunners provides near-realtime server-streaming push of active runner instances
+	WatchRunners(context.Context, *connect.Request[v1.WatchRunnersRequest]) (*connect.ServerStreamForClient[v1.WatchRunnersResponse], error)
 }
 
 // NewPoolServiceClient constructs a client for the supervisor.v1.PoolService service. By default,
@@ -298,16 +312,37 @@ func NewPoolServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(poolServiceMethods.ByName("WatchPools")),
 			connect.WithClientOptions(opts...),
 		),
+		listRunners: connect.NewClient[v1.ListRunnersRequest, v1.ListRunnersResponse](
+			httpClient,
+			baseURL+PoolServiceListRunnersProcedure,
+			connect.WithSchema(poolServiceMethods.ByName("ListRunners")),
+			connect.WithClientOptions(opts...),
+		),
+		terminateRunner: connect.NewClient[v1.TerminateRunnerRequest, v1.TerminateRunnerResponse](
+			httpClient,
+			baseURL+PoolServiceTerminateRunnerProcedure,
+			connect.WithSchema(poolServiceMethods.ByName("TerminateRunner")),
+			connect.WithClientOptions(opts...),
+		),
+		watchRunners: connect.NewClient[v1.WatchRunnersRequest, v1.WatchRunnersResponse](
+			httpClient,
+			baseURL+PoolServiceWatchRunnersProcedure,
+			connect.WithSchema(poolServiceMethods.ByName("WatchRunners")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // poolServiceClient implements PoolServiceClient.
 type poolServiceClient struct {
-	listPools  *connect.Client[v1.ListPoolsRequest, v1.ListPoolsResponse]
-	createPool *connect.Client[v1.CreatePoolRequest, v1.CreatePoolResponse]
-	updatePool *connect.Client[v1.UpdatePoolRequest, v1.UpdatePoolResponse]
-	deletePool *connect.Client[v1.DeletePoolRequest, v1.DeletePoolResponse]
-	watchPools *connect.Client[v1.WatchPoolsRequest, v1.WatchPoolsResponse]
+	listPools       *connect.Client[v1.ListPoolsRequest, v1.ListPoolsResponse]
+	createPool      *connect.Client[v1.CreatePoolRequest, v1.CreatePoolResponse]
+	updatePool      *connect.Client[v1.UpdatePoolRequest, v1.UpdatePoolResponse]
+	deletePool      *connect.Client[v1.DeletePoolRequest, v1.DeletePoolResponse]
+	watchPools      *connect.Client[v1.WatchPoolsRequest, v1.WatchPoolsResponse]
+	listRunners     *connect.Client[v1.ListRunnersRequest, v1.ListRunnersResponse]
+	terminateRunner *connect.Client[v1.TerminateRunnerRequest, v1.TerminateRunnerResponse]
+	watchRunners    *connect.Client[v1.WatchRunnersRequest, v1.WatchRunnersResponse]
 }
 
 // ListPools calls supervisor.v1.PoolService.ListPools.
@@ -335,6 +370,21 @@ func (c *poolServiceClient) WatchPools(ctx context.Context, req *connect.Request
 	return c.watchPools.CallServerStream(ctx, req)
 }
 
+// ListRunners calls supervisor.v1.PoolService.ListRunners.
+func (c *poolServiceClient) ListRunners(ctx context.Context, req *connect.Request[v1.ListRunnersRequest]) (*connect.Response[v1.ListRunnersResponse], error) {
+	return c.listRunners.CallUnary(ctx, req)
+}
+
+// TerminateRunner calls supervisor.v1.PoolService.TerminateRunner.
+func (c *poolServiceClient) TerminateRunner(ctx context.Context, req *connect.Request[v1.TerminateRunnerRequest]) (*connect.Response[v1.TerminateRunnerResponse], error) {
+	return c.terminateRunner.CallUnary(ctx, req)
+}
+
+// WatchRunners calls supervisor.v1.PoolService.WatchRunners.
+func (c *poolServiceClient) WatchRunners(ctx context.Context, req *connect.Request[v1.WatchRunnersRequest]) (*connect.ServerStreamForClient[v1.WatchRunnersResponse], error) {
+	return c.watchRunners.CallServerStream(ctx, req)
+}
+
 // PoolServiceHandler is an implementation of the supervisor.v1.PoolService service.
 type PoolServiceHandler interface {
 	ListPools(context.Context, *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error)
@@ -343,6 +393,12 @@ type PoolServiceHandler interface {
 	DeletePool(context.Context, *connect.Request[v1.DeletePoolRequest]) (*connect.Response[v1.DeletePoolResponse], error)
 	// WatchPools provides near-realtime server-streaming push of pool states and runner counts
 	WatchPools(context.Context, *connect.Request[v1.WatchPoolsRequest], *connect.ServerStream[v1.WatchPoolsResponse]) error
+	// ListRunners lists active container instances for a pool
+	ListRunners(context.Context, *connect.Request[v1.ListRunnersRequest]) (*connect.Response[v1.ListRunnersResponse], error)
+	// TerminateRunner manually kills an active runner container instance
+	TerminateRunner(context.Context, *connect.Request[v1.TerminateRunnerRequest]) (*connect.Response[v1.TerminateRunnerResponse], error)
+	// WatchRunners provides near-realtime server-streaming push of active runner instances
+	WatchRunners(context.Context, *connect.Request[v1.WatchRunnersRequest], *connect.ServerStream[v1.WatchRunnersResponse]) error
 }
 
 // NewPoolServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -382,6 +438,24 @@ func NewPoolServiceHandler(svc PoolServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(poolServiceMethods.ByName("WatchPools")),
 		connect.WithHandlerOptions(opts...),
 	)
+	poolServiceListRunnersHandler := connect.NewUnaryHandler(
+		PoolServiceListRunnersProcedure,
+		svc.ListRunners,
+		connect.WithSchema(poolServiceMethods.ByName("ListRunners")),
+		connect.WithHandlerOptions(opts...),
+	)
+	poolServiceTerminateRunnerHandler := connect.NewUnaryHandler(
+		PoolServiceTerminateRunnerProcedure,
+		svc.TerminateRunner,
+		connect.WithSchema(poolServiceMethods.ByName("TerminateRunner")),
+		connect.WithHandlerOptions(opts...),
+	)
+	poolServiceWatchRunnersHandler := connect.NewServerStreamHandler(
+		PoolServiceWatchRunnersProcedure,
+		svc.WatchRunners,
+		connect.WithSchema(poolServiceMethods.ByName("WatchRunners")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/supervisor.v1.PoolService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PoolServiceListPoolsProcedure:
@@ -394,6 +468,12 @@ func NewPoolServiceHandler(svc PoolServiceHandler, opts ...connect.HandlerOption
 			poolServiceDeletePoolHandler.ServeHTTP(w, r)
 		case PoolServiceWatchPoolsProcedure:
 			poolServiceWatchPoolsHandler.ServeHTTP(w, r)
+		case PoolServiceListRunnersProcedure:
+			poolServiceListRunnersHandler.ServeHTTP(w, r)
+		case PoolServiceTerminateRunnerProcedure:
+			poolServiceTerminateRunnerHandler.ServeHTTP(w, r)
+		case PoolServiceWatchRunnersProcedure:
+			poolServiceWatchRunnersHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -421,6 +501,18 @@ func (UnimplementedPoolServiceHandler) DeletePool(context.Context, *connect.Requ
 
 func (UnimplementedPoolServiceHandler) WatchPools(context.Context, *connect.Request[v1.WatchPoolsRequest], *connect.ServerStream[v1.WatchPoolsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.PoolService.WatchPools is not implemented"))
+}
+
+func (UnimplementedPoolServiceHandler) ListRunners(context.Context, *connect.Request[v1.ListRunnersRequest]) (*connect.Response[v1.ListRunnersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.PoolService.ListRunners is not implemented"))
+}
+
+func (UnimplementedPoolServiceHandler) TerminateRunner(context.Context, *connect.Request[v1.TerminateRunnerRequest]) (*connect.Response[v1.TerminateRunnerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.PoolService.TerminateRunner is not implemented"))
+}
+
+func (UnimplementedPoolServiceHandler) WatchRunners(context.Context, *connect.Request[v1.WatchRunnersRequest], *connect.ServerStream[v1.WatchRunnersResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.PoolService.WatchRunners is not implemented"))
 }
 
 // AuthProfileServiceClient is a client for the supervisor.v1.AuthProfileService service.
