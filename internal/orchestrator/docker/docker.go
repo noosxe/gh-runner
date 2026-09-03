@@ -664,4 +664,28 @@ func (c *Client) CaptureLogs(ctx context.Context, containerID, dataDir string) (
 	return destPath, nil
 }
 
+// StreamLogs opens a live follow log stream for containerID via Docker Logs API (OQ #14, #20, #30).
+func (c *Client) StreamLogs(ctx context.Context, containerID string) (io.ReadCloser, error) {
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		return nil, ErrNilClient
+	}
+
+	opts := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Timestamps: true,
+	}
+
+	stream, err := docker.ContainerLogs(ctx, containerID, opts)
+	if err != nil {
+		return nil, fmt.Errorf("opening follow log stream for %s: %w", containerID, err)
+	}
+	return stream, nil
+}
+
 var _ orchestrator.ContainerProvider = (*Client)(nil)

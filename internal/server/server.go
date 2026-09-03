@@ -97,6 +97,12 @@ type Options struct {
 	// SystemStats provides live system-wide runner counts (RUN-48).
 	SystemStats SystemStatsProvider
 
+	// DataDir is the base directory where DATA_DIR/logs/ are located (RUN-49).
+	DataDir string
+
+	// LogStreamer is the provider for streaming live container logs (RUN-49).
+	LogStreamer LogStreamer
+
 	// JWTSigningSecret is the 256-bit HMAC key derived from SUPERVISOR_DB_ENCRYPTION_KEY
 	// used to cryptographically sign session JWT tokens (docs/05 §5, keys.LabelJWTSigning).
 	JWTSigningSecret []byte
@@ -181,6 +187,13 @@ func New(opts Options) *Server {
 	if opts.AnalyticsDB != nil {
 		analyticsSvc := NewAnalyticsService(opts.AnalyticsDB, opts.SystemStats)
 		path, handler := supervisorv1connect.NewAnalyticsServiceHandler(analyticsSvc, s.ConnectHandlerOptions()...)
+		s.MountConnectHandler(path, handler)
+	}
+
+	// Mount LogService if DataDir or LogStreamer is provided (RUN-49)
+	if opts.DataDir != "" || opts.LogStreamer != nil {
+		logSvc := NewLogService(opts.DataDir, opts.LogStreamer)
+		path, handler := supervisorv1connect.NewLogServiceHandler(logSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}
 

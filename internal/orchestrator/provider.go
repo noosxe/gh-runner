@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -62,6 +63,9 @@ type ContainerProvider interface {
 
 	// CaptureLogs reads full logs from containerID and writes them gzipped to DATA_DIR/logs/<runner-id>.log.jsonl.gz.
 	CaptureLogs(ctx context.Context, containerID, dataDir string) (string, error)
+
+	// StreamLogs opens a live follow log stream for containerID via Docker Logs API (OQ #14, #20, #30).
+	StreamLogs(ctx context.Context, containerID string) (io.ReadCloser, error)
 
 	// Ping checks connectivity with the container engine daemon.
 	Ping(ctx context.Context) error
