@@ -1,39 +1,84 @@
-import React, { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useState, type FormEvent } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useLogin } from "../lib/api/query-hooks";
-import { ShieldCheck, AlertCircle } from "lucide-react";
+import { useTheme } from "../hooks/use-theme";
+import { ShieldCheck, AlertCircle, Eye, EyeOff, Sun, Moon, Monitor } from "lucide-react";
 
 export function LoginPage() {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { theme, setTheme } = useTheme();
+  const search = useSearch({ strict: false }) as { redirect?: string };
   const navigate = useNavigate();
   const loginMutation = useLogin();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     try {
       await loginMutation.mutateAsync({ username, password });
-      navigate({ to: "/" });
+      const target = search?.redirect && search.redirect.startsWith("/") ? search.redirect : "/";
+      navigate({ to: target });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Invalid credentials");
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4 bg-slate-50 dark:bg-slate-950">
+    <div className="relative flex min-h-screen items-center justify-center p-4 bg-slate-50 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-50">
+      {/* Top Corner Theme Switcher */}
+      <div className="absolute top-4 right-4 flex items-center rounded-xl border border-slate-200 bg-white p-1 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        <button
+          type="button"
+          onClick={() => setTheme("light")}
+          title="Light Theme"
+          className={`rounded-lg p-1.5 transition-colors ${
+            theme === "light"
+              ? "bg-slate-100 text-blue-600 dark:bg-slate-800 dark:text-blue-400"
+              : "text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+          }`}
+        >
+          <Sun className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setTheme("dark")}
+          title="Dark Theme"
+          className={`rounded-lg p-1.5 transition-colors ${
+            theme === "dark"
+              ? "bg-slate-100 text-blue-600 dark:bg-slate-800 dark:text-blue-400"
+              : "text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+          }`}
+        >
+          <Moon className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setTheme("system")}
+          title="System Theme"
+          className={`rounded-lg p-1.5 transition-colors ${
+            theme === "system"
+              ? "bg-slate-100 text-blue-600 dark:bg-slate-800 dark:text-blue-400"
+              : "text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+          }`}
+        >
+          <Monitor className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
           <ShieldCheck className="h-6 w-6" />
         </div>
 
-        <h1 className="text-center text-xl font-bold text-slate-900 dark:text-white">
+        <h1 className="text-center text-xl font-bold tracking-tight text-slate-900 dark:text-white">
           Sign In to Supervisor
         </h1>
-        <p className="mt-1 text-center text-xs text-slate-500">
-          Enter administrative credentials to continue
+        <p className="mt-1 text-center text-xs text-slate-500 dark:text-slate-400">
+          Enter administrative credentials to access control interface
         </p>
 
         {error && (
@@ -45,31 +90,49 @@ export function LoginPage() {
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4 text-xs">
           <div>
-            <label className="font-semibold text-slate-700 dark:text-slate-300">Username</label>
+            <label htmlFor="username" className="font-semibold text-slate-700 dark:text-slate-300">
+              Username
+            </label>
             <input
+              id="username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
               required
+              autoFocus
             />
           </div>
 
           <div>
-            <label className="font-semibold text-slate-700 dark:text-slate-300">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              required
-            />
+            <label htmlFor="password" className="font-semibold text-slate-700 dark:text-slate-300">
+              Password
+            </label>
+            <div className="relative mt-1">
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 pr-10 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                required
+              />
+              <button
+                type="button"
+                aria-label="Toggle password visibility"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={loginMutation.isPending}
-            className="w-full rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
           >
             {loginMutation.isPending ? "Signing in..." : "Sign In"}
           </button>
