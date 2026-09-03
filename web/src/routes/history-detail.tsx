@@ -1,45 +1,195 @@
 import { useParams, Link } from "@tanstack/react-router";
-import { useRunnerLogs } from "../lib/api/query-hooks";
-import { ArrowLeft, Terminal } from "lucide-react";
+import { useJobRecord, useRunnerLogs } from "../lib/api/query-hooks";
+import { useStreamRunnerLogs } from "../lib/api/streaming-hooks";
+import { LogTerminal } from "../components/terminal/log-terminal";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Radio,
+  Timer,
+  Server,
+  Calendar,
+} from "lucide-react";
+
+function formatDuration(seconds: number): string {
+  if (!seconds || seconds <= 0) return "—";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  const remSec = Math.round(seconds % 60);
+  if (mins < 60) return `${mins}m ${remSec}s`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hours}h ${remMins}m`;
+}
+
+function formatTimestamp(isoString?: string): string {
+  if (!isoString) return "—";
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return isoString;
+  }
+}
 
 export function HistoryDetailPage() {
   const { jobId } = useParams({ strict: false }) as { jobId?: string };
-  const { data: logs, isLoading } = useRunnerLogs(jobId ?? "", !!jobId);
+  const numericJobId = jobId && !isNaN(Number(jobId)) ? BigInt(jobId) : undefined;
+
+  const { data: job, isLoading: isJobLoading } = useJobRecord(numericJobId);
+
+  const runnerName = job?.runnerName || jobId || "";
+  const isRunning = job?.status === "running";
+
+  // If the job is active/running, stream live; otherwise fetch stored historical archive
+  const {
+    logs: liveLogs,
+    isConnected,
+    isConnecting,
+    clearLogs,
+  } = useStreamRunnerLogs(runnerName, {
+    enabled: isRunning && Boolean(runnerName),
+  });
+
+  const { data: historicalLogs, isLoading: isHistLoading } = useRunnerLogs(
+    runnerName,
+    !isRunning && Boolean(runnerName),
+  );
+
+  const logs = isRunning ? liveLogs : (historicalLogs ?? []);
+  const isLogsLoading = isRunning ? isConnecting : isHistLoading;
+
+  const isSuccess = job?.status === "success";
+  const isFailed = job?.status === "failure" || job?.status === "failed";
 
   return (
-    <div className="space-y-4">
-      <Link
-        to="/history"
-        className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-      >
-        <ArrowLeft className="h-3 w-3" /> Back to History
-      </Link>
+    <div className="space-y-6">
+      {/* Navigation Breadcrumb */}
+      <div className="flex items-center justify-between">
+        <Link
+          to="/history"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to Job Execution History
+        </Link>
+      </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center gap-2">
-          <Terminal className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-          <h1 className="text-lg font-bold text-slate-900 dark:text-white">
-            Execution Logs: {jobId}
-          </h1>
-        </div>
+      {/* Execution Summary Header Card */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white font-mono">
+                {runnerName || (isJobLoading ? "Loading runner..." : `Job #${jobId}`)}
+              </h1>
 
-        <div className="mt-4 rounded-xl bg-slate-950 p-4 font-mono text-xs text-slate-300">
-          {isLoading ? (
-            <div>Loading historical execution logs...</div>
-          ) : !logs || logs.length === 0 ? (
-            <div className="text-slate-500">No log output recorded for this runner.</div>
-          ) : (
-            <div className="space-y-1">
-              {logs.map((chunk, idx) => (
-                <div key={idx} className="flex gap-2">
-                  <span className="text-slate-600 select-none">{idx + 1}</span>
-                  <span className="text-slate-400">[{chunk.stream}]</span>
-                  <span>{chunk.content}</span>
-                </div>
-              ))}
+              {job?.status && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                    isSuccess
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900"
+                      : isFailed
+                        ? "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200 dark:border-rose-900"
+                        : isRunning
+                          ? "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-400 border border-sky-200 dark:border-sky-900"
+                          : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                  }`}
+                >
+                  {isSuccess ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : isFailed ? (
+                    <XCircle className="h-3 w-3" />
+                  ) : isRunning ? (
+                    <Radio className="h-3 w-3 animate-pulse" />
+                  ) : (
+                    <Clock className="h-3 w-3" />
+                  )}
+                  <span>{job.status}</span>
+                </span>
+              )}
             </div>
-          )}
+
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {job ? (
+                <>
+                  Execution record for pool{" "}
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {job.poolName || `#${job.poolId.toString()}`}
+                  </span>
+                  {job.id > 0n && ` • Job ID #${job.id.toString()}`}
+                </>
+              ) : (
+                "Loading execution metadata..."
+              )}
+            </p>
+          </div>
         </div>
+
+        {/* Quick KPI Strip */}
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <Timer className="h-4 w-4 text-slate-400" />
+            <div>
+              <p className="text-[10px] uppercase font-semibold text-slate-400">Duration</p>
+              <p className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
+                {job ? formatDuration(job.durationSeconds) : "—"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-slate-400" />
+            <div>
+              <p className="text-[10px] uppercase font-semibold text-slate-400">Queue Latency</p>
+              <p className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
+                {job && job.queueTimeSeconds > 0 ? `${job.queueTimeSeconds.toFixed(1)}s` : "—"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Server className="h-4 w-4 text-slate-400" />
+            <div>
+              <p className="text-[10px] uppercase font-semibold text-slate-400">Pool</p>
+              <p className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                {job?.poolName || (job?.poolId ? `#${job.poolId.toString()}` : "—")}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-slate-400" />
+            <div>
+              <p className="text-[10px] uppercase font-semibold text-slate-400">Started</p>
+              <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400">
+                {formatTimestamp(job?.startedAt)}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Log Console Terminal View */}
+      <div className="h-[600px]">
+        <LogTerminal
+          logs={logs}
+          mode={isRunning ? "live" : "historical"}
+          runnerName={runnerName}
+          isConnected={isConnected}
+          isConnecting={isConnecting}
+          isLoading={isLogsLoading}
+          onClear={isRunning ? clearLogs : undefined}
+          title={`Runner Logs: ${runnerName}`}
+        />
       </div>
     </div>
   );

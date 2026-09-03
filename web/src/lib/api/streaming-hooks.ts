@@ -216,9 +216,15 @@ export function useStreamRunnerLogs(runnerId: string, options?: StreamOptions) {
     enabled: (options?.enabled ?? true) && Boolean(runnerId),
   });
 
+  const clearLogs = useCallback(() => {
+    setLogs([]);
+    queryClient.setQueryData<LogChunk[]>(queryKeys.runnerLogs(runnerId), []);
+  }, [queryClient, runnerId]);
+
   return {
     ...sub,
     logs,
+    clearLogs,
   };
 }
 

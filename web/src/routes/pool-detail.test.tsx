@@ -103,7 +103,7 @@ describe("PoolDetailPage", () => {
     const logsButtons = screen.getAllByRole("button", { name: /logs/i });
     fireEvent.click(logsButtons[0]);
 
-    expect(screen.getByText("Streaming Logs")).toBeInTheDocument();
+    expect(screen.getByText("Live Stream")).toBeInTheDocument();
     expect(screen.getByText("Runner connected to GitHub")).toBeInTheDocument();
   });
 

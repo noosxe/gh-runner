@@ -262,6 +262,7 @@ message SetAppSettingResponse {
 
 service AnalyticsService {
   rpc GetJobHistory (GetJobHistoryRequest) returns (GetJobHistoryResponse);
+  rpc GetJobRecord (GetJobRecordRequest) returns (GetJobRecordResponse);
   rpc GetSystemStats (GetSystemStatsRequest) returns (GetSystemStatsResponse);
   // WatchDashboard provides near-realtime server-streaming push of dashboard statistics, pool states, and recent jobs
   rpc WatchDashboard (WatchDashboardRequest) returns (stream WatchDashboardResponse);
@@ -291,6 +292,14 @@ message GetJobHistoryRequest {
 message GetJobHistoryResponse {
   repeated JobRecord jobs = 1;
   int32 total_count = 2;
+}
+
+message GetJobRecordRequest {
+  int64 job_id = 1;
+}
+
+message GetJobRecordResponse {
+  JobRecord job = 1;
 }
 
 message GetSystemStatsRequest {}
