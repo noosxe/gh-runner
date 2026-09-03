@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +49,11 @@ type ProvisionRequest struct {
 // JobHistoryRecorder records runner job execution statuses into the database (docs/03 §4, §7).
 type JobHistoryRecorder interface {
 	RecordJobTimeout(ctx context.Context, poolID int64, runnerName, logPath string, startedAt, completedAt time.Time) error
+}
+
+// AppSettingsReader reads application-wide configuration from the database (docs/02 §4).
+type AppSettingsReader interface {
+	GetAppSetting(ctx context.Context, key string) (db.AppSetting, error)
 }
 
 // PoolRepository abstracts loading active runner pools from the database.
@@ -280,19 +286,50 @@ func (c *PoolController) Reconcile(ctx context.Context) error {
 		}
 	}
 
-	// 2. Drain queued provisioning requests if global capacity has freed
+	// 2. Refresh runtime settings from DB if available (docs/02 §4)
+	if reader, ok := c.db.(AppSettingsReader); ok {
+		if setting, err := reader.GetAppSetting(ctx, "total_allowed_runners"); err == nil {
+			if val, err := strconv.Atoi(setting.Value); err == nil && val > 0 {
+				c.globalMaxRunners = val
+			}
+		}
+	}
+
+	// 3. Drain queued provisioning requests if global capacity has freed
 	c.drainQueue(ctx)
 
-	// 3. Load active pools
+	// 4. Load active pools from DB
 	pools, err := c.loadPools(ctx)
 	if err != nil {
 		return fmt.Errorf("loading pools for reconcile: %w", err)
 	}
 
-	// 4. Force-terminate hung runners exceeding max_runner_lifetime_seconds (docs/03 §4, §7)
+	// 5. Detect removed pools and drain their runners
+	currentPools := make(map[string]struct{}, len(pools))
+	for _, p := range pools {
+		currentPools[p.Name] = struct{}{}
+	}
+
+	var removedPools []string
+	if c.reconciler != nil {
+		c.reconciler.mu.RLock()
+		for trackedPool := range c.reconciler.tracked {
+			if _, exists := currentPools[trackedPool]; !exists {
+				removedPools = append(removedPools, trackedPool)
+			}
+		}
+		c.reconciler.mu.RUnlock()
+	}
+
+	for _, removed := range removedPools {
+		c.logger.Info("pool removed from database, draining runners", "pool", removed)
+		c.drainPool(ctx, removed)
+	}
+
+	// 6. Force-terminate hung runners exceeding max_runner_lifetime_seconds (docs/03 §4, §7)
 	c.checkHungRunners(ctx, pools)
 
-	// 5. Reconcile pool targets
+	// 7. Reconcile pool targets (converges up or down to live targets)
 	for _, p := range pools {
 		if err := c.reconcilePool(ctx, p); err != nil {
 			c.logger.Error("failed reconciling pool target", "pool", p.Name, "err", err)
@@ -716,16 +753,33 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 	}
 
 	tracked := c.reconciler.TrackedPoolRunners(p.Name)
+	var idleRunners []RunnerStatus
 	activeCount := int64(0)
 	for _, r := range tracked {
 		if r.State == "running" {
 			activeCount++
+			if !r.IsBusy {
+				idleRunners = append(idleRunners, r)
+			}
 		}
 	}
 
 	effectiveTarget := p.MinIdleRunners
 	if p.MaxConcurrency > 0 && effectiveTarget > p.MaxConcurrency {
 		effectiveTarget = p.MaxConcurrency
+	}
+
+	// Scale down excess idle runners if pool target or max_concurrency was reduced live (RUN-42)
+	if activeCount > effectiveTarget {
+		excess := activeCount - effectiveTarget
+		c.logger.Info("pool target reduced live, draining excess idle runners", "pool", p.Name, "active", activeCount, "target", effectiveTarget, "excess", excess)
+		for i := int64(0); i < excess && i < int64(len(idleRunners)); i++ {
+			r := idleRunners[i]
+			c.deregisterRunner(ctx, r)
+			_ = c.engine.TerminateRunner(ctx, r.ID)
+			c.reconciler.UntrackRunner(p.Name, r.ID)
+		}
+		activeCount -= excess
 	}
 
 	queuedForPool := int64(c.QueueLengthForPool(p.Name))
@@ -944,3 +998,35 @@ func formatLabels(raw string) string {
 	}
 	return raw
 }
+
+// Reload immediately reloads pool definitions and application settings from the database at runtime,
+// converging active pools up or down to new min_idle/max_concurrency targets and draining deleted pools (docs/02 §4, docs/03 §4).
+func (c *PoolController) Reload(ctx context.Context) error {
+	c.logger.Info("reloading pool configurations and settings from database")
+	return c.Reconcile(ctx)
+}
+
+func (c *PoolController) drainPool(ctx context.Context, poolName string) {
+	if c.reconciler == nil || c.engine == nil {
+		return
+	}
+	tracked := c.reconciler.TrackedPoolRunners(poolName)
+	for _, r := range tracked {
+		if r.State == "running" {
+			c.deregisterRunner(ctx, r)
+			_ = c.engine.TerminateRunner(ctx, r.ID)
+			c.reconciler.UntrackRunner(poolName, r.ID)
+		}
+	}
+
+	c.mu.Lock()
+	var remaining []ProvisionRequest
+	for _, req := range c.queue {
+		if req.PoolName != poolName {
+			remaining = append(remaining, req)
+		}
+	}
+	c.queue = remaining
+	c.mu.Unlock()
+}
+

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,8 +15,9 @@ import (
 )
 
 type mockPoolRepo struct {
-	pools []db.RunnerPool
-	err   error
+	pools    []db.RunnerPool
+	settings map[string]string
+	err      error
 }
 
 func (m *mockPoolRepo) ListRunnerPools(ctx context.Context) ([]db.RunnerPool, error) {
@@ -23,6 +25,15 @@ func (m *mockPoolRepo) ListRunnerPools(ctx context.Context) ([]db.RunnerPool, er
 		return nil, m.err
 	}
 	return m.pools, nil
+}
+
+func (m *mockPoolRepo) GetAppSetting(ctx context.Context, key string) (db.AppSetting, error) {
+	if m.settings != nil {
+		if val, ok := m.settings[key]; ok {
+			return db.AppSetting{Key: key, Value: val}, nil
+		}
+	}
+	return db.AppSetting{}, sql.ErrNoRows
 }
 
 type mockGitProviderResolver struct {
@@ -839,6 +850,114 @@ func TestPoolController_ImmediateShutdown_SIGINT(t *testing.T) {
 	// Deregistered called for both
 	if len(gitProv.deregistered) != 2 {
 		t.Errorf("expected both runners deregistered with provider, got %d", len(gitProv.deregistered))
+	}
+}
+
+func TestPoolController_PerPoolSettingsRuntimeReload(t *testing.T) {
+	ctx := context.Background()
+
+	poolA := db.RunnerPool{
+		ID:             1,
+		Name:           "pool-a",
+		Provider:       "github",
+		RepositoryUrl:  "https://github.com/owner/repo-a",
+		Scope:          "repo",
+		AuthProfileID:  1,
+		MinIdleRunners: 1,
+		MaxConcurrency: 5,
+		RunnerImage:    "ghcr.io/noosxe/gh-runner:latest",
+	}
+
+	repo := &mockPoolRepo{
+		pools: []db.RunnerPool{poolA},
+		settings: map[string]string{
+			"total_allowed_runners": "10",
+		},
+	}
+	gitProv := &mockGitProvider{}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{1: gitProv},
+	}
+
+	spawnCounter := 0
+	terminated := make([]string, 0)
+	var reconciler *orchestrator.Reconciler
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			spawnCounter++
+			return fmt.Sprintf("%s-c%d", config.PoolName, spawnCounter), nil
+		},
+		TerminateRunnerFn: func(ctx context.Context, containerID string) error {
+			terminated = append(terminated, containerID)
+			return nil
+		},
+		AuditRunnersFn: func(ctx context.Context) ([]orchestrator.RunnerStatus, error) {
+			if reconciler == nil {
+				return nil, nil
+			}
+			return reconciler.TrackedPoolRunners("pool-a"), nil
+		},
+	}
+
+	reconciler = orchestrator.NewReconciler(mockEngine)
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler,
+	})
+
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("Boot failed: %v", err)
+	}
+
+	// 1. Initial boot: min_idle=1 -> 1 container provisioned
+	if ctrl.TotalActiveRunners() != 1 {
+		t.Fatalf("expected 1 active runner initially, got %d", ctrl.TotalActiveRunners())
+	}
+
+	// 2. Acceptance: Edit min_idle live (1 -> 3) -> pool converges upwards to 3
+	repo.pools[0].MinIdleRunners = 3
+	if err := ctrl.Reload(ctx); err != nil {
+		t.Fatalf("Reload after increasing min_idle failed: %v", err)
+	}
+
+	if ctrl.TotalActiveRunners() != 3 {
+		t.Fatalf("expected 3 active runners after scaling up, got %d", ctrl.TotalActiveRunners())
+	}
+
+	// 3. Acceptance: Edit min_idle live (3 -> 1) -> pool converges downwards to 1
+	repo.pools[0].MinIdleRunners = 1
+	if err := ctrl.Reload(ctx); err != nil {
+		t.Fatalf("Reload after decreasing min_idle failed: %v", err)
+	}
+
+	if ctrl.TotalActiveRunners() != 1 {
+		t.Fatalf("expected 1 active runner after scaling down, got %d", ctrl.TotalActiveRunners())
+	}
+	if len(terminated) != 2 {
+		t.Errorf("expected 2 excess idle runners to be terminated during scale down, got %d", len(terminated))
+	}
+
+	// 4. Acceptance: Edit max_concurrency live (capped at 2 while min_idle is 4) -> converges to 2
+	repo.pools[0].MinIdleRunners = 4
+	repo.pools[0].MaxConcurrency = 2
+	if err := ctrl.Reload(ctx); err != nil {
+		t.Fatalf("Reload after setting max_concurrency failed: %v", err)
+	}
+
+	if ctrl.TotalActiveRunners() != 2 {
+		t.Fatalf("expected active runners capped at max_concurrency=2, got %d", ctrl.TotalActiveRunners())
+	}
+
+	// 5. Acceptance: Remove pool from DB -> all its runners drained
+	repo.pools = []db.RunnerPool{} // pool deleted from DB
+	if err := ctrl.Reload(ctx); err != nil {
+		t.Fatalf("Reload after deleting pool failed: %v", err)
+	}
+
+	if ctrl.TotalActiveRunners() != 0 {
+		t.Fatalf("expected 0 active runners after pool deletion, got %d", ctrl.TotalActiveRunners())
 	}
 }
 
