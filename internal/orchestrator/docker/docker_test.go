@@ -3,6 +3,7 @@ package docker_test
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ type mockDockerAPI struct {
 	containerStopFn   func(ctx context.Context, containerID string, options container.StopOptions) error
 	containerRemoveFn func(ctx context.Context, containerID string, options container.RemoveOptions) error
 	containerListFn   func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
+	containerLogsFn   func(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error)
 	containersPruneFn func(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
 	eventsFn          func(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
 	networkListFn     func(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
@@ -81,6 +83,13 @@ func (m *mockDockerAPI) ContainerList(ctx context.Context, options container.Lis
 		return m.containerListFn(ctx, options)
 	}
 	return []container.Summary{}, nil
+}
+
+func (m *mockDockerAPI) ContainerLogs(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error) {
+	if m.containerLogsFn != nil {
+		return m.containerLogsFn(ctx, containerID, options)
+	}
+	return io.NopCloser(strings.NewReader("")), nil
 }
 
 func (m *mockDockerAPI) ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error) {
@@ -713,4 +722,51 @@ func TestDockerClient_DegradedModeAndReadiness(t *testing.T) {
 	}
 
 	cancelMonitor()
+}
+
+func TestDockerClient_CaptureLogs(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+
+	rawLog := "2026-09-03T10:00:00.000000000Z Runner connected to GitHub\n2026-09-03T10:00:01.000000000Z Job completed with exit 0\n"
+	mockAPI := &mockDockerAPI{
+		containerLogsFn: func(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error) {
+			if containerID != "runner-capture-test" {
+				return nil, errors.New("container not found")
+			}
+			if !options.ShowStdout || !options.ShowStderr || !options.Timestamps {
+				t.Errorf("expected ShowStdout, ShowStderr, Timestamps to be true, got %+v", options)
+			}
+			return io.NopCloser(strings.NewReader(rawLog)), nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	logPath, err := cli.CaptureLogs(ctx, "runner-capture-test", tempDir)
+	if err != nil {
+		t.Fatalf("CaptureLogs failed: %v", err)
+	}
+
+	expectedPath := orchestrator.LogPath(tempDir, "runner-capture-test")
+	if logPath != expectedPath {
+		t.Errorf("logPath = %q, want %q", logPath, expectedPath)
+	}
+
+	entries, err := orchestrator.ReadGzippedJSONLLogs(logPath)
+	if err != nil {
+		t.Fatalf("ReadGzippedJSONLLogs failed: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if entries[0].Content != "Runner connected to GitHub" || entries[0].Stream != "stdout" {
+		t.Errorf("unexpected entry 0: %+v", entries[0])
+	}
+	if entries[1].Content != "Job completed with exit 0" || entries[1].Stream != "stdout" {
+		t.Errorf("unexpected entry 1: %+v", entries[1])
+	}
 }
