@@ -826,3 +826,129 @@ func TestDockerClient_ImageOperations(t *testing.T) {
 		t.Errorf("expected sha256:digest-abc, got %s", digest)
 	}
 }
+
+func TestDockerClient_ImageHandoff_InFlightJobUnchanged(t *testing.T) {
+	ctx := context.Background()
+	tag := "ghcr.io/noosxe/runner-aio:latest"
+	digestV1 := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	digestV2 := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+
+	currentDigest := digestV1
+
+	type containerState struct {
+		name    string
+		imageID string
+		status  string
+	}
+	containers := make(map[string]*containerState)
+
+	mockAPI := &mockDockerAPI{
+		containerCreateFn: func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error) {
+			cid := "cnt-" + containerName
+			containers[cid] = &containerState{
+				name:    containerName,
+				imageID: currentDigest,
+				status:  "created",
+			}
+			return container.CreateResponse{ID: cid}, nil
+		},
+		containerStartFn: func(ctx context.Context, containerID string, options container.StartOptions) error {
+			if c, ok := containers[containerID]; ok {
+				c.status = "running"
+			}
+			return nil
+		},
+		containerStopFn: func(ctx context.Context, containerID string, options container.StopOptions) error {
+			if c, ok := containers[containerID]; ok {
+				c.status = "stopped"
+			}
+			return nil
+		},
+		containerRemoveFn: func(ctx context.Context, containerID string, options container.RemoveOptions) error {
+			delete(containers, containerID)
+			return nil
+		},
+		imageInspectWithRawFn: func(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error) {
+			return dockerimage.InspectResponse{
+				RepoDigests: []string{tag + "@" + currentDigest},
+			}, nil, nil
+		},
+		imagePullFn: func(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error) {
+			if refStr == tag {
+				currentDigest = digestV2
+			}
+			return io.NopCloser(strings.NewReader("")), nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	// 1. Initial spawn: Runner A on digest-v1
+	cid1, err := cli.SpawnRunner(ctx, orchestrator.RunnerConfig{
+		Name:     "runner-in-flight",
+		PoolName: "prod-pool",
+		Image:    tag,
+	})
+	if err != nil {
+		t.Fatalf("SpawnRunner 1 failed: %v", err)
+	}
+
+	if containers[cid1].imageID != digestV1 {
+		t.Fatalf("expected runner 1 to use %s, got %s", digestV1, containers[cid1].imageID)
+	}
+	if containers[cid1].status != "running" {
+		t.Fatalf("expected runner 1 to be running, got %s", containers[cid1].status)
+	}
+
+	// 2. Image pull occurs in background (RUN-67)
+	if err := cli.PullImage(ctx, tag); err != nil {
+		t.Fatalf("PullImage failed: %v", err)
+	}
+
+	// Verify local digest inspection now reports digestV2
+	inspectedDigest, err := cli.GetLocalImageDigest(ctx, tag)
+	if err != nil {
+		t.Fatalf("GetLocalImageDigest failed: %v", err)
+	}
+	if inspectedDigest != digestV2 {
+		t.Errorf("expected local digest %s, got %s", digestV2, inspectedDigest)
+	}
+
+	// 3. Acceptance check: Active runner 1 on old image finishes its job untouched!
+	if containers[cid1].imageID != digestV1 {
+		t.Errorf("expected runner 1 imageID to remain %s untouched, got %s", digestV1, containers[cid1].imageID)
+	}
+	if containers[cid1].status != "running" {
+		t.Errorf("expected runner 1 to still be running its in-flight job, got %s", containers[cid1].status)
+	}
+
+	// 4. Acceptance check: Next spawn uses new digest (digestV2)
+	cid2, err := cli.SpawnRunner(ctx, orchestrator.RunnerConfig{
+		Name:     "runner-next-spawn",
+		PoolName: "prod-pool",
+		Image:    tag,
+	})
+	if err != nil {
+		t.Fatalf("SpawnRunner 2 failed: %v", err)
+	}
+
+	if containers[cid2].imageID != digestV2 {
+		t.Errorf("expected runner 2 to use new digest %s, got %s", digestV2, containers[cid2].imageID)
+	}
+
+	// 5. In-flight job on runner 1 completes and terminates cleanly
+	if err := cli.TerminateRunner(ctx, cid1); err != nil {
+		t.Fatalf("TerminateRunner failed: %v", err)
+	}
+	if _, exists := containers[cid1]; exists {
+		t.Errorf("expected runner 1 to be terminated and removed")
+	}
+
+	// Runner 2 remains active on digestV2
+	if containers[cid2].status != "running" {
+		t.Errorf("expected runner 2 to remain running")
+	}
+}

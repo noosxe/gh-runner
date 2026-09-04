@@ -43,10 +43,11 @@ const mockRunners = [
   },
 ];
 
-const mockMutateAsync = vi.fn();
+const mockTerminateMutateAsync = vi.fn();
 const mockTriggerRenovateAsync = vi.fn();
 const mockUpdatePoolAsync = vi.fn();
 const mockCheckImageUpdateMutate = vi.fn();
+const mockPullImageMutate = vi.fn();
 let mockCheckUpdateState: {
   mutate: (id: bigint) => void;
   isPending: boolean;
@@ -74,10 +75,14 @@ vi.mock("../lib/api/query-hooks", () => ({
     isLoading: false,
   }),
   useTerminateRunner: () => ({
-    mutateAsync: mockMutateAsync,
+    mutateAsync: mockTerminateMutateAsync,
     isPending: false,
   }),
   useCheckImageUpdate: () => mockCheckUpdateState,
+  usePullImage: () => ({
+    mutate: mockPullImageMutate,
+    isPending: false,
+  }),
   useImageUpdates: () => ({
     data: mockImageUpdatesData,
     isLoading: false,
@@ -170,7 +175,7 @@ describe("PoolDetailPage", () => {
   });
 
   it("opens terminate confirmation dialog and triggers terminate mutation", async () => {
-    mockMutateAsync.mockResolvedValueOnce({});
+    mockTerminateMutateAsync.mockResolvedValueOnce({});
     render(<PoolDetailPage />);
 
     const termButtons = screen.getAllByRole("button", { name: /terminate/i });
@@ -184,7 +189,7 @@ describe("PoolDetailPage", () => {
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
-      expect(mockMutateAsync).toHaveBeenCalledWith({
+      expect(mockTerminateMutateAsync).toHaveBeenCalledWith({
         poolId: 10n,
         containerId: "cnt-alpha-1234567890",
       });
@@ -227,7 +232,7 @@ describe("PoolDetailPage", () => {
     expect(mockCheckImageUpdateMutate).toHaveBeenCalledWith(10n);
   });
 
-  it("displays update available feedback when remote digest differs", () => {
+  it("displays update available feedback when remote digest differs and triggers pull", () => {
     mockCheckUpdateState = {
       ...mockCheckUpdateState,
       isSuccess: true,
@@ -236,7 +241,7 @@ describe("PoolDetailPage", () => {
         imageUpdate: {
           poolId: 10n,
           currentDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-          remoteDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          latestDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
         },
       },
     };
@@ -248,6 +253,11 @@ describe("PoolDetailPage", () => {
 
     expect(screen.getByText(/update available/i)).toBeInTheDocument();
     expect(screen.getByText(/sha256:22222222222/)).toBeInTheDocument();
+
+    const pullBtn = screen.getByRole("button", { name: /pull update/i });
+    fireEvent.click(pullBtn);
+
+    expect(mockPullImageMutate).toHaveBeenCalledWith(10n);
   });
 
   it("displays up-to-date feedback when no update is available", () => {

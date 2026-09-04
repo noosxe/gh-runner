@@ -1018,4 +1018,132 @@ func TestPoolController_TaskExitHandlerReap(t *testing.T) {
 	}
 }
 
+func TestPoolController_ImageUpdateHandoff_Replenisher(t *testing.T) {
+	ctx := context.Background()
+	oldImage := "ghcr.io/noosxe/runner-aio:v1.0.0"
+	newImage := "ghcr.io/noosxe/runner-aio:v2.0.0"
+
+	pool := db.RunnerPool{
+		ID:             1,
+		Name:           "handoff-pool",
+		Provider:       "github",
+		RepositoryUrl:  "https://github.com/owner/repo",
+		Scope:          "repo",
+		AuthProfileID:  10,
+		MinIdleRunners: 1,
+		MaxConcurrency: 2,
+		RunnerImage:    oldImage,
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{10: gitProv},
+	}
+
+	var spawnedConfigs []orchestrator.RunnerConfig
+	var terminatedIDs []string
+	var spawnIdx int
+
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			spawnIdx++
+			cid := fmt.Sprintf("cnt-runner-%d", spawnIdx)
+			spawnedConfigs = append(spawnedConfigs, config)
+			return cid, nil
+		},
+		TerminateRunnerFn: func(ctx context.Context, containerID string) error {
+			terminatedIDs = append(terminatedIDs, containerID)
+			return nil
+		},
+	}
+
+	reconciler := orchestrator.NewReconciler(mockEngine)
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine: mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler,
+		Interval:         100 * time.Millisecond,
+		GlobalMaxRunners: 10,
+		DataDir:          t.TempDir(),
+	})
+
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("ctrl.Boot failed: %v", err)
+	}
+
+	// 1. Initial idle runner spawned with oldImage
+	if len(spawnedConfigs) != 1 {
+		t.Fatalf("expected 1 runner spawned at boot, got %d", len(spawnedConfigs))
+	}
+	if spawnedConfigs[0].Image != oldImage {
+		t.Fatalf("expected initial runner to use %s, got %s", oldImage, spawnedConfigs[0].Image)
+	}
+	runner1CID := "cnt-runner-1"
+
+	// 2. Runner 1 picks up a job (in-flight)
+	reconciler.TrackRunner(orchestrator.RunnerStatus{
+		ID:        runner1CID,
+		PoolName:  "handoff-pool",
+		State:     "running",
+		IsBusy:    true,
+		SpawnedAt: time.Now().UTC(),
+	})
+
+	// 3. Image update occurs: pool image is updated to newImage (RUN-67)
+	repo.pools[0].RunnerImage = newImage
+
+	// 4. Replenisher runs to maintain min-idle capacity
+	if err := ctrl.Reconcile(ctx); err != nil {
+		t.Fatalf("ctrl.Reconcile failed: %v", err)
+	}
+
+	// Active runner 1 on old image MUST NOT be terminated while job is in-flight!
+	for _, termID := range terminatedIDs {
+		if termID == runner1CID {
+			t.Fatalf("runner 1 was prematurely terminated while in-flight!")
+		}
+	}
+
+	// Replenisher provisions runner 2 using newImage
+	if len(spawnedConfigs) != 2 {
+		t.Fatalf("expected 2 runners spawned, got %d", len(spawnedConfigs))
+	}
+	if spawnedConfigs[1].Image != newImage {
+		t.Errorf("expected newly replenished runner to use %s, got %s", newImage, spawnedConfigs[1].Image)
+	}
+
+	// 5. In-flight job on runner 1 completes: container exits and is reaped
+	exitEvt := orchestrator.ContainerEvent{
+		ContainerID: runner1CID,
+		PoolName:    "handoff-pool",
+		Action:      "die",
+		ExitCode:    0,
+	}
+	if err := ctrl.HandleContainerEvent(ctx, exitEvt); err != nil {
+		t.Fatalf("HandleContainerEvent failed: %v", err)
+	}
+
+	// Runner 1 is reaped
+	foundReaped := false
+	for _, termID := range terminatedIDs {
+		if termID == runner1CID {
+			foundReaped = true
+			break
+		}
+	}
+	if !foundReaped {
+		t.Errorf("expected runner 1 to be reaped after exit")
+	}
+
+	// Verify all spawned runners after update used newImage
+	for i := 1; i < len(spawnedConfigs); i++ {
+		if spawnedConfigs[i].Image != newImage {
+			t.Errorf("spawned runner %d expected image %s, got %s", i, newImage, spawnedConfigs[i].Image)
+		}
+	}
+}
+
+
 
