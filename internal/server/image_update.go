@@ -27,24 +27,57 @@ type ImagePuller interface {
 	PullImage(ctx context.Context, image string) error
 }
 
+// LocalImageInspector defines methods to inspect local container images on the host (M10, RUN-66).
+type LocalImageInspector interface {
+	GetLocalImageDigest(ctx context.Context, image string) (string, error)
+}
+
+// RegistryChecker defines methods to query remote container image registries (M10, RUN-66).
+type RegistryChecker interface {
+	GetRemoteImageDigest(ctx context.Context, imageRef string) (string, error)
+}
+
+// ImageUpdateOption configures an ImageUpdateService instance.
+type ImageUpdateOption func(*ImageUpdateService)
+
+// WithLocalInspector sets the local image inspector.
+func WithLocalInspector(inspector LocalImageInspector) ImageUpdateOption {
+	return func(s *ImageUpdateService) {
+		s.inspector = inspector
+	}
+}
+
+// WithRegistryChecker sets the remote registry checker.
+func WithRegistryChecker(checker RegistryChecker) ImageUpdateOption {
+	return func(s *ImageUpdateService) {
+		s.registry = checker
+	}
+}
+
 // ImageUpdateService implements supervisorv1connect.ImageUpdateServiceHandler.
 type ImageUpdateService struct {
 	supervisorv1connect.UnimplementedImageUpdateServiceHandler
-	db      ImageUpdateDatabase
-	puller  ImagePuller
-	mu      sync.RWMutex
-	updates map[int64]*supervisorv1.ImageUpdate
-	nextID  int64
+	db        ImageUpdateDatabase
+	puller    ImagePuller
+	inspector LocalImageInspector
+	registry  RegistryChecker
+	mu        sync.RWMutex
+	updates   map[int64]*supervisorv1.ImageUpdate
+	nextID    int64
 }
 
 // NewImageUpdateService creates an ImageUpdateService instance.
-func NewImageUpdateService(database ImageUpdateDatabase, puller ImagePuller) *ImageUpdateService {
-	return &ImageUpdateService{
+func NewImageUpdateService(database ImageUpdateDatabase, puller ImagePuller, opts ...ImageUpdateOption) *ImageUpdateService {
+	s := &ImageUpdateService{
 		db:      database,
 		puller:  puller,
 		updates: make(map[int64]*supervisorv1.ImageUpdate),
 		nextID:  1,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // FlagUpdate manually or programmatically records that a pool has a newer image available.
@@ -67,7 +100,7 @@ func (s *ImageUpdateService) FlagUpdate(poolID int64, currentImage, latestDigest
 	return up
 }
 
-// CheckImageUpdate checks whether a newer runner image is available for a pool.
+// CheckImageUpdate checks whether a newer runner image is available for a pool (docs/01 §2.3, docs/03 §6, RUN-66).
 func (s *ImageUpdateService) CheckImageUpdate(ctx context.Context, req *connect.Request[supervisorv1.CheckImageUpdateRequest]) (*connect.Response[supervisorv1.CheckImageUpdateResponse], error) {
 	poolID := req.Msg.PoolId
 	if poolID <= 0 {
@@ -79,25 +112,60 @@ func (s *ImageUpdateService) CheckImageUpdate(ctx context.Context, req *connect.
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("runner pool %d not found: %w", poolID, err))
 	}
 
-	s.mu.RLock()
-	existing, ok := s.updates[poolID]
-	s.mu.RUnlock()
+	imageRef := strings.TrimSpace(p.RunnerImage)
+	if imageRef == "" {
+		imageRef = "ghcr.io/noosxe/runner-aio:latest"
+	}
 
-	if ok && existing.Status == "available" {
+	var localDigest string
+	if s.inspector != nil {
+		localDigest, _ = s.inspector.GetLocalImageDigest(ctx, imageRef)
+	}
+
+	var remoteDigest string
+	if s.registry != nil {
+		var regErr error
+		remoteDigest, regErr = s.registry.GetRemoteImageDigest(ctx, imageRef)
+		if regErr != nil {
+			return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("registry check failed for %q: %w", imageRef, regErr))
+		}
+	} else {
+		// Fallback when no registry checker configured
+		remoteDigest = imageRef
+		if strings.Contains(imageRef, ":") {
+			parts := strings.Split(imageRef, ":")
+			remoteDigest = parts[0] + ":latest"
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// If local digest is known and matches remote registry digest, image is fully up to date!
+	if localDigest != "" && remoteDigest != "" && localDigest == remoteDigest {
+		if existing, ok := s.updates[poolID]; ok && existing.Status == "available" {
+			existing.Status = "up_to_date"
+			delete(s.updates, poolID)
+		}
 		return connect.NewResponse(&supervisorv1.CheckImageUpdateResponse{
-			UpdateAvailable: true,
-			Update:          existing,
+			UpdateAvailable: false,
+			Update:          nil,
 		}), nil
 	}
 
-	// For default latest images, simulate or check registry digest
-	latestTag := p.RunnerImage
-	if strings.Contains(p.RunnerImage, ":") {
-		parts := strings.Split(p.RunnerImage, ":")
-		latestTag = parts[0] + ":latest"
-	}
+	// Update is available! (either local != remote or local is absent)
+	id := s.nextID
+	s.nextID++
 
-	up := s.FlagUpdate(poolID, p.RunnerImage, latestTag)
+	up := &supervisorv1.ImageUpdate{
+		Id:           id,
+		PoolId:       poolID,
+		CurrentImage: imageRef,
+		LatestDigest: remoteDigest,
+		Status:       "available",
+		CheckedAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	s.updates[poolID] = up
 
 	return connect.NewResponse(&supervisorv1.CheckImageUpdateResponse{
 		UpdateAvailable: true,

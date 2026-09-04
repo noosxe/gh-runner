@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	dockerimage "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -21,19 +22,21 @@ import (
 )
 
 type mockDockerAPI struct {
-	pingFn            func(ctx context.Context) (types.Ping, error)
-	closeFn           func() error
-	containerCreateFn func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error)
-	containerStartFn  func(ctx context.Context, containerID string, options container.StartOptions) error
-	containerStopFn   func(ctx context.Context, containerID string, options container.StopOptions) error
-	containerRemoveFn func(ctx context.Context, containerID string, options container.RemoveOptions) error
-	containerListFn   func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
-	containerLogsFn   func(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error)
-	containersPruneFn func(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
-	eventsFn          func(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
-	networkListFn     func(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
-	networkCreateFn   func(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
-	networkConnectFn  func(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error
+	pingFn                func(ctx context.Context) (types.Ping, error)
+	closeFn               func() error
+	containerCreateFn     func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error)
+	containerStartFn      func(ctx context.Context, containerID string, options container.StartOptions) error
+	containerStopFn       func(ctx context.Context, containerID string, options container.StopOptions) error
+	containerRemoveFn     func(ctx context.Context, containerID string, options container.RemoveOptions) error
+	containerListFn       func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
+	containerLogsFn       func(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error)
+	containersPruneFn     func(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
+	eventsFn              func(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
+	networkListFn         func(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
+	networkCreateFn       func(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
+	networkConnectFn      func(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error
+	imageInspectWithRawFn func(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error)
+	imagePullFn           func(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error)
 }
 
 func (m *mockDockerAPI) Ping(ctx context.Context) (types.Ping, error) {
@@ -125,6 +128,23 @@ func (m *mockDockerAPI) NetworkConnect(ctx context.Context, networkID, container
 		return m.networkConnectFn(ctx, networkID, containerID, config)
 	}
 	return nil
+}
+
+func (m *mockDockerAPI) ImageInspectWithRaw(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error) {
+	if m.imageInspectWithRawFn != nil {
+		return m.imageInspectWithRawFn(ctx, imageID)
+	}
+	return dockerimage.InspectResponse{
+		ID:          "sha256:mock-image-id",
+		RepoDigests: []string{"ghcr.io/noosxe/runner-aio@sha256:mock-repo-digest"},
+	}, nil, nil
+}
+
+func (m *mockDockerAPI) ImagePull(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error) {
+	if m.imagePullFn != nil {
+		return m.imagePullFn(ctx, refStr, options)
+	}
+	return io.NopCloser(strings.NewReader("")), nil
 }
 
 func TestDockerClient_BootstrapAndPing(t *testing.T) {
@@ -768,5 +788,41 @@ func TestDockerClient_CaptureLogs(t *testing.T) {
 	}
 	if entries[1].Content != "Job completed with exit 0" || entries[1].Stream != "stdout" {
 		t.Errorf("unexpected entry 1: %+v", entries[1])
+	}
+}
+
+func TestDockerClient_ImageOperations(t *testing.T) {
+	ctx := context.Background()
+	var pulled string
+	mockAPI := &mockDockerAPI{
+		imagePullFn: func(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error) {
+			pulled = refStr
+			return io.NopCloser(strings.NewReader("")), nil
+		},
+		imageInspectWithRawFn: func(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error) {
+			return dockerimage.InspectResponse{
+				RepoDigests: []string{"ghcr.io/noosxe/runner-aio@sha256:digest-abc"},
+			}, nil, nil
+		},
+	}
+
+	cli, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	if err := cli.PullImage(ctx, "ghcr.io/noosxe/runner-aio:latest"); err != nil {
+		t.Fatalf("PullImage failed: %v", err)
+	}
+	if pulled != "ghcr.io/noosxe/runner-aio:latest" {
+		t.Errorf("expected pulled image %s, got %s", "ghcr.io/noosxe/runner-aio:latest", pulled)
+	}
+
+	digest, err := cli.GetLocalImageDigest(ctx, "ghcr.io/noosxe/runner-aio:latest")
+	if err != nil {
+		t.Fatalf("GetLocalImageDigest failed: %v", err)
+	}
+	if digest != "sha256:digest-abc" {
+		t.Errorf("expected sha256:digest-abc, got %s", digest)
 	}
 }

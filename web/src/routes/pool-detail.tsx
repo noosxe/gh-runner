@@ -8,6 +8,8 @@ import {
   useRenovateHistory,
   useTriggerRenovateRun,
   useUpdatePool,
+  useCheckImageUpdate,
+  useImageUpdates,
 } from "../lib/api/query-hooks";
 import { useWatchRunners, useStreamRunnerLogs } from "../lib/api/streaming-hooks";
 import { LogTerminal } from "../components/terminal/log-terminal";
@@ -30,6 +32,7 @@ import {
   XCircle,
   Loader2,
   Save,
+  RefreshCw,
 } from "lucide-react";
 
 function formatUptime(seconds: number | bigint): string {
@@ -58,6 +61,9 @@ export function PoolDetailPage() {
   const [runnerToTerminate, setRunnerToTerminate] = useState<RunnerInstance | null>(null);
 
   const terminateMutation = useTerminateRunner();
+  const { data: updates } = useImageUpdates();
+  const checkUpdateMutation = useCheckImageUpdate();
+  const poolUpdate = updates?.find((u) => u.poolId === poolIdBigInt);
 
   const handleConfirmTerminate = async () => {
     if (!runnerToTerminate || !pool) return;
@@ -389,11 +395,72 @@ export function PoolDetailPage() {
               </div>
             </div>
 
-            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800">
-              <span className="text-slate-400">Runner Container Image</span>
-              <div className="mt-1 font-mono font-semibold text-slate-900 dark:text-white">
-                {pool.runnerImage || "ghcr.io/noosxe/runner-aio:latest"}
+            <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Runner Container Image</span>
+                  <button
+                    type="button"
+                    onClick={() => checkUpdateMutation.mutate(poolIdBigInt)}
+                    disabled={checkUpdateMutation.isPending}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    {checkUpdateMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    <span>
+                      {checkUpdateMutation.isPending ? "Checking..." : "Check for Updates"}
+                    </span>
+                  </button>
+                </div>
+                <div className="mt-1 font-mono font-semibold text-slate-900 dark:text-white break-all">
+                  {pool.runnerImage || "ghcr.io/noosxe/runner-aio:latest"}
+                </div>
               </div>
+
+              {checkUpdateMutation.isSuccess && (
+                <div className="mt-3 text-xs">
+                  {checkUpdateMutation.data.updateAvailable ? (
+                    <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        Update available:{" "}
+                        <code className="font-mono text-[11px]">
+                          {checkUpdateMutation.data.imageUpdate?.remoteDigest
+                            ? `${checkUpdateMutation.data.imageUpdate.remoteDigest.slice(0, 19)}...`
+                            : "Newer version in registry"}
+                        </code>
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                      <span>Image is up-to-date with registry</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {checkUpdateMutation.isError && (
+                <div className="mt-3 flex items-center gap-1.5 text-xs text-rose-600 dark:text-rose-400 font-medium">
+                  <XCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span>Check failed: {checkUpdateMutation.error.message}</span>
+                </div>
+              )}
+
+              {!checkUpdateMutation.isSuccess && !checkUpdateMutation.isError && poolUpdate && (
+                <div className="mt-3 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Update available:{" "}
+                    <code className="font-mono text-[11px]">
+                      {poolUpdate.remoteDigest.slice(0, 19)}...
+                    </code>
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800">

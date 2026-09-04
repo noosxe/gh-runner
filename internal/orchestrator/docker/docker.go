@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	dockerimage "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -46,6 +47,8 @@ type APIClient interface {
 	NetworkList(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
 	NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
 	NetworkConnect(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error
+	ImageInspectWithRaw(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error)
+	ImagePull(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error)
 }
 
 // Client implements orchestrator.ContainerProvider using the Docker Engine API.
@@ -688,4 +691,55 @@ func (c *Client) StreamLogs(ctx context.Context, containerID string) (io.ReadClo
 	return stream, nil
 }
 
+// PullImage downloads an image using the Docker daemon (M10, RUN-66, RUN-67).
+func (c *Client) PullImage(ctx context.Context, img string) error {
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		return ErrNilClient
+	}
+
+	rc, err := docker.ImagePull(ctx, img, dockerimage.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("pulling image %s: %w", img, err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	_, _ = io.Copy(io.Discard, rc)
+	return nil
+}
+
+// GetLocalImageDigest retrieves the image digest or ID for an image present on the Docker host (M10, RUN-66).
+func (c *Client) GetLocalImageDigest(ctx context.Context, img string) (string, error) {
+	c.mu.RLock()
+	docker := c.docker
+	c.mu.RUnlock()
+
+	if docker == nil {
+		return "", ErrNilClient
+	}
+
+	resp, _, err := docker.ImageInspectWithRaw(ctx, img)
+	if err != nil {
+		return "", fmt.Errorf("inspecting local image %s: %w", img, err)
+	}
+
+	if len(resp.RepoDigests) > 0 {
+		for _, rd := range resp.RepoDigests {
+			if idx := strings.LastIndex(rd, "@"); idx != -1 {
+				return rd[idx+1:], nil
+			}
+		}
+		return resp.RepoDigests[0], nil
+	}
+	if resp.Descriptor != nil && resp.Descriptor.Digest != "" {
+		return string(resp.Descriptor.Digest), nil
+	}
+	return resp.ID, nil
+}
+
 var _ orchestrator.ContainerProvider = (*Client)(nil)
+var _ server.ImagePuller = (*Client)(nil)
+var _ server.LocalImageInspector = (*Client)(nil)
