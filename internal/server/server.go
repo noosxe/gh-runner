@@ -140,6 +140,14 @@ type Options struct {
 	// RenovateDB is the database interface used for Renovate runs and configurations (RUN-65).
 	// If nil and PoolDB is provided, PoolDB is used as RenovateDB.
 	RenovateDB RenovateDatabase
+
+	// WebhookReceiver processes POST /hooks/{provider} incoming webhooks (M11, RUN-68).
+	WebhookReceiver WebhookHandler
+}
+
+// WebhookHandler handles incoming POST /hooks/{provider} requests (M11, RUN-68).
+type WebhookHandler interface {
+	Handle(ctx context.Context, provider string, req *http.Request, w http.ResponseWriter)
 }
 
 // CronScheduler provides status and scheduling queries for scheduled tasks (docs/03 §5).
@@ -163,6 +171,7 @@ type Server struct {
 	staticFS         fs.FS
 	authDB           AuthDatabase
 	jwtSecret        []byte
+	webhookReceiver  WebhookHandler
 	cronScheduler    CronScheduler
 	renovateExecutor RenovateExecutor
 }
@@ -177,11 +186,12 @@ func New(opts Options) *Server {
 	e.Logger = logger
 
 	s := &Server{
-		echo:      e,
-		health:    opts.Health,
-		staticFS:  opts.StaticFS,
+		echo:             e,
+		health:           opts.Health,
+		staticFS:         opts.StaticFS,
 		authDB:           opts.AuthDB,
 		jwtSecret:        opts.JWTSigningSecret,
+		webhookReceiver:  opts.WebhookReceiver,
 		cronScheduler:    opts.CronScheduler,
 		renovateExecutor: opts.RenovateExecutor,
 	}
@@ -274,6 +284,11 @@ func New(opts Options) *Server {
 		renovateSvc := NewRenovateService(renovateDB, opts.RenovateExecutor, opts.CronScheduler)
 		path, handler := supervisorv1connect.NewRenovateServiceHandler(renovateSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
+	}
+
+	// Mount WebhookReceiver if provided (M11, RUN-68)
+	if s.webhookReceiver != nil {
+		e.POST("/hooks/:provider", s.handleWebhook)
 	}
 
 	// SPA fallback routes (catch-all GET/HEAD, falls back to index.html)
@@ -372,8 +387,8 @@ func (s *Server) serveSPA(c *echo.Context) error {
 	}
 
 	reqPath := strings.TrimPrefix(c.Request().URL.Path, "/")
-	// Never serve SPA index.html for API / Connect RPC endpoints
-	if strings.HasPrefix(reqPath, "supervisor.v1.") || strings.HasPrefix(reqPath, "healthz") || strings.HasPrefix(reqPath, "readyz") {
+	// Never serve SPA index.html for API / Connect RPC / webhook endpoints
+	if strings.HasPrefix(reqPath, "supervisor.v1.") || strings.HasPrefix(reqPath, "healthz") || strings.HasPrefix(reqPath, "readyz") || strings.HasPrefix(reqPath, "hooks") {
 		return c.String(http.StatusNotFound, "not found")
 	}
 
@@ -431,6 +446,11 @@ func (s *Server) securityMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		res.Header().Set(HeaderXContentTypeOptions, ValueXContentTypeOptions)
 		res.Header().Set(HeaderCSP, ValueCSP)
 		res.Header().Set(HeaderReferrerPolicy, ValueReferrerPolicy)
+
+		// Bypass CORS for server-to-server webhook receiver endpoints (docs/03 §4, RUN-68)
+		if strings.HasPrefix(req.URL.Path, "/hooks") {
+			return next(c)
+		}
 
 		// 2. Strict CORS denial: same-origin only (SPA + API share origin)
 		origin := req.Header.Get("Origin")
@@ -499,6 +519,17 @@ func (s *Server) CronScheduler() CronScheduler {
 // RenovateExecutor returns the configured renovate executor, if any (RUN-64, RUN-65).
 func (s *Server) RenovateExecutor() RenovateExecutor {
 	return s.renovateExecutor
+}
+
+// WebhookReceiver returns the configured webhook receiver, if any (M11, RUN-68).
+func (s *Server) WebhookReceiver() WebhookHandler {
+	return s.webhookReceiver
+}
+
+func (s *Server) handleWebhook(c *echo.Context) error {
+	provider := c.Param("provider")
+	s.webhookReceiver.Handle(c.Request().Context(), provider, c.Request(), c.Response())
+	return nil
 }
 
 
