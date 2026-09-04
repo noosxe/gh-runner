@@ -27,11 +27,11 @@ func TestInitialSchemaTablesAndSeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version failed: %v", err)
 	}
-	if ver != 1 {
-		t.Fatalf("database version = %d, want 1", ver)
+	if ver != 2 {
+		t.Fatalf("database version = %d, want 2", ver)
 	}
 
-	// Verify all 8 tables and their columns field-for-field per docs/07.
+	// Verify all 9 tables and their columns field-for-field per docs/07.
 	expectedTables := map[string][]string{
 		"admin_users": {
 			"id", "username", "password_hash", "created_at", "updated_at",
@@ -50,6 +50,9 @@ func TestInitialSchemaTablesAndSeeds(t *testing.T) {
 		},
 		"renovate_configs": {
 			"id", "pool_id", "enabled", "cron_schedule", "image", "created_at", "updated_at",
+		},
+		"renovate_runs": {
+			"id", "pool_id", "status", "started_at", "completed_at", "summary", "container_id", "created_at",
 		},
 		"job_history": {
 			"id", "pool_id", "runner_name", "status", "queued_at", "started_at", "completed_at", "log_retention_path", "created_at",
@@ -144,26 +147,31 @@ func TestInitialSchemaUpDownIdempotent(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Initial state: version 1
+	// Initial state: version 2
 	ver, err := database.Version(ctx, nil)
-	if err != nil || ver != 1 {
-		t.Fatalf("Version after boot = %d (err: %v), want 1", ver, err)
+	if err != nil || ver != 2 {
+		t.Fatalf("Version after boot = %d (err: %v), want 2", ver, err)
 	}
 
-	// Rollback: version should be 0, all 8 tables dropped
-	if err := database.Rollback(ctx, nil); err != nil {
-		t.Fatalf("Rollback failed: %v", err)
+	// Rollback all migrations down to version 0
+	for ver > 0 {
+		if err := database.Rollback(ctx, nil); err != nil {
+			t.Fatalf("Rollback failed: %v", err)
+		}
+		ver, err = database.Version(ctx, nil)
+		if err != nil {
+			t.Fatalf("Version check failed: %v", err)
+		}
 	}
 
-	verDown, err := database.Version(ctx, nil)
-	if err != nil || verDown != 0 {
-		t.Fatalf("Version after Rollback = %d (err: %v), want 0", verDown, err)
+	if ver != 0 {
+		t.Fatalf("Version after Rollback = %d, want 0", ver)
 	}
 
 	// Verify tables are dropped
 	for _, table := range []string{
 		"admin_users", "sessions", "auth_profiles", "runner_pools",
-		"renovate_configs", "job_history", "audit_logs", "app_settings",
+		"renovate_configs", "renovate_runs", "job_history", "audit_logs", "app_settings",
 	} {
 		cols := getTableColumns(t, database, table)
 		if len(cols) > 0 {
@@ -171,14 +179,14 @@ func TestInitialSchemaUpDownIdempotent(t *testing.T) {
 		}
 	}
 
-	// Migrate up again: should succeed and restore version 1
+	// Migrate up again: should succeed and restore version 2
 	if err := database.Migrate(ctx, nil); err != nil {
 		t.Fatalf("Migrate up after rollback failed: %v", err)
 	}
 
 	verUp, err := database.Version(ctx, nil)
-	if err != nil || verUp != 1 {
-		t.Fatalf("Version after Migrate up = %d (err: %v), want 1", verUp, err)
+	if err != nil || verUp != 2 {
+		t.Fatalf("Version after Migrate up = %d (err: %v), want 2", verUp, err)
 	}
 
 	// Verify app_settings seeded again

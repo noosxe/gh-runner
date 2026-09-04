@@ -66,6 +66,17 @@ type RenovateConfig struct {
 	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
+type RenovateRun struct {
+	ID          int64          `json:"id"`
+	PoolID      int64          `json:"pool_id"`
+	Status      string         `json:"status"`
+	StartedAt   time.Time      `json:"started_at"`
+	CompletedAt sql.NullTime   `json:"completed_at"`
+	Summary     string         `json:"summary"`
+	ContainerID sql.NullString `json:"container_id"`
+	CreatedAt   time.Time      `json:"created_at"`
+}
+
 type RunnerPool struct {
 	ID                       int64          `json:"id"`
 	Name                     string         `json:"name"`

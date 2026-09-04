@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -960,4 +961,61 @@ func TestPoolController_PerPoolSettingsRuntimeReload(t *testing.T) {
 		t.Fatalf("expected 0 active runners after pool deletion, got %d", ctrl.TotalActiveRunners())
 	}
 }
+
+type mockTaskExitHandler struct {
+	handledIDs []string
+	exitCodes  []int
+}
+
+func (m *mockTaskExitHandler) HandleContainerExit(ctx context.Context, containerID string, exitCode int, logPath string) (bool, error) {
+	if strings.HasPrefix(containerID, "renovate-task-") {
+		m.handledIDs = append(m.handledIDs, containerID)
+		m.exitCodes = append(m.exitCodes, exitCode)
+		return true, nil
+	}
+	return false, nil
+}
+
+func TestPoolController_TaskExitHandlerReap(t *testing.T) {
+	ctx := context.Background()
+	var terminated []string
+	engine := &orchestrator.MockContainerProvider{
+		TerminateRunnerFn: func(ctx context.Context, containerID string) error {
+			terminated = append(terminated, containerID)
+			return nil
+		},
+	}
+	taskHandler := &mockTaskExitHandler{}
+
+	mockDB := &mockPoolRepo{pools: []db.RunnerPool{}}
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:              mockDB,
+		ContainerEngine: engine,
+		TaskExitHandler: taskHandler,
+	})
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("ctrl.Boot failed: %v", err)
+	}
+
+	// 1. Task container exit event
+	evt := orchestrator.ContainerEvent{
+		ContainerID: "renovate-task-cid-1",
+		PoolName:    "prod-pool",
+		Action:      "die",
+		ExitCode:    0,
+	}
+
+	if err := ctrl.HandleContainerEvent(ctx, evt); err != nil {
+		t.Fatalf("HandleContainerEvent failed: %v", err)
+	}
+
+	if len(taskHandler.handledIDs) != 1 || taskHandler.handledIDs[0] != "renovate-task-cid-1" {
+		t.Fatalf("expected task handler to handle renovate container, got %v", taskHandler.handledIDs)
+	}
+
+	if len(terminated) != 1 || terminated[0] != "renovate-task-cid-1" {
+		t.Fatalf("expected task container to be terminated/reaped, got %v", terminated)
+	}
+}
+
 

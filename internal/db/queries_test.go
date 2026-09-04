@@ -441,7 +441,75 @@ func TestQueriesRoundTrip(t *testing.T) {
 		}
 	})
 
-	// 9. Transactions via WithTx
+	// 9. renovate_runs
+	t.Run("renovate_runs", func(t *testing.T) {
+		pools, err := database.ListRunnerPools(ctx)
+		if err != nil || len(pools) == 0 {
+			t.Fatalf("ListRunnerPools failed: %v", err)
+		}
+		poolID := pools[0].ID
+
+		count, err := database.CountRenovateRunsByPoolId(ctx, poolID)
+		if err != nil || count != 0 {
+			t.Fatalf("CountRenovateRunsByPoolId = %d (err: %v), want 0", count, err)
+		}
+
+		now := time.Now().UTC()
+		run, err := database.CreateRenovateRun(ctx, CreateRenovateRunParams{
+			PoolID:    poolID,
+			Status:    "running",
+			StartedAt: now,
+		})
+		if err != nil {
+			t.Fatalf("CreateRenovateRun failed: %v", err)
+		}
+		if run.Status != "running" || run.PoolID != poolID {
+			t.Fatalf("unexpected renovate run: %+v", run)
+		}
+
+		err = database.UpdateRenovateRunContainerID(ctx, UpdateRenovateRunContainerIDParams{
+			ContainerID: sql.NullString{String: "c-123", Valid: true},
+			ID:          run.ID,
+		})
+		if err != nil {
+			t.Fatalf("UpdateRenovateRunContainerID failed: %v", err)
+		}
+
+		byContainer, err := database.GetRenovateRunByContainerID(ctx, sql.NullString{String: "c-123", Valid: true})
+		if err != nil || byContainer.ID != run.ID {
+			t.Fatalf("GetRenovateRunByContainerID failed: %v, got %+v", err, byContainer)
+		}
+
+		completedAt := time.Now().UTC()
+		completed, err := database.CompleteRenovateRun(ctx, CompleteRenovateRunParams{
+			Status:      "success",
+			CompletedAt: sql.NullTime{Time: completedAt, Valid: true},
+			Summary:     "3 PRs created",
+			ID:          run.ID,
+		})
+		if err != nil {
+			t.Fatalf("CompleteRenovateRun failed: %v", err)
+		}
+		if completed.Status != "success" || completed.Summary != "3 PRs created" {
+			t.Fatalf("unexpected completed run: %+v", completed)
+		}
+
+		latest, err := database.GetLatestRenovateRunByPoolId(ctx, poolID)
+		if err != nil || latest.ID != run.ID {
+			t.Fatalf("GetLatestRenovateRunByPoolId failed: %v, got %+v", err, latest)
+		}
+
+		runsList, err := database.ListRenovateRunsByPoolId(ctx, ListRenovateRunsByPoolIdParams{
+			PoolID: poolID,
+			Limit:  10,
+			Offset: 0,
+		})
+		if err != nil || len(runsList) != 1 {
+			t.Fatalf("ListRenovateRunsByPoolId failed: %v, count %d", err, len(runsList))
+		}
+	})
+
+	// 10. Transactions via WithTx
 	t.Run("transactions_with_tx", func(t *testing.T) {
 		tx, err := database.SQL().BeginTx(ctx, nil)
 		if err != nil {

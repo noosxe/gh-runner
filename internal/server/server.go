@@ -13,6 +13,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/labstack/echo/v5"
+	"github.com/noosxe/gh-runner/internal/db"
 	"github.com/noosxe/gh-runner/internal/pb/supervisor/v1/supervisorv1connect"
 	"github.com/noosxe/gh-runner/web"
 )
@@ -126,6 +127,9 @@ type Options struct {
 
 	// CronScheduler provides scheduled task status and next-run queries (docs/03 §5, RUN-63, RUN-65).
 	CronScheduler CronScheduler
+
+	// RenovateExecutor handles Renovate bot task execution (docs/03 §5, RUN-64, RUN-65).
+	RenovateExecutor RenovateExecutor
 }
 
 // CronScheduler provides status and scheduling queries for scheduled tasks (docs/03 §5).
@@ -133,17 +137,24 @@ type CronScheduler interface {
 	NextRun(poolID int64) (time.Time, error)
 }
 
+// RenovateExecutor handles manual and scheduled executions of Renovate bot tasks (docs/03 §5, RUN-64, RUN-65).
+type RenovateExecutor interface {
+	Execute(ctx context.Context, poolID int64) (*db.RenovateRun, error)
+	HandleContainerExit(ctx context.Context, containerID string, exitCode int, logPath string) (bool, error)
+}
+
 // Server is the supervisor's HTTP server: an Echo v5 instance (docs/06 §1)
 // that serves health endpoints, ConnectRPC services (binary transport mandatory),
 // and the embedded SPA.
 type Server struct {
-	echo          *echo.Echo
-	http          *http.Server
-	health        *Health
-	staticFS      fs.FS
-	authDB        AuthDatabase
-	jwtSecret     []byte
-	cronScheduler CronScheduler
+	echo             *echo.Echo
+	http             *http.Server
+	health           *Health
+	staticFS         fs.FS
+	authDB           AuthDatabase
+	jwtSecret        []byte
+	cronScheduler    CronScheduler
+	renovateExecutor RenovateExecutor
 }
 
 // New builds the server and its routes. Construction is infallible: routes
@@ -159,9 +170,10 @@ func New(opts Options) *Server {
 		echo:      e,
 		health:    opts.Health,
 		staticFS:  opts.StaticFS,
-		authDB:        opts.AuthDB,
-		jwtSecret:     opts.JWTSigningSecret,
-		cronScheduler: opts.CronScheduler,
+		authDB:           opts.AuthDB,
+		jwtSecret:        opts.JWTSigningSecret,
+		cronScheduler:    opts.CronScheduler,
+		renovateExecutor: opts.RenovateExecutor,
 	}
 	if s.health == nil {
 		s.health = NewHealth()
@@ -453,4 +465,10 @@ func isSameOrigin(originStr, expectedHost string) bool {
 func (s *Server) CronScheduler() CronScheduler {
 	return s.cronScheduler
 }
+
+// RenovateExecutor returns the configured renovate executor, if any (RUN-64, RUN-65).
+func (s *Server) RenovateExecutor() RenovateExecutor {
+	return s.renovateExecutor
+}
+
 

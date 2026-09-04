@@ -11,11 +11,14 @@ import (
 )
 
 type Querier interface {
+	CompleteRenovateRun(ctx context.Context, arg CompleteRenovateRunParams) (RenovateRun, error)
+	CompleteRenovateRunByContainerID(ctx context.Context, arg CompleteRenovateRunByContainerIDParams) (RenovateRun, error)
 	CountAdminUsers(ctx context.Context) (int64, error)
 	CountAuditLogs(ctx context.Context) (int64, error)
 	CountAuthProfiles(ctx context.Context) (int64, error)
 	CountJobHistory(ctx context.Context) (int64, error)
 	CountJobHistoryByPoolId(ctx context.Context, poolID int64) (int64, error)
+	CountRenovateRunsByPoolId(ctx context.Context, poolID int64) (int64, error)
 	CountRunnerPools(ctx context.Context) (int64, error)
 	CountSearchJobHistory(ctx context.Context, arg CountSearchJobHistoryParams) (int64, error)
 	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (AdminUser, error)
@@ -23,6 +26,7 @@ type Querier interface {
 	CreateAuthProfile(ctx context.Context, arg CreateAuthProfileParams) (AuthProfile, error)
 	CreateJobHistory(ctx context.Context, arg CreateJobHistoryParams) (JobHistory, error)
 	CreateRenovateConfig(ctx context.Context, arg CreateRenovateConfigParams) (RenovateConfig, error)
+	CreateRenovateRun(ctx context.Context, arg CreateRenovateRunParams) (RenovateRun, error)
 	CreateRunnerPool(ctx context.Context, arg CreateRunnerPoolParams) (RunnerPool, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	DeleteAdminUser(ctx context.Context, id int64) error
@@ -31,6 +35,7 @@ type Querier interface {
 	DeleteExpiredSessions(ctx context.Context, expiresAt time.Time) error
 	DeleteJobHistoryOlderThan(ctx context.Context, completedAt sql.NullTime) error
 	DeleteRenovateConfigByPoolId(ctx context.Context, poolID int64) error
+	DeleteRenovateRunsByPoolId(ctx context.Context, poolID int64) error
 	DeleteRunnerPool(ctx context.Context, id int64) error
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
 	DeleteSessionsByUserId(ctx context.Context, userID int64) error
@@ -43,7 +48,10 @@ type Querier interface {
 	GetHourlyJobStatsSince(ctx context.Context, createdAt time.Time) ([]GetHourlyJobStatsSinceRow, error)
 	GetJobHistoryById(ctx context.Context, id int64) (JobHistory, error)
 	GetJobStatsSince(ctx context.Context, createdAt time.Time) (GetJobStatsSinceRow, error)
+	GetLatestRenovateRunByPoolId(ctx context.Context, poolID int64) (RenovateRun, error)
 	GetRenovateConfigByPoolId(ctx context.Context, poolID int64) (RenovateConfig, error)
+	GetRenovateRun(ctx context.Context, id int64) (RenovateRun, error)
+	GetRenovateRunByContainerID(ctx context.Context, containerID sql.NullString) (RenovateRun, error)
 	GetRunnerPoolById(ctx context.Context, id int64) (RunnerPool, error)
 	GetRunnerPoolByName(ctx context.Context, name string) (RunnerPool, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
@@ -56,6 +64,7 @@ type Querier interface {
 	ListJobHistory(ctx context.Context, arg ListJobHistoryParams) ([]JobHistory, error)
 	ListJobHistoryByPoolId(ctx context.Context, arg ListJobHistoryByPoolIdParams) ([]JobHistory, error)
 	ListRenovateConfigs(ctx context.Context) ([]RenovateConfig, error)
+	ListRenovateRunsByPoolId(ctx context.Context, arg ListRenovateRunsByPoolIdParams) ([]RenovateRun, error)
 	ListRunnerPools(ctx context.Context) ([]RunnerPool, error)
 	ListSessionsByUserId(ctx context.Context, userID int64) ([]Session, error)
 	PruneJobHistoryOlderThan(ctx context.Context, arg PruneJobHistoryOlderThanParams) ([]PruneJobHistoryOlderThanRow, error)
@@ -65,6 +74,7 @@ type Querier interface {
 	UpdateAuthProfile(ctx context.Context, arg UpdateAuthProfileParams) (AuthProfile, error)
 	UpdateJobHistoryStatus(ctx context.Context, arg UpdateJobHistoryStatusParams) (JobHistory, error)
 	UpdateRenovateConfig(ctx context.Context, arg UpdateRenovateConfigParams) (RenovateConfig, error)
+	UpdateRenovateRunContainerID(ctx context.Context, arg UpdateRenovateRunContainerIDParams) error
 	UpdateRunnerPool(ctx context.Context, arg UpdateRunnerPoolParams) (RunnerPool, error)
 }
 
