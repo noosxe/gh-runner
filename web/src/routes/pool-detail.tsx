@@ -10,6 +10,7 @@ import {
   useUpdatePool,
   useCheckImageUpdate,
   useImageUpdates,
+  usePullImage,
 } from "../lib/api/query-hooks";
 import { useWatchRunners, useStreamRunnerLogs } from "../lib/api/streaming-hooks";
 import { LogTerminal } from "../components/terminal/log-terminal";
@@ -33,6 +34,7 @@ import {
   Loader2,
   Save,
   RefreshCw,
+  DownloadCloud,
 } from "lucide-react";
 
 function formatUptime(seconds: number | bigint): string {
@@ -63,6 +65,7 @@ export function PoolDetailPage() {
   const terminateMutation = useTerminateRunner();
   const { data: updates } = useImageUpdates();
   const checkUpdateMutation = useCheckImageUpdate();
+  const pullImageMutation = usePullImage();
   const poolUpdate = updates?.find((u) => u.poolId === poolIdBigInt);
 
   const handleConfirmTerminate = async () => {
@@ -423,16 +426,31 @@ export function PoolDetailPage() {
               {checkUpdateMutation.isSuccess && (
                 <div className="mt-3 text-xs">
                   {checkUpdateMutation.data.updateAvailable ? (
-                    <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                      <span>
-                        Update available:{" "}
-                        <code className="font-mono text-[11px]">
-                          {checkUpdateMutation.data.imageUpdate?.remoteDigest
-                            ? `${checkUpdateMutation.data.imageUpdate.remoteDigest.slice(0, 19)}...`
-                            : "Newer version in registry"}
-                        </code>
-                      </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          Update available:{" "}
+                          <code className="font-mono text-[11px]">
+                            {checkUpdateMutation.data.imageUpdate?.latestDigest
+                              ? `${checkUpdateMutation.data.imageUpdate.latestDigest.slice(0, 19)}...`
+                              : "Newer version in registry"}
+                          </code>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => pullImageMutation.mutate(poolIdBigInt)}
+                        disabled={pullImageMutation.isPending}
+                        className="inline-flex items-center gap-1 rounded-md bg-amber-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-700 disabled:opacity-50 dark:bg-amber-500 dark:hover:bg-amber-600 transition-colors"
+                      >
+                        {pullImageMutation.isPending ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <DownloadCloud className="h-3 w-3" />
+                        )}
+                        <span>{pullImageMutation.isPending ? "Pulling..." : "Pull Update"}</span>
+                      </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
@@ -451,14 +469,29 @@ export function PoolDetailPage() {
               )}
 
               {!checkUpdateMutation.isSuccess && !checkUpdateMutation.isError && poolUpdate && (
-                <div className="mt-3 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    Update available:{" "}
-                    <code className="font-mono text-[11px]">
-                      {poolUpdate.remoteDigest.slice(0, 19)}...
-                    </code>
-                  </span>
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      Update available:{" "}
+                      <code className="font-mono text-[11px]">
+                        {poolUpdate.latestDigest.slice(0, 19)}...
+                      </code>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => pullImageMutation.mutate(poolIdBigInt)}
+                    disabled={pullImageMutation.isPending}
+                    className="inline-flex items-center gap-1 rounded-md bg-amber-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-700 disabled:opacity-50 dark:bg-amber-500 dark:hover:bg-amber-600 transition-colors"
+                  >
+                    {pullImageMutation.isPending ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <DownloadCloud className="h-3 w-3" />
+                    )}
+                    <span>{pullImageMutation.isPending ? "Pulling..." : "Pull Update"}</span>
+                  </button>
                 </div>
               )}
             </div>

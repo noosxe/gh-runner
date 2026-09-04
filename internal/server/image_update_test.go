@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/noosxe/gh-runner/internal/db"
@@ -36,7 +38,9 @@ func (m *mockImageUpdateDB) GetRunnerPoolById(_ context.Context, id int64) (db.R
 
 func (m *mockImageUpdateDB) CreateAuditLog(_ context.Context, arg db.CreateAuditLogParams) (db.AuditLog, error) {
 	l := db.AuditLog{
-		Action: arg.Action,
+		ID:        int64(len(m.logs) + 1),
+		Action:    arg.Action,
+		CreatedAt: time.Now().UTC(),
 	}
 	m.logs = append(m.logs, l)
 	return l, nil
@@ -44,10 +48,14 @@ func (m *mockImageUpdateDB) CreateAuditLog(_ context.Context, arg db.CreateAudit
 
 type mockImagePuller struct {
 	pulledImages []string
+	pullFn       func(ctx context.Context, image string) error
 }
 
-func (m *mockImagePuller) PullImage(_ context.Context, image string) error {
+func (m *mockImagePuller) PullImage(ctx context.Context, image string) error {
 	m.pulledImages = append(m.pulledImages, image)
+	if m.pullFn != nil {
+		return m.pullFn(ctx, image)
+	}
 	return nil
 }
 
@@ -396,6 +404,214 @@ func TestCheckImageUpdate_RegistryError(t *testing.T) {
 	}
 	if connect.CodeOf(err) != connect.CodeUnavailable {
 		t.Errorf("expected CodeUnavailable, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestImageUpdate_BackgroundPullAndStatusTransition(t *testing.T) {
+	ctx := context.Background()
+	testImage := "ghcr.io/noosxe/runner-aio:v1.1.0"
+	bumpedDigest := "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+
+	mockDB := &mockImageUpdateDB{
+		pools: map[int64]db.RunnerPool{
+			42: {ID: 42, Name: "pool-async", RunnerImage: testImage},
+		},
+	}
+
+	pullStarted := make(chan struct{})
+	pullDone := make(chan struct{})
+	mockPuller := &mockImagePuller{
+		pullFn: func(ctx context.Context, img string) error {
+			close(pullStarted)
+			<-pullDone
+			return nil
+		},
+	}
+
+	onCompleteCalled := make(chan error, 1)
+	svc := NewImageUpdateService(mockDB, mockPuller,
+		WithOnPullComplete(func(poolID int64, err error) {
+			onCompleteCalled <- err
+		}),
+	)
+
+	// Flag an available update first
+	up := svc.FlagUpdate(42, testImage, bumpedDigest)
+	if up.Status != "available" {
+		t.Fatalf("expected status available, got %s", up.Status)
+	}
+
+	mux := http.NewServeMux()
+	path, handler := supervisorv1connect.NewImageUpdateServiceHandler(svc, BinaryConnectHandlerOptions()...)
+	mux.Handle(path, handler)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := supervisorv1connect.NewImageUpdateServiceClient(srv.Client(), srv.URL)
+
+	// Call PullImage (triggers background pull)
+	pullRes, err := client.PullImage(ctx, connect.NewRequest(&supervisorv1.PullImageRequest{PoolId: 42}))
+	if err != nil {
+		t.Fatalf("PullImage failed: %v", err)
+	}
+	if !pullRes.Msg.Success {
+		t.Fatalf("expected success=true from PullImage")
+	}
+
+	// Wait until puller goroutine starts
+	select {
+	case <-pullStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for pull to start")
+	}
+
+	// Status while pulling should be "pulling"
+	listRes, err := client.ListImageUpdates(ctx, connect.NewRequest(&supervisorv1.ListImageUpdatesRequest{PoolId: 42}))
+	if err != nil {
+		t.Fatalf("ListImageUpdates failed: %v", err)
+	}
+	if len(listRes.Msg.Updates) != 1 {
+		t.Fatalf("expected 1 update while pulling, got %d", len(listRes.Msg.Updates))
+	}
+	if listRes.Msg.Updates[0].Status != "pulling" {
+		t.Errorf("expected status=pulling, got %s", listRes.Msg.Updates[0].Status)
+	}
+
+	// Allow pull to complete
+	close(pullDone)
+
+	select {
+	case err := <-onCompleteCalled:
+		if err != nil {
+			t.Fatalf("expected nil error on complete, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for onComplete callback")
+	}
+
+	// After completion, update is resolved / deleted
+	listResAfter, err := client.ListImageUpdates(ctx, connect.NewRequest(&supervisorv1.ListImageUpdatesRequest{PoolId: 42}))
+	if err != nil {
+		t.Fatalf("ListImageUpdates after pull failed: %v", err)
+	}
+	if len(listResAfter.Msg.Updates) != 0 {
+		t.Errorf("expected 0 updates after pull completion, got %d", len(listResAfter.Msg.Updates))
+	}
+}
+
+func TestImageUpdate_BackgroundPullFailure(t *testing.T) {
+	ctx := context.Background()
+	testImage := "ghcr.io/noosxe/runner-aio:v1.2.0"
+
+	mockDB := &mockImageUpdateDB{
+		pools: map[int64]db.RunnerPool{
+			77: {ID: 77, Name: "pool-fail", RunnerImage: testImage},
+		},
+	}
+
+	mockPuller := &mockImagePuller{
+		pullFn: func(ctx context.Context, img string) error {
+			return errors.New("network timeout during layer download")
+		},
+	}
+
+	onCompleteCalled := make(chan error, 1)
+	svc := NewImageUpdateService(mockDB, mockPuller,
+		WithOnPullComplete(func(poolID int64, err error) {
+			onCompleteCalled <- err
+		}),
+	)
+
+	svc.FlagUpdate(77, testImage, "sha256:fail")
+
+	mux := http.NewServeMux()
+	path, handler := supervisorv1connect.NewImageUpdateServiceHandler(svc, BinaryConnectHandlerOptions()...)
+	mux.Handle(path, handler)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := supervisorv1connect.NewImageUpdateServiceClient(srv.Client(), srv.URL)
+
+	// Trigger background pull
+	_, err := client.PullImage(ctx, connect.NewRequest(&supervisorv1.PullImageRequest{PoolId: 77}))
+	if err != nil {
+		t.Fatalf("PullImage request failed: %v", err)
+	}
+
+	// Wait for completion callback
+	select {
+	case pullErr := <-onCompleteCalled:
+		if pullErr == nil {
+			t.Fatalf("expected pull error, got nil")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for onComplete callback")
+	}
+
+	// Update status must be reverted to "available" so admin can retry
+	listRes, err := client.ListImageUpdates(ctx, connect.NewRequest(&supervisorv1.ListImageUpdatesRequest{PoolId: 77}))
+	if err != nil {
+		t.Fatalf("ListImageUpdates failed: %v", err)
+	}
+	if len(listRes.Msg.Updates) != 1 {
+		t.Fatalf("expected 1 update reverted, got %d", len(listRes.Msg.Updates))
+	}
+	if listRes.Msg.Updates[0].Status != "available" {
+		t.Errorf("expected status reverted to available, got %s", listRes.Msg.Updates[0].Status)
+	}
+}
+
+func TestImageUpdate_DismissImageUpdate(t *testing.T) {
+	ctx := context.Background()
+	testImage := "ghcr.io/noosxe/runner-aio:v1.3.0"
+
+	mockDB := &mockImageUpdateDB{
+		pools: map[int64]db.RunnerPool{
+			88: {ID: 88, Name: "pool-dismiss", RunnerImage: testImage},
+		},
+	}
+	mockPuller := &mockImagePuller{}
+	svc := NewImageUpdateService(mockDB, mockPuller)
+
+	up := svc.FlagUpdate(88, testImage, "sha256:dismiss-digest")
+
+	mux := http.NewServeMux()
+	path, handler := supervisorv1connect.NewImageUpdateServiceHandler(svc, BinaryConnectHandlerOptions()...)
+	mux.Handle(path, handler)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := supervisorv1connect.NewImageUpdateServiceClient(srv.Client(), srv.URL)
+
+	// Dismiss notification (simple acknowledge)
+	dismissRes, err := client.DismissImageUpdate(ctx, connect.NewRequest(&supervisorv1.DismissImageUpdateRequest{
+		Id: up.Id,
+	}))
+	if err != nil {
+		t.Fatalf("DismissImageUpdate failed: %v", err)
+	}
+	if !dismissRes.Msg.Success {
+		t.Errorf("expected dismiss success=true")
+	}
+
+	// Verify dismissed notification no longer appears in pending list
+	listRes, err := client.ListImageUpdates(ctx, connect.NewRequest(&supervisorv1.ListImageUpdatesRequest{PoolId: 88}))
+	if err != nil {
+		t.Fatalf("ListImageUpdates failed: %v", err)
+	}
+	if len(listRes.Msg.Updates) != 0 {
+		t.Errorf("expected 0 pending updates after dismiss, got %d", len(listRes.Msg.Updates))
+	}
+
+	// Verify dismissing unknown ID returns NotFound
+	_, err = client.DismissImageUpdate(ctx, connect.NewRequest(&supervisorv1.DismissImageUpdateRequest{
+		Id: 99999,
+	}))
+	if err == nil {
+		t.Fatalf("expected error dismissing nonexistent update, got nil")
+	}
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("expected CodeNotFound, got %v", connect.CodeOf(err))
 	}
 }
 

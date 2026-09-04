@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -27,17 +28,17 @@ type ImagePuller interface {
 	PullImage(ctx context.Context, image string) error
 }
 
-// LocalImageInspector defines methods to inspect local container images on the host (M10, RUN-66).
+// LocalImageInspector inspects images currently stored in the local container daemon.
 type LocalImageInspector interface {
 	GetLocalImageDigest(ctx context.Context, image string) (string, error)
 }
 
-// RegistryChecker defines methods to query remote container image registries (M10, RUN-66).
+// RegistryChecker queries remote OCI/Docker v2 distribution registries for latest image manifests.
 type RegistryChecker interface {
 	GetRemoteImageDigest(ctx context.Context, imageRef string) (string, error)
 }
 
-// ImageUpdateOption configures an ImageUpdateService instance.
+// ImageUpdateOption configures the ImageUpdateService.
 type ImageUpdateOption func(*ImageUpdateService)
 
 // WithLocalInspector sets the local image inspector.
@@ -54,16 +55,40 @@ func WithRegistryChecker(checker RegistryChecker) ImageUpdateOption {
 	}
 }
 
+// WithSyncPull forces PullImage to execute synchronously (useful for test determinism).
+func WithSyncPull(syncPull bool) ImageUpdateOption {
+	return func(s *ImageUpdateService) {
+		s.syncPull = syncPull
+	}
+}
+
+// WithOnPullComplete sets a callback for when an image pull finishes (both sync and async).
+func WithOnPullComplete(fn func(poolID int64, err error)) ImageUpdateOption {
+	return func(s *ImageUpdateService) {
+		s.onPullComplete = fn
+	}
+}
+
+// WithLogger sets the logger for image update operations.
+func WithLogger(logger *slog.Logger) ImageUpdateOption {
+	return func(s *ImageUpdateService) {
+		s.logger = logger
+	}
+}
+
 // ImageUpdateService implements supervisorv1connect.ImageUpdateServiceHandler.
 type ImageUpdateService struct {
 	supervisorv1connect.UnimplementedImageUpdateServiceHandler
-	db        ImageUpdateDatabase
-	puller    ImagePuller
-	inspector LocalImageInspector
-	registry  RegistryChecker
-	mu        sync.RWMutex
-	updates   map[int64]*supervisorv1.ImageUpdate
-	nextID    int64
+	db             ImageUpdateDatabase
+	puller         ImagePuller
+	inspector      LocalImageInspector
+	registry       RegistryChecker
+	logger         *slog.Logger
+	syncPull       bool
+	onPullComplete func(poolID int64, err error)
+	mu             sync.RWMutex
+	updates        map[int64]*supervisorv1.ImageUpdate
+	nextID         int64
 }
 
 // NewImageUpdateService creates an ImageUpdateService instance.
@@ -73,6 +98,7 @@ func NewImageUpdateService(database ImageUpdateDatabase, puller ImagePuller, opt
 		puller:  puller,
 		updates: make(map[int64]*supervisorv1.ImageUpdate),
 		nextID:  1,
+		logger:  slog.Default(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -187,15 +213,9 @@ func (s *ImageUpdateService) PullImage(ctx context.Context, req *connect.Request
 
 	s.mu.Lock()
 	if up, ok := s.updates[poolID]; ok {
-		up.Status = "pulled"
+		up.Status = "pulling"
 	}
 	s.mu.Unlock()
-
-	if s.puller != nil {
-		if err := s.puller.PullImage(ctx, p.RunnerImage); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("pulling image %q: %w", p.RunnerImage, err))
-		}
-	}
 
 	var userID sql.NullInt64
 	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
@@ -207,13 +227,67 @@ func (s *ImageUpdateService) PullImage(ctx context.Context, req *connect.Request
 		Action:       "image_pull",
 		ResourceType: sql.NullString{String: "runner_pool", Valid: true},
 		ResourceID:   sql.NullInt64{Int64: poolID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Pulled updated runner image for pool %s", p.Name), Valid: true},
+		Details:      sql.NullString{String: fmt.Sprintf("Triggered pull for updated runner image %s (pool %s)", p.RunnerImage, p.Name), Valid: true},
 	})
+
+	if s.syncPull {
+		if err := s.executePull(ctx, poolID, p); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("pulling image %q: %w", p.RunnerImage, err))
+		}
+		return connect.NewResponse(&supervisorv1.PullImageResponse{
+			Success: true,
+			Message: fmt.Sprintf("Successfully pulled latest image for pool %s", p.Name),
+		}), nil
+	}
+
+	go func() {
+		_ = s.executePull(context.Background(), poolID, p)
+	}()
 
 	return connect.NewResponse(&supervisorv1.PullImageResponse{
 		Success: true,
-		Message: fmt.Sprintf("Successfully pulled latest image for pool %s", p.Name),
+		Message: fmt.Sprintf("Image pull initiated in background for pool %s", p.Name),
 	}), nil
+}
+
+func (s *ImageUpdateService) executePull(ctx context.Context, poolID int64, p db.RunnerPool) error {
+	pullCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	var pullErr error
+	if s.puller != nil {
+		pullErr = s.puller.PullImage(pullCtx, p.RunnerImage)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if pullErr != nil {
+		if s.logger != nil {
+			s.logger.Error("background image pull failed", "pool", p.Name, "image", p.RunnerImage, "err", pullErr)
+		}
+		if up, ok := s.updates[poolID]; ok {
+			up.Status = "available" // revert so admin can retry
+		}
+		if s.onPullComplete != nil {
+			s.onPullComplete(poolID, pullErr)
+		}
+		return pullErr
+	}
+
+	if s.logger != nil {
+		s.logger.Info("image pull completed", "pool", p.Name, "image", p.RunnerImage)
+	}
+
+	if up, ok := s.updates[poolID]; ok {
+		up.Status = "pulled"
+		delete(s.updates, poolID)
+	}
+
+	if s.onPullComplete != nil {
+		s.onPullComplete(poolID, nil)
+	}
+	return nil
 }
 
 // ListImageUpdates lists pending image updates across pools.
@@ -228,7 +302,7 @@ func (s *ImageUpdateService) ListImageUpdates(_ context.Context, req *connect.Re
 		if poolID > 0 && pid != poolID {
 			continue
 		}
-		if up.Status == "available" {
+		if up.Status == "available" || up.Status == "pulling" {
 			res = append(res, up)
 		}
 	}
