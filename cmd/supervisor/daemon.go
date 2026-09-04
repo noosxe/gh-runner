@@ -14,9 +14,13 @@ import (
 	"github.com/noosxe/gh-runner/internal/cron"
 	"github.com/noosxe/gh-runner/internal/db"
 	"github.com/noosxe/gh-runner/internal/keys"
+	"github.com/noosxe/gh-runner/internal/orchestrator"
+	"github.com/noosxe/gh-runner/internal/orchestrator/docker"
+	"github.com/noosxe/gh-runner/internal/provider"
 	_ "github.com/noosxe/gh-runner/internal/provider/forgejo"
 	_ "github.com/noosxe/gh-runner/internal/provider/gitea"
 	_ "github.com/noosxe/gh-runner/internal/provider/github"
+	"github.com/noosxe/gh-runner/internal/renovate"
 	"github.com/noosxe/gh-runner/internal/server"
 )
 
@@ -80,8 +84,32 @@ func runDaemonContext(ctx context.Context) error {
 	retentionScheduler := db.NewRetentionScheduler(database, nil)
 	go retentionScheduler.Start(ctx)
 
+	var dockerOpts []docker.Option
+	if cfg.DockerHost != "" {
+		dockerOpts = append(dockerOpts, docker.WithHost(cfg.DockerHost))
+	}
+	dockerClient, err := docker.NewClient(ctx, dockerOpts...)
+	if err != nil {
+		return fmt.Errorf("daemon: docker client: %w", err)
+	}
+
+	providerResolver := &orchestrator.RegistryAdapter{
+		Database: database,
+		Registry: provider.DefaultRegistry,
+	}
+
+	renovateExecutor, err := renovate.NewExecutor(renovate.ExecutorOptions{
+		DB:        database,
+		Providers: providerResolver,
+		Spawner:   dockerClient,
+		DataDir:   cfg.DataDir,
+	})
+	if err != nil {
+		return fmt.Errorf("daemon: renovate executor: %w", err)
+	}
+
 	cronScheduler := cron.NewScheduler(cron.Options{})
-	if err := cronScheduler.SyncFromDB(ctx, database, nil, nil); err != nil {
+	if err := cronScheduler.SyncFromDB(ctx, database, renovateExecutor.TaskFactory(), renovateExecutor.LastRunResolver()); err != nil {
 		logger.Error("failed to initialize cron schedules from database", "err", err)
 	}
 	if err := cronScheduler.Start(ctx); err != nil {
@@ -99,6 +127,7 @@ func runDaemonContext(ctx context.Context) error {
 		AuthProfileDB:    database,
 		OnboardingDB:     database,
 		AnalyticsDB:      database,
+		RenovateExecutor: renovateExecutor,
 		CronScheduler:    cronScheduler,
 		DataDir:          cfg.DataDir,
 		DBEncryptionKey:  derivedKeys.DBEncryptionKey,

@@ -61,6 +61,11 @@ type PoolRepository interface {
 	ListRunnerPools(ctx context.Context) ([]db.RunnerPool, error)
 }
 
+// TaskExitHandler processes termination events for one-off task containers (e.g. Renovate bot) (docs/03 §5).
+type TaskExitHandler interface {
+	HandleContainerExit(ctx context.Context, containerID string, exitCode int, logPath string) (bool, error)
+}
+
 // GitProviderResolver resolves a GitProvider instance for a given auth profile ID.
 type GitProviderResolver interface {
 	ResolveProvider(ctx context.Context, authProfileID int64) (provider.GitProvider, error)
@@ -103,6 +108,7 @@ type ControllerOptions struct {
 	ShutdownTimeout      time.Duration
 	ShutdownPollInterval time.Duration
 	Interval             time.Duration
+	TaskExitHandler      TaskExitHandler
 }
 
 // PoolController orchestrates the lifecycle control loop across all runner pools (docs/03 §1).
@@ -115,6 +121,7 @@ type PoolController struct {
 	providerResolver     GitProviderResolver
 	reconciler           *Reconciler
 	eventListener        *EventListener
+	taskExitHandler      TaskExitHandler
 	dataDir              string
 	globalMaxRunners     int
 	shutdownTimeout      time.Duration
@@ -164,6 +171,7 @@ func NewPoolController(opts ControllerOptions) *PoolController {
 		providerResolver:     opts.ProviderResolver,
 		reconciler:           opts.Reconciler,
 		eventListener:        opts.EventListener,
+		taskExitHandler:      opts.TaskExitHandler,
 		dataDir:              opts.DataDir,
 		globalMaxRunners:     globalMax,
 		shutdownTimeout:      shutdownTimeout,
@@ -440,6 +448,26 @@ func (c *PoolController) HandleContainerEvent(ctx context.Context, event Contain
 	defer c.provisionMu.Unlock()
 
 	c.logger.Info("handling container exit event", "pool", event.PoolName, "id", event.ContainerID, "action", event.Action)
+
+	// Check if this was a one-off task container (e.g. Renovate bot per docs/03 §5)
+	if c.taskExitHandler != nil {
+		logPath := ""
+		if c.dataDir != "" {
+			logPath = LogPath(c.dataDir, event.ContainerID)
+		}
+		if handled, err := c.taskExitHandler.HandleContainerExit(ctx, event.ContainerID, event.ExitCode, logPath); handled {
+			if err != nil {
+				c.logger.Error("failed to handle task container exit", "id", event.ContainerID, "err", err)
+			}
+			if c.engine != nil {
+				if err := c.engine.TerminateRunner(ctx, event.ContainerID); err != nil {
+					c.logger.Warn("terminating exited task container", "id", event.ContainerID, "err", err)
+				}
+			}
+			c.drainQueue(ctx)
+			return nil
+		}
+	}
 
 	// 1. Reap dead container
 	c.reapContainer(ctx, event.ContainerID, event.PoolName)
