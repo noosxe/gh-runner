@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	supervisorv1 "github.com/noosxe/gh-runner/internal/pb/supervisor/v1"
 	"github.com/noosxe/gh-runner/internal/pb/supervisor/v1/supervisorv1connect"
+	"github.com/noosxe/gh-runner/internal/webhook"
 )
 
 // do executes a request against the server's routing handler without
@@ -222,5 +223,61 @@ func TestConnectBinaryTransportWiring(t *testing.T) {
 	_ = jsonResp.Body.Close()
 	if jsonResp.StatusCode != http.StatusUnsupportedMediaType && jsonResp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected JSON transport to be rejected with 415 or 400, got: %d", jsonResp.StatusCode)
+	}
+}
+
+func TestWebhookReceiverRouting(t *testing.T) {
+	secret := "test-secret"
+	recv := webhook.NewReceiver(
+		webhook.StaticSecretResolver(map[string]string{"github": secret}),
+		webhook.WithEventHandler(webhook.EventHandlerFunc(func(ctx context.Context, provider string, event *webhook.WorkflowJobEvent) error {
+			return nil
+		})),
+	)
+
+	s := New(Options{
+		Port:            8080,
+		WebhookReceiver: recv,
+	})
+
+	if s.WebhookReceiver() != recv {
+		t.Fatalf("WebhookReceiver() does not match expected receiver")
+	}
+
+	payload := []byte(`{"action":"queued","workflow_job":{"id":123,"status":"queued","name":"test-job"}}`)
+	sig := webhook.SignPayload(payload, []byte(secret))
+
+	// 1. Valid signature
+	req := httptest.NewRequest(http.MethodPost, "/hooks/github", strings.NewReader(string(payload)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Event", "workflow_job")
+	req.Header.Set("X-Hub-Signature-256", "sha256="+sig)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Tampered signature
+	reqBad := httptest.NewRequest(http.MethodPost, "/hooks/github", strings.NewReader(string(payload)))
+	reqBad.Header.Set("Content-Type", "application/json")
+	reqBad.Header.Set("X-GitHub-Event", "workflow_job")
+	reqBad.Header.Set("X-Hub-Signature-256", "sha256=invalidhex00000000000000000000000000000000000000000000000000000000")
+	recBad := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recBad, reqBad)
+
+	if recBad.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for bad signature, got %d: %s", recBad.Code, recBad.Body.String())
+	}
+
+	// 3. Unknown provider
+	reqUnknown := httptest.NewRequest(http.MethodPost, "/hooks/unknown", strings.NewReader(string(payload)))
+	reqUnknown.Header.Set("Content-Type", "application/json")
+	recUnknown := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recUnknown, reqUnknown)
+
+	if recUnknown.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for unknown provider, got %d: %s", recUnknown.Code, recUnknown.Body.String())
 	}
 }
