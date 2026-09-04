@@ -86,6 +86,10 @@ message Pool {
   string cpu_limit = 15;
   string memory_limit = 16;
   int32 max_runner_lifetime_seconds = 17;
+
+  // Image update metadata
+  bool image_update_available = 18;
+  string latest_image = 19;
 }
 
 message RenovateConfig {

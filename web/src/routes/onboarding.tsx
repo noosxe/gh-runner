@@ -258,6 +258,8 @@ export function OnboardingPage() {
           cpuLimit: cpuLimit.trim() || "2.0",
           memoryLimit: memoryLimit.trim() || "4GB",
           maxRunnerLifetimeSeconds: 7200,
+          imageUpdateAvailable: false,
+          latestImage: "",
         },
       });
 

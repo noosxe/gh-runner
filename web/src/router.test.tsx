@@ -41,6 +41,10 @@ vi.mock("./lib/api/query-hooks", () => ({
     data: { jobs: [], totalCount: 0 },
     isLoading: false,
   }),
+  useImageUpdates: () => ({
+    data: [],
+    isLoading: false,
+  }),
 }));
 
 describe("AppRouter", () => {

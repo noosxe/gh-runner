@@ -99,6 +99,13 @@ type Options struct {
 	// If nil, AnalyticsService is not automatically mounted.
 	AnalyticsDB AnalyticsDatabase
 
+	// ImageUpdateDB is the database interface used for runner pool image updates.
+	// If nil and PoolDB is provided, PoolDB is used as ImageUpdateDB.
+	ImageUpdateDB ImageUpdateDatabase
+
+	// ImagePuller is the container image puller interface.
+	ImagePuller ImagePuller
+
 	// SystemStats provides live system-wide runner counts (RUN-48).
 	SystemStats SystemStatsProvider
 
@@ -195,6 +202,17 @@ func New(opts Options) *Server {
 	if opts.AnalyticsDB != nil {
 		analyticsSvc := NewAnalyticsService(opts.AnalyticsDB, opts.SystemStats, opts.PoolStats)
 		path, handler := supervisorv1connect.NewAnalyticsServiceHandler(analyticsSvc, s.ConnectHandlerOptions()...)
+		s.MountConnectHandler(path, handler)
+	}
+
+	// Mount ImageUpdateService if image update database is available (RUN-62)
+	imgDB := opts.ImageUpdateDB
+	if imgDB == nil && opts.PoolDB != nil {
+		imgDB = opts.PoolDB
+	}
+	if imgDB != nil {
+		imgSvc := NewImageUpdateService(imgDB, opts.ImagePuller)
+		path, handler := supervisorv1connect.NewImageUpdateServiceHandler(imgSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}
 
