@@ -793,6 +793,30 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 	}
 
 	effectiveTarget := p.MinIdleRunners
+
+	// Polling-based scaling for providers without webhook support (e.g. Forgejo per docs/03 §3b, RUN-70):
+	// Every audit cycle calls PollQueuedJobs(); if queued_jobs > idle_runners, provision up to max_concurrency.
+	if gitProv != nil && gitProv.ScalingMode() == provider.ScalingPolling {
+		queuedJobs, err := gitProv.PollQueuedJobs(ctx, p.RepositoryUrl)
+		if err != nil {
+			c.logger.Warn("polling queued jobs for pool failed", "pool", p.Name, "err", err)
+		} else {
+			idleCount := int64(len(idleRunners))
+			if int64(queuedJobs) > idleCount {
+				deficit := int64(queuedJobs) - idleCount
+				c.logger.Info("polling detected queued jobs exceeding idle runners",
+					"pool", p.Name,
+					"queued_jobs", queuedJobs,
+					"idle_runners", idleCount,
+					"additional_needed", deficit,
+				)
+				if activeCount+deficit > effectiveTarget {
+					effectiveTarget = activeCount + deficit
+				}
+			}
+		}
+	}
+
 	if p.MaxConcurrency > 0 && effectiveTarget > p.MaxConcurrency {
 		effectiveTarget = p.MaxConcurrency
 	}

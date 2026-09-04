@@ -58,6 +58,10 @@ type mockGitProvider struct {
 	deregistered []string
 	validateErr  error
 	tokenErr     error
+	scalingMode  provider.ScalingMode
+	queuedJobs   int
+	pollErr      error
+	pollCalls    int
 }
 
 func (m *mockGitProvider) GetRegistrationToken(ctx context.Context, scope provider.RegistrationScope, targetURL string) (string, error) {
@@ -79,11 +83,18 @@ func (m *mockGitProvider) ValidateCredentials(ctx context.Context) error {
 }
 
 func (m *mockGitProvider) ScalingMode() provider.ScalingMode {
+	if m.scalingMode != "" {
+		return m.scalingMode
+	}
 	return provider.ScalingWebhook
 }
 
 func (m *mockGitProvider) PollQueuedJobs(ctx context.Context, targetURL string) (int, error) {
-	return 0, nil
+	m.pollCalls++
+	if m.pollErr != nil {
+		return 0, m.pollErr
+	}
+	return m.queuedJobs, nil
 }
 
 func TestPoolController_BootAndMinIdleProvisioning(t *testing.T) {
@@ -1144,6 +1155,373 @@ func TestPoolController_ImageUpdateHandoff_Replenisher(t *testing.T) {
 		}
 	}
 }
+
+func TestPoolController_ForgejoPollingScaling_AuditLoopPicksUpQueuedJob(t *testing.T) {
+	ctx := context.Background()
+
+	pool := db.RunnerPool{
+		ID:             1,
+		Name:           "forgejo-ci",
+		Provider:       "forgejo",
+		RepositoryUrl:  "https://forgejo.example.com/owner/repo",
+		Scope:          "repo",
+		AuthProfileID:  10,
+		MinIdleRunners: 1,
+		MaxConcurrency: 5,
+		Labels:         `["self-hosted","linux"]`,
+		RunnerImage:    "ghcr.io/noosxe/gh-runner:latest",
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{
+		scalingMode: provider.ScalingPolling,
+		queuedJobs:  0,
+	}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{10: gitProv},
+	}
+
+	spawnCounter := 0
+	var reconciler1 *orchestrator.Reconciler
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			spawnCounter++
+			return fmt.Sprintf("forgejo-runner-%d", spawnCounter), nil
+		},
+		AuditRunnersFn: func(ctx context.Context) ([]orchestrator.RunnerStatus, error) {
+			if reconciler1 == nil {
+				return nil, nil
+			}
+			return reconciler1.TrackedPoolRunners("forgejo-ci"), nil
+		},
+		PingFn: func(ctx context.Context) error {
+			return nil
+		},
+	}
+	reconciler1 = orchestrator.NewReconciler(mockEngine)
+
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler1,
+		GlobalMaxRunners: 10,
+		Interval:         time.Hour,
+	})
+
+	// 1. Boot provisions 1 base idle runner
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("Boot failed: %v", err)
+	}
+	if spawnCounter != 1 {
+		t.Fatalf("expected 1 runner on boot, got %d", spawnCounter)
+	}
+
+	// 2. Forgejo has 3 queued jobs; idle runners is 1 -> deficit is 2
+	gitProv.queuedJobs = 3
+
+	// Audit loop reconciliation cycle runs
+	if err := ctrl.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	// Acceptance: queued jobs picked up within one audit cycle (2 additional runners provisioned)
+	if spawnCounter != 3 {
+		t.Fatalf("expected 3 total runners spawned (1 initial + 2 for queued jobs), got %d", spawnCounter)
+	}
+	if ctrl.TotalActiveRunners() != 3 {
+		t.Fatalf("expected 3 active runners in pool, got %d", ctrl.TotalActiveRunners())
+	}
+	if gitProv.pollCalls < 1 {
+		t.Errorf("expected PollQueuedJobs to be called during audit cycle, got %d calls", gitProv.pollCalls)
+	}
+}
+
+func TestPoolController_ForgejoPollingScaling_MaxConcurrencyRespected(t *testing.T) {
+	ctx := context.Background()
+
+	pool := db.RunnerPool{
+		ID:             1,
+		Name:           "forgejo-capped",
+		Provider:       "forgejo",
+		RepositoryUrl:  "https://forgejo.example.com/owner/repo",
+		Scope:          "repo",
+		AuthProfileID:  10,
+		MinIdleRunners: 1,
+		MaxConcurrency: 3, // capped at 3
+		Labels:         `["self-hosted","linux"]`,
+		RunnerImage:    "ghcr.io/noosxe/gh-runner:latest",
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{
+		scalingMode: provider.ScalingPolling,
+		queuedJobs:  0,
+	}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{10: gitProv},
+	}
+
+	spawnCounter := 0
+	var reconciler2 *orchestrator.Reconciler
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			spawnCounter++
+			return fmt.Sprintf("capped-runner-%d", spawnCounter), nil
+		},
+		AuditRunnersFn: func(ctx context.Context) ([]orchestrator.RunnerStatus, error) {
+			if reconciler2 == nil {
+				return nil, nil
+			}
+			return reconciler2.TrackedPoolRunners("forgejo-capped"), nil
+		},
+		PingFn: func(ctx context.Context) error {
+			return nil
+		},
+	}
+	reconciler2 = orchestrator.NewReconciler(mockEngine)
+
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler2,
+		GlobalMaxRunners: 10,
+		Interval:         time.Hour,
+	})
+
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("Boot failed: %v", err)
+	}
+
+	// 10 queued jobs, but max_concurrency is 3
+	gitProv.queuedJobs = 10
+
+	// Reconcile cycle detects 10 queued jobs -> provisions up to MaxConcurrency (3)
+	if err := ctrl.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	if ctrl.TotalActiveRunners() > 3 {
+		t.Fatalf("active runners %d exceeded max_concurrency 3", ctrl.TotalActiveRunners())
+	}
+	if ctrl.TotalActiveRunners() != 3 {
+		t.Fatalf("expected exactly 3 runners (max_concurrency), got %d (total spawned %d)",
+			ctrl.TotalActiveRunners(), spawnCounter)
+	}
+}
+
+func TestPoolController_ForgejoPollingScaling_GlobalQuotaSaturation(t *testing.T) {
+	ctx := context.Background()
+
+	pool := db.RunnerPool{
+		ID:             1,
+		Name:           "forgejo-quota",
+		Provider:       "forgejo",
+		RepositoryUrl:  "https://forgejo.example.com/owner/repo",
+		Scope:          "repo",
+		AuthProfileID:  10,
+		MinIdleRunners: 1,
+		MaxConcurrency: 5,
+		Labels:         `["self-hosted","linux"]`,
+		RunnerImage:    "ghcr.io/noosxe/gh-runner:latest",
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{
+		scalingMode: provider.ScalingPolling,
+		queuedJobs:  0,
+	}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{10: gitProv},
+	}
+
+	spawnCounter := 0
+	var reconciler3 *orchestrator.Reconciler
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			spawnCounter++
+			return fmt.Sprintf("quota-runner-%d", spawnCounter), nil
+		},
+		AuditRunnersFn: func(ctx context.Context) ([]orchestrator.RunnerStatus, error) {
+			if reconciler3 == nil {
+				return nil, nil
+			}
+			return reconciler3.TrackedPoolRunners("forgejo-quota"), nil
+		},
+		PingFn: func(ctx context.Context) error {
+			return nil
+		},
+	}
+	reconciler3 = orchestrator.NewReconciler(mockEngine)
+
+	// GlobalMaxRunners = 2. Boot creates 1 runner.
+	// Reconcile needs 3 more, but can only spawn 1 more before hitting global max 2.
+	// Remaining requests are enqueued.
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler3,
+		GlobalMaxRunners: 2,
+		Interval:         time.Hour,
+	})
+
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("Boot failed: %v", err)
+	}
+	if spawnCounter != 1 {
+		t.Fatalf("expected 1 runner on boot, got %d", spawnCounter)
+	}
+
+	// 4 jobs queued
+	gitProv.queuedJobs = 4
+
+	if err := ctrl.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	if ctrl.TotalActiveRunners() != 2 {
+		t.Fatalf("expected 2 active runners (globalMaxRunners), got %d", ctrl.TotalActiveRunners())
+	}
+	if ctrl.QueueLengthForPool("forgejo-quota") < 1 {
+		t.Fatalf("expected queued requests in internal queue due to global quota saturation, got %d",
+			ctrl.QueueLengthForPool("forgejo-quota"))
+	}
+}
+
+func TestPoolController_ForgejoPollingScaling_ErrorHandledGracefully(t *testing.T) {
+	ctx := context.Background()
+
+	pool := db.RunnerPool{
+		ID:             1,
+		Name:           "forgejo-err",
+		Provider:       "forgejo",
+		RepositoryUrl:  "https://forgejo.example.com/owner/repo",
+		Scope:          "repo",
+		AuthProfileID:  10,
+		MinIdleRunners: 2,
+		MaxConcurrency: 5,
+		Labels:         `["self-hosted","linux"]`,
+		RunnerImage:    "ghcr.io/noosxe/gh-runner:latest",
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{
+		scalingMode: provider.ScalingPolling,
+		pollErr:     fmt.Errorf("temporary network timeout"),
+	}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{10: gitProv},
+	}
+
+	spawnCounter := 0
+	var reconciler4 *orchestrator.Reconciler
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			spawnCounter++
+			return fmt.Sprintf("err-runner-%d", spawnCounter), nil
+		},
+		AuditRunnersFn: func(ctx context.Context) ([]orchestrator.RunnerStatus, error) {
+			if reconciler4 == nil {
+				return nil, nil
+			}
+			return reconciler4.TrackedPoolRunners("forgejo-err"), nil
+		},
+		PingFn: func(ctx context.Context) error {
+			return nil
+		},
+	}
+	reconciler4 = orchestrator.NewReconciler(mockEngine)
+
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler4,
+		GlobalMaxRunners: 10,
+		Interval:         time.Hour,
+	})
+
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("Boot failed: %v", err)
+	}
+
+	// Reconcile must not fail even when PollQueuedJobs returns an error
+	if err := ctrl.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile should not fail on polling error: %v", err)
+	}
+
+	if ctrl.TotalActiveRunners() != 2 {
+		t.Fatalf("expected base 2 runners to remain active, got %d", ctrl.TotalActiveRunners())
+	}
+}
+
+func TestPoolController_WebhookProviderDoesNotPoll(t *testing.T) {
+	ctx := context.Background()
+
+	pool := db.RunnerPool{
+		ID:             1,
+		Name:           "github-pool",
+		Provider:       "github",
+		RepositoryUrl:  "https://github.com/owner/repo",
+		Scope:          "repo",
+		AuthProfileID:  10,
+		MinIdleRunners: 1,
+		MaxConcurrency: 5,
+		Labels:         `["self-hosted","linux"]`,
+		RunnerImage:    "ghcr.io/noosxe/gh-runner:latest",
+	}
+
+	repo := &mockPoolRepo{pools: []db.RunnerPool{pool}}
+	gitProv := &mockGitProvider{
+		scalingMode: provider.ScalingWebhook,
+		queuedJobs:  10,
+	}
+	resolver := &mockGitProviderResolver{
+		providers: map[int64]provider.GitProvider{10: gitProv},
+	}
+
+	var reconciler5 *orchestrator.Reconciler
+	mockEngine := &orchestrator.MockContainerProvider{
+		SpawnRunnerFn: func(ctx context.Context, config orchestrator.RunnerConfig) (string, error) {
+			return "github-runner-1", nil
+		},
+		AuditRunnersFn: func(ctx context.Context) ([]orchestrator.RunnerStatus, error) {
+			if reconciler5 == nil {
+				return nil, nil
+			}
+			return reconciler5.TrackedPoolRunners("github-pool"), nil
+		},
+		PingFn: func(ctx context.Context) error {
+			return nil
+		},
+	}
+	reconciler5 = orchestrator.NewReconciler(mockEngine)
+
+	ctrl := orchestrator.NewPoolController(orchestrator.ControllerOptions{
+		DB:               repo,
+		ContainerEngine:  mockEngine,
+		ProviderResolver: resolver,
+		Reconciler:       reconciler5,
+		GlobalMaxRunners: 10,
+		Interval:         time.Hour,
+	})
+
+	if err := ctrl.Boot(ctx); err != nil {
+		t.Fatalf("Boot failed: %v", err)
+	}
+
+	if err := ctrl.Reconcile(ctx); err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	// ScalingWebhook must NEVER poll
+	if gitProv.pollCalls != 0 {
+		t.Errorf("expected 0 poll calls for webhook-based provider, got %d", gitProv.pollCalls)
+	}
+}
+
 
 
 
