@@ -153,6 +153,22 @@ func (r *Reconciler) UntrackRunner(poolName, containerID string) {
 	}
 }
 
+// MarkRunnerBusy updates the busy status of a runner matching the given name or ID.
+func (r *Reconciler) MarkRunnerBusy(runnerNameOrID string, busy bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, poolMap := range r.tracked {
+		for id, status := range poolMap {
+			if status.ID == runnerNameOrID || status.Name == runnerNameOrID {
+				status.IsBusy = busy
+				poolMap[id] = status
+				return
+			}
+		}
+	}
+}
+
 // Start launches the background periodic audit reconciler until the context is canceled.
 func (r *Reconciler) Start(ctx context.Context, interval time.Duration, onReport func(AuditReport)) error {
 	if interval <= 0 {

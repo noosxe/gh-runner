@@ -1,0 +1,327 @@
+package orchestrator
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"strings"
+
+	"github.com/noosxe/gh-runner/internal/db"
+	"github.com/noosxe/gh-runner/internal/webhook"
+)
+
+// NormalizeRepositoryURL cleans and normalizes a repository or organization URL
+// by stripping trailing slashes, stripping .git extensions, and lowercasing scheme/host/path.
+func NormalizeRepositoryURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		cleaned := strings.ToLower(rawURL)
+		cleaned = strings.TrimSuffix(cleaned, "/")
+		cleaned = strings.TrimSuffix(cleaned, ".git")
+		return strings.TrimSuffix(cleaned, "/")
+	}
+
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	path := strings.TrimSuffix(u.Path, "/")
+	path = strings.TrimSuffix(path, ".git")
+	path = strings.TrimSuffix(path, "/")
+	u.Path = strings.ToLower(path)
+	u.RawQuery = ""
+	u.Fragment = ""
+
+	return strings.TrimSuffix(u.String(), "/")
+}
+
+// LabelsMatch checks whether a runner pool configured with poolLabelsRaw provides
+// all the labels required by the workflow job.
+func LabelsMatch(poolLabelsRaw string, requiredLabels []string) bool {
+	if len(requiredLabels) == 0 {
+		return true
+	}
+
+	poolLabelsList := parsePoolLabels(poolLabelsRaw)
+	poolLabelSet := make(map[string]struct{}, len(poolLabelsList))
+	for _, l := range poolLabelsList {
+		poolLabelSet[strings.ToLower(strings.TrimSpace(l))] = struct{}{}
+	}
+
+	for _, req := range requiredLabels {
+		clean := strings.ToLower(strings.TrimSpace(req))
+		if clean == "" {
+			continue
+		}
+		if _, ok := poolLabelSet[clean]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func parsePoolLabels(raw string) []string {
+	if raw == "" {
+		return []string{"self-hosted", "linux"}
+	}
+	var arr []string
+	if err := json.Unmarshal([]byte(raw), &arr); err == nil && len(arr) > 0 {
+		return arr
+	}
+	parts := strings.Split(raw, ",")
+	res := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			res = append(res, trimmed)
+		}
+	}
+	if len(res) == 0 {
+		return []string{"self-hosted", "linux"}
+	}
+	return res
+}
+
+// MatchPoolForEvent finds the most specific matching runner pool for a webhook event.
+// Pools are evaluated based on provider, label compatibility, and URL scope hierarchy (repo > org > global).
+func MatchPoolForEvent(pools []db.RunnerPool, providerName string, event *webhook.WorkflowJobEvent) *db.RunnerPool {
+	if event == nil || len(pools) == 0 {
+		return nil
+	}
+
+	pName := strings.ToLower(strings.TrimSpace(providerName))
+
+	var candidateURLs []string
+	if event.Repository.HTMLURL != "" {
+		candidateURLs = append(candidateURLs, NormalizeRepositoryURL(event.Repository.HTMLURL))
+	}
+	if event.Repository.CloneURL != "" {
+		candidateURLs = append(candidateURLs, NormalizeRepositoryURL(event.Repository.CloneURL))
+	}
+	if event.Repository.FullName != "" && pName == "github" {
+		candidateURLs = append(candidateURLs, NormalizeRepositoryURL("https://github.com/"+event.Repository.FullName))
+	}
+
+	fullNameLower := strings.ToLower(strings.TrimSpace(event.Repository.FullName))
+
+	var bestPool *db.RunnerPool
+	bestScore := -1
+
+	for i := range pools {
+		p := &pools[i]
+		if strings.ToLower(strings.TrimSpace(p.Provider)) != pName {
+			continue
+		}
+
+		if !LabelsMatch(p.Labels, event.WorkflowJob.Labels) {
+			continue
+		}
+
+		poolURL := NormalizeRepositoryURL(p.RepositoryUrl)
+		scope := strings.ToLower(strings.TrimSpace(p.Scope))
+		if scope == "" {
+			scope = "repo"
+		}
+
+		score := -1
+		switch scope {
+		case "repo":
+			matched := false
+			for _, cURL := range candidateURLs {
+				if poolURL == cURL {
+					matched = true
+					break
+				}
+			}
+			if !matched && fullNameLower != "" && strings.HasSuffix(poolURL, "/"+fullNameLower) {
+				matched = true
+			}
+			if matched {
+				score = 300
+			}
+
+		case "org":
+			// poolURL represents an organization, e.g. https://github.com/my-org
+			matched := false
+			for _, cURL := range candidateURLs {
+				if strings.HasPrefix(cURL, poolURL+"/") {
+					matched = true
+					break
+				}
+			}
+			if !matched && fullNameLower != "" {
+				orgPart := fullNameLower
+				if slashIdx := strings.Index(fullNameLower, "/"); slashIdx != -1 {
+					orgPart = fullNameLower[:slashIdx]
+				}
+				if strings.HasSuffix(poolURL, "/"+orgPart) {
+					matched = true
+				}
+			}
+			if matched {
+				score = 200
+			}
+
+		case "global":
+			// poolURL is the instance root, e.g. https://github.com or https://gitea.example.com
+			matched := false
+			if poolParsed, err := url.Parse(poolURL); err == nil && poolParsed.Host != "" {
+				for _, cURL := range candidateURLs {
+					if cParsed, err := url.Parse(cURL); err == nil && cParsed.Host != "" {
+						if strings.EqualFold(poolParsed.Host, cParsed.Host) {
+							matched = true
+							break
+						}
+					}
+				}
+			}
+			if matched {
+				score = 100
+			}
+		}
+
+		if score > bestScore {
+			bestScore = score
+			bestPool = p
+		}
+	}
+
+	return bestPool
+}
+
+// HandleWorkflowJob implements webhook.EventHandler.
+// On "queued" action:
+// 1. Matches pool by repository URL (+ scope) and label compatibility
+// 2. Verifies active_runners < max_concurrency
+// 3. Verifies global runner quota (circuit breaker); enqueues internally if saturated
+// 4. Provisions a replacement runner immediately without waiting for the periodic audit tick.
+func (c *PoolController) HandleWorkflowJob(ctx context.Context, providerName string, event *webhook.WorkflowJobEvent) error {
+	if event == nil {
+		return nil
+	}
+
+	c.mu.RLock()
+	state := c.state
+	c.mu.RUnlock()
+
+	if state == StateStopped {
+		return ErrControllerStopped
+	}
+	if state == StatePaused {
+		c.logger.Info("controller paused, ignoring queued webhook event", "provider", providerName, "action", event.Action)
+		return nil
+	}
+
+	switch event.Action {
+	case "queued":
+		pools, err := c.loadPools(ctx)
+		if err != nil {
+			return fmt.Errorf("loading pools for webhook event: %w", err)
+		}
+
+		targetPool := MatchPoolForEvent(pools, providerName, event)
+		if targetPool == nil {
+			c.logger.Info("no matching pool found for queued webhook event",
+				"provider", providerName,
+				"repo", event.Repository.FullName,
+				"job_id", event.WorkflowJob.ID,
+			)
+			return nil
+		}
+
+		// Fast capacity check before acquiring single-writer provisioning lock
+		tracked := c.reconciler.TrackedPoolRunners(targetPool.Name)
+		activeCount := int64(0)
+		for _, r := range tracked {
+			if r.State == "running" {
+				activeCount++
+			}
+		}
+
+		// Per-pool max_concurrency check
+		if targetPool.MaxConcurrency > 0 && activeCount >= targetPool.MaxConcurrency {
+			c.logger.Info("pool reached max concurrency limit, skipping queued event spawn",
+				"pool", targetPool.Name,
+				"active", activeCount,
+				"max_concurrency", targetPool.MaxConcurrency,
+				"job_id", event.WorkflowJob.ID,
+			)
+			return nil
+		}
+
+		// Global quota circuit breaker check
+		if c.globalMaxRunners > 0 && c.TotalActiveRunners() >= c.globalMaxRunners {
+			c.logger.Warn("global runner quota saturated on queued webhook, queuing request internally",
+				"pool", targetPool.Name,
+				"global_active", c.TotalActiveRunners(),
+				"global_max", c.globalMaxRunners,
+				"job_id", event.WorkflowJob.ID,
+			)
+			c.enqueueRequest(targetPool.Name)
+			return nil
+		}
+
+		c.provisionMu.Lock()
+		defer c.provisionMu.Unlock()
+
+		// Re-check capacity under lock to prevent race conditions
+		tracked = c.reconciler.TrackedPoolRunners(targetPool.Name)
+		activeCount = 0
+		for _, r := range tracked {
+			if r.State == "running" {
+				activeCount++
+			}
+		}
+		if targetPool.MaxConcurrency > 0 && activeCount >= targetPool.MaxConcurrency {
+			c.logger.Info("pool reached max concurrency under lock, skipping queued event spawn",
+				"pool", targetPool.Name,
+				"active", activeCount,
+				"max_concurrency", targetPool.MaxConcurrency,
+			)
+			return nil
+		}
+		if c.globalMaxRunners > 0 && c.TotalActiveRunners() >= c.globalMaxRunners {
+			c.logger.Warn("global quota saturated under lock, queuing request internally",
+				"pool", targetPool.Name,
+				"global_active", c.TotalActiveRunners(),
+				"global_max", c.globalMaxRunners,
+			)
+			c.enqueueRequest(targetPool.Name)
+			return nil
+		}
+
+		if err := c.spawnSingleRunner(ctx, *targetPool, nil); err != nil {
+			c.logger.Error("failed spawning runner for queued webhook event",
+				"pool", targetPool.Name,
+				"job_id", event.WorkflowJob.ID,
+				"err", err,
+			)
+			return fmt.Errorf("spawning runner for pool %q on queued event: %w", targetPool.Name, err)
+		}
+
+		c.logger.Info("provisioned runner immediately from queued webhook event",
+			"pool", targetPool.Name,
+			"job_id", event.WorkflowJob.ID,
+			"repo", event.Repository.FullName,
+		)
+		return nil
+
+	case "in_progress":
+		if event.WorkflowJob.RunnerName != "" && c.reconciler != nil {
+			c.reconciler.MarkRunnerBusy(event.WorkflowJob.RunnerName, true)
+		}
+		return nil
+
+	case "completed":
+		if event.WorkflowJob.RunnerName != "" && c.reconciler != nil {
+			c.reconciler.MarkRunnerBusy(event.WorkflowJob.RunnerName, false)
+		}
+		return nil
+
+	default:
+		return nil
+	}
+}

@@ -899,6 +899,7 @@ func (c *PoolController) spawnSingleRunner(ctx context.Context, p db.RunnerPool,
 
 	c.reconciler.TrackRunner(RunnerStatus{
 		ID:        id,
+		Name:      containerName,
 		PoolName:  p.Name,
 		State:     "running",
 		SpawnedAt: time.Now().UTC(),
