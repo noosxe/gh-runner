@@ -108,6 +108,12 @@ type Options struct {
 	// ImagePuller is the container image puller interface.
 	ImagePuller ImagePuller
 
+	// LocalImageInspector inspects local image digests on the container host (M10, RUN-66).
+	LocalImageInspector LocalImageInspector
+
+	// RegistryChecker queries remote OCI/Docker registries for latest digests (M10, RUN-66).
+	RegistryChecker RegistryChecker
+
 	// SystemStats provides live system-wide runner counts (RUN-48).
 	SystemStats SystemStatsProvider
 
@@ -232,13 +238,20 @@ func New(opts Options) *Server {
 		s.MountConnectHandler(path, handler)
 	}
 
-	// Mount ImageUpdateService if image update database is available (RUN-62)
+	// Mount ImageUpdateService if image update database is available (RUN-62, RUN-66)
 	imgDB := opts.ImageUpdateDB
 	if imgDB == nil && opts.PoolDB != nil {
 		imgDB = opts.PoolDB
 	}
 	if imgDB != nil {
-		imgSvc := NewImageUpdateService(imgDB, opts.ImagePuller)
+		var imgOpts []ImageUpdateOption
+		if opts.LocalImageInspector != nil {
+			imgOpts = append(imgOpts, WithLocalInspector(opts.LocalImageInspector))
+		}
+		if opts.RegistryChecker != nil {
+			imgOpts = append(imgOpts, WithRegistryChecker(opts.RegistryChecker))
+		}
+		imgSvc := NewImageUpdateService(imgDB, opts.ImagePuller, imgOpts...)
 		path, handler := supervisorv1connect.NewImageUpdateServiceHandler(imgSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}

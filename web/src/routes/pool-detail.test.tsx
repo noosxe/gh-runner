@@ -46,6 +46,23 @@ const mockRunners = [
 const mockMutateAsync = vi.fn();
 const mockTriggerRenovateAsync = vi.fn();
 const mockUpdatePoolAsync = vi.fn();
+const mockCheckImageUpdateMutate = vi.fn();
+let mockCheckUpdateState: {
+  mutate: (id: bigint) => void;
+  isPending: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+  data: any;
+  error: any;
+} = {
+  mutate: mockCheckImageUpdateMutate,
+  isPending: false,
+  isSuccess: false,
+  isError: false,
+  data: undefined,
+  error: null,
+};
+let mockImageUpdatesData: any[] = [];
 
 vi.mock("../lib/api/query-hooks", () => ({
   usePools: () => ({
@@ -59,6 +76,11 @@ vi.mock("../lib/api/query-hooks", () => ({
   useTerminateRunner: () => ({
     mutateAsync: mockMutateAsync,
     isPending: false,
+  }),
+  useCheckImageUpdate: () => mockCheckUpdateState,
+  useImageUpdates: () => ({
+    data: mockImageUpdatesData,
+    isLoading: false,
   }),
   useRenovateStatus: () => ({
     data: {
@@ -188,5 +210,60 @@ describe("PoolDetailPage", () => {
     await waitFor(() => {
       expect(mockTriggerRenovateAsync).toHaveBeenCalledWith(10n);
     });
+  });
+
+  it("triggers Check for Updates in Pool Configuration tab", async () => {
+    render(<PoolDetailPage />);
+
+    const configTabBtn = screen.getByRole("button", { name: /pool configuration/i });
+    fireEvent.click(configTabBtn);
+
+    expect(screen.getByText("Runner Container Image")).toBeInTheDocument();
+    expect(screen.getByText("ghcr.io/noosxe/runner-aio:latest")).toBeInTheDocument();
+
+    const checkBtn = screen.getByRole("button", { name: /check for updates/i });
+    fireEvent.click(checkBtn);
+
+    expect(mockCheckImageUpdateMutate).toHaveBeenCalledWith(10n);
+  });
+
+  it("displays update available feedback when remote digest differs", () => {
+    mockCheckUpdateState = {
+      ...mockCheckUpdateState,
+      isSuccess: true,
+      data: {
+        updateAvailable: true,
+        imageUpdate: {
+          poolId: 10n,
+          currentDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          remoteDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        },
+      },
+    };
+
+    render(<PoolDetailPage />);
+
+    const configTabBtn = screen.getByRole("button", { name: /pool configuration/i });
+    fireEvent.click(configTabBtn);
+
+    expect(screen.getByText(/update available/i)).toBeInTheDocument();
+    expect(screen.getByText(/sha256:22222222222/)).toBeInTheDocument();
+  });
+
+  it("displays up-to-date feedback when no update is available", () => {
+    mockCheckUpdateState = {
+      ...mockCheckUpdateState,
+      isSuccess: true,
+      data: {
+        updateAvailable: false,
+      },
+    };
+
+    render(<PoolDetailPage />);
+
+    const configTabBtn = screen.getByRole("button", { name: /pool configuration/i });
+    fireEvent.click(configTabBtn);
+
+    expect(screen.getByText("Image is up-to-date with registry")).toBeInTheDocument();
   });
 });
