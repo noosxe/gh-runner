@@ -6,6 +6,7 @@ import {
   onboardingClient,
   analyticsClient,
   logClient,
+  imageClient,
 } from "./transport";
 
 export const queryKeys = {
@@ -37,6 +38,7 @@ export const queryKeys = {
   runners: (poolId: bigint) => ["pools", poolId.toString(), "runners"] as const,
   runnerLogs: (runnerId: string) => ["logs", runnerId] as const,
   jobRecord: (jobId: bigint) => ["analytics", "jobRecord", jobId.toString()] as const,
+  imageUpdates: (poolId?: bigint) => ["imageUpdates", poolId?.toString() ?? "all"] as const,
 };
 
 // Onboarding Service Hooks
@@ -330,5 +332,55 @@ export function useRunnerLogs(runnerId: string, enabled = true) {
       return res.lines;
     },
     enabled: enabled && runnerId.length > 0,
+  });
+}
+
+// Image Update Service Hooks (RUN-62)
+export function useImageUpdates(poolId?: bigint) {
+  return useQuery({
+    queryKey: queryKeys.imageUpdates(poolId),
+    queryFn: async () => {
+      const res = await imageClient.listImageUpdates({ poolId: poolId ?? 0n });
+      return res.updates;
+    },
+  });
+}
+
+export function useCheckImageUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (poolId: bigint) => {
+      return await imageClient.checkImageUpdate({ poolId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["imageUpdates"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pools });
+    },
+  });
+}
+
+export function usePullImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (poolId: bigint) => {
+      return await imageClient.pullImage({ poolId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["imageUpdates"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pools });
+    },
+  });
+}
+
+export function useDismissImageUpdate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: bigint) => {
+      return await imageClient.dismissImageUpdate({ id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["imageUpdates"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pools });
+    },
   });
 }

@@ -330,8 +330,11 @@ type Pool struct {
 	CpuLimit                 string `protobuf:"bytes,15,opt,name=cpu_limit,json=cpuLimit,proto3" json:"cpu_limit,omitempty"`
 	MemoryLimit              string `protobuf:"bytes,16,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"`
 	MaxRunnerLifetimeSeconds int32  `protobuf:"varint,17,opt,name=max_runner_lifetime_seconds,json=maxRunnerLifetimeSeconds,proto3" json:"max_runner_lifetime_seconds,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	// Image update metadata
+	ImageUpdateAvailable bool   `protobuf:"varint,18,opt,name=image_update_available,json=imageUpdateAvailable,proto3" json:"image_update_available,omitempty"`
+	LatestImage          string `protobuf:"bytes,19,opt,name=latest_image,json=latestImage,proto3" json:"latest_image,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *Pool) Reset() {
@@ -481,6 +484,20 @@ func (x *Pool) GetMaxRunnerLifetimeSeconds() int32 {
 		return x.MaxRunnerLifetimeSeconds
 	}
 	return 0
+}
+
+func (x *Pool) GetImageUpdateAvailable() bool {
+	if x != nil {
+		return x.ImageUpdateAvailable
+	}
+	return false
+}
+
+func (x *Pool) GetLatestImage() string {
+	if x != nil {
+		return x.LatestImage
+	}
+	return ""
 }
 
 type RenovateConfig struct {
@@ -3806,7 +3823,7 @@ const file_api_proto_rawDesc = "" +
 	"\x11GetSessionRequest\"K\n" +
 	"\x12GetSessionResponse\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x19\n" +
-	"\bis_admin\x18\x02 \x01(\bR\aisAdmin\"\xe0\x04\n" +
+	"\bis_admin\x18\x02 \x01(\bR\aisAdmin\"\xb9\x05\n" +
 	"\x04Pool\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -3825,7 +3842,9 @@ const file_api_proto_rawDesc = "" +
 	"\x05scope\x18\x0e \x01(\tR\x05scope\x12\x1b\n" +
 	"\tcpu_limit\x18\x0f \x01(\tR\bcpuLimit\x12!\n" +
 	"\fmemory_limit\x18\x10 \x01(\tR\vmemoryLimit\x12=\n" +
-	"\x1bmax_runner_lifetime_seconds\x18\x11 \x01(\x05R\x18maxRunnerLifetimeSeconds\"e\n" +
+	"\x1bmax_runner_lifetime_seconds\x18\x11 \x01(\x05R\x18maxRunnerLifetimeSeconds\x124\n" +
+	"\x16image_update_available\x18\x12 \x01(\bR\x14imageUpdateAvailable\x12!\n" +
+	"\flatest_image\x18\x13 \x01(\tR\vlatestImage\"e\n" +
 	"\x0eRenovateConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12#\n" +
 	"\rcron_schedule\x18\x02 \x01(\tR\fcronSchedule\x12\x14\n" +

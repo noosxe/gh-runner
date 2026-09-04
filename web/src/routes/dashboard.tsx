@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useSystemStats, usePools, useJobHistory } from "../lib/api/query-hooks";
+import { useSystemStats, usePools, useJobHistory, useImageUpdates } from "../lib/api/query-hooks";
 import { QueueLatencyChart } from "../components/analytics/queue-latency-chart";
 import { SuccessFailureWidget } from "../components/analytics/success-failure-widget";
+import { ImageUpdateNotification } from "../components/notifications/image-update-notification";
 import { Activity, CheckCircle2, Clock, Server, XCircle, Terminal } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
@@ -39,6 +40,7 @@ export function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useSystemStats(timeframeHours);
   const { data: pools, isLoading: poolsLoading } = usePools();
   const { data: history } = useJobHistory({ limit: 5 });
+  const { data: updates } = useImageUpdates();
 
   const totalJobs = stats?.totalJobs24h ?? 0;
   const successfulJobs = stats?.successfulJobs24h ?? 0;
@@ -47,6 +49,13 @@ export function DashboardPage() {
   const avgQueueSeconds = stats?.averageQueueTimeSeconds ?? 0;
   const avgRuntimeSeconds = stats?.averageRuntimeSeconds ?? 0;
   const trend = stats?.queueLatencyTrend ?? [];
+
+  const poolNameLookup: Record<string, string> = {};
+  if (pools) {
+    for (const p of pools) {
+      poolNameLookup[p.id.toString()] = p.name;
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -71,6 +80,11 @@ export function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* Pending Image Updates Banner */}
+      {updates && updates.length > 0 && (
+        <ImageUpdateNotification updates={updates} poolNameLookup={poolNameLookup} />
+      )}
 
       {/* Primary KPI Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -69,6 +69,10 @@ vi.mock("../lib/api/query-hooks", () => ({
     data: mockHistory,
     isLoading: false,
   }),
+  useImageUpdates: () => ({
+    data: [],
+    isLoading: false,
+  }),
 }));
 
 describe("DashboardPage", () => {
