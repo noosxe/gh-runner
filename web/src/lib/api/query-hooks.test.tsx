@@ -75,4 +75,35 @@ describe("TanStack Query hooks with ConnectRPC", () => {
     expect(result.current.data?.username).toBe("admin");
     expect(result.current.data?.isAdmin).toBe(true);
   });
+
+  it("useRenovateStatus queries status and useTriggerRenovateRun triggers run", async () => {
+    const { renovateClient } = await import("./transport");
+    vi.spyOn(renovateClient, "getRenovateStatus").mockResolvedValue({
+      lastRun: {
+        id: 42n,
+        poolId: 1n,
+        status: "success",
+        startedAt: "2026-09-04T00:00:00Z",
+        completedAt: "2026-09-04T00:02:00Z",
+        summary: "1 PR created",
+      },
+      nextScheduledRun: "2026-09-05T03:00:00Z",
+    } as any);
+
+    vi.spyOn(renovateClient, "triggerRenovateRun").mockResolvedValue({
+      success: true,
+      runId: 43n,
+    } as any);
+
+    const { useRenovateStatus, useTriggerRenovateRun } = await import("./query-hooks");
+
+    const { result: statusResult } = renderHook(() => useRenovateStatus(1n), { wrapper });
+    await waitFor(() => expect(statusResult.current.isSuccess).toBe(true));
+    expect(statusResult.current.data?.lastRun?.id).toBe(42n);
+
+    const { result: triggerResult } = renderHook(() => useTriggerRenovateRun(), { wrapper });
+    const triggerRes = await triggerResult.current.mutateAsync(1n);
+    expect(triggerRes.success).toBe(true);
+    expect(triggerRes.runId).toBe(43n);
+  });
 });

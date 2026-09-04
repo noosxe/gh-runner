@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/noosxe/gh-runner/internal/cron"
 	"github.com/noosxe/gh-runner/internal/db"
 	supervisorv1 "github.com/noosxe/gh-runner/internal/pb/supervisor/v1"
 	"github.com/noosxe/gh-runner/internal/pb/supervisor/v1/supervisorv1connect"
@@ -24,6 +25,9 @@ type PoolDatabase interface {
 	UpdateRunnerPool(ctx context.Context, arg db.UpdateRunnerPoolParams) (db.RunnerPool, error)
 	DeleteRunnerPool(ctx context.Context, id int64) error
 	CreateAuditLog(ctx context.Context, arg db.CreateAuditLogParams) (db.AuditLog, error)
+	GetRenovateConfigByPoolId(ctx context.Context, poolID int64) (db.RenovateConfig, error)
+	CreateRenovateConfig(ctx context.Context, arg db.CreateRenovateConfigParams) (db.RenovateConfig, error)
+	UpdateRenovateConfig(ctx context.Context, arg db.UpdateRenovateConfigParams) (db.RenovateConfig, error)
 }
 
 // PoolStatsProvider provides live active/idle runner counts and runtime reload capabilities.
@@ -82,8 +86,18 @@ func parseLabels(raw string) []string {
 	return res
 }
 
-func (s *PoolService) toProto(p db.RunnerPool) *supervisorv1.Pool {
-	return ConvertDBPoolToProto(p, s.statsProvider)
+func (s *PoolService) toProto(ctx context.Context, p db.RunnerPool) *supervisorv1.Pool {
+	proto := ConvertDBPoolToProto(p, s.statsProvider)
+	if s.db != nil {
+		if cfg, err := s.db.GetRenovateConfigByPoolId(ctx, p.ID); err == nil {
+			proto.Renovate = &supervisorv1.RenovateConfig{
+				Enabled:      cfg.Enabled,
+				CronSchedule: cfg.CronSchedule.String,
+				Image:        cfg.Image,
+			}
+		}
+	}
+	return proto
 }
 
 // ConvertDBPoolToProto converts a db.RunnerPool row into a supervisorv1.Pool protobuf message,
@@ -154,6 +168,12 @@ func validatePoolInput(p *supervisorv1.Pool) error {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("max_runner_lifetime_seconds must be non-negative"))
 	}
 
+	if p.Renovate != nil && p.Renovate.Enabled && strings.TrimSpace(p.Renovate.CronSchedule) != "" {
+		if _, err := cron.ParseSchedule(strings.TrimSpace(p.Renovate.CronSchedule)); err != nil {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid renovate cron schedule: %w", err))
+		}
+	}
+
 	return nil
 }
 
@@ -168,7 +188,7 @@ func (s *PoolService) ListPools(ctx context.Context, _ *connect.Request[supervis
 		Pools: make([]*supervisorv1.Pool, 0, len(pools)),
 	}
 	for _, p := range pools {
-		resp.Pools = append(resp.Pools, s.toProto(p))
+		resp.Pools = append(resp.Pools, s.toProto(ctx, p))
 	}
 
 	return connect.NewResponse(resp), nil
@@ -210,6 +230,25 @@ func (s *PoolService) CreatePool(ctx context.Context, req *connect.Request[super
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating runner pool: %w", err))
 	}
 
+	if pool.Renovate != nil {
+		if pool.Renovate.Enabled && strings.TrimSpace(pool.Renovate.CronSchedule) != "" {
+			if _, err := cron.ParseSchedule(strings.TrimSpace(pool.Renovate.CronSchedule)); err != nil {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid renovate cron schedule: %w", err))
+			}
+		}
+		img := strings.TrimSpace(pool.Renovate.Image)
+		if img == "" {
+			img = "renovate/renovate:latest"
+		}
+		cronSched := strings.TrimSpace(pool.Renovate.CronSchedule)
+		_, _ = s.db.CreateRenovateConfig(ctx, db.CreateRenovateConfigParams{
+			PoolID:       created.ID,
+			Enabled:      pool.Renovate.Enabled,
+			CronSchedule: sql.NullString{String: cronSched, Valid: cronSched != ""},
+			Image:        img,
+		})
+	}
+
 	var userID sql.NullInt64
 	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
 		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
@@ -228,7 +267,7 @@ func (s *PoolService) CreatePool(ctx context.Context, req *connect.Request[super
 	}
 
 	return connect.NewResponse(&supervisorv1.CreatePoolResponse{
-		Pool: s.toProto(created),
+		Pool: s.toProto(ctx, created),
 	}), nil
 }
 
@@ -277,6 +316,33 @@ func (s *PoolService) UpdatePool(ctx context.Context, req *connect.Request[super
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("updating runner pool: %w", err))
 	}
 
+	if pool.Renovate != nil {
+		if pool.Renovate.Enabled && strings.TrimSpace(pool.Renovate.CronSchedule) != "" {
+			if _, err := cron.ParseSchedule(strings.TrimSpace(pool.Renovate.CronSchedule)); err != nil {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid renovate cron schedule: %w", err))
+			}
+		}
+		img := strings.TrimSpace(pool.Renovate.Image)
+		if img == "" {
+			img = "renovate/renovate:latest"
+		}
+		cronSched := strings.TrimSpace(pool.Renovate.CronSchedule)
+		_, err := s.db.UpdateRenovateConfig(ctx, db.UpdateRenovateConfigParams{
+			PoolID:       updated.ID,
+			Enabled:      pool.Renovate.Enabled,
+			CronSchedule: sql.NullString{String: cronSched, Valid: cronSched != ""},
+			Image:        img,
+		})
+		if err != nil && errors.Is(err, sql.ErrNoRows) {
+			_, _ = s.db.CreateRenovateConfig(ctx, db.CreateRenovateConfigParams{
+				PoolID:       updated.ID,
+				Enabled:      pool.Renovate.Enabled,
+				CronSchedule: sql.NullString{String: cronSched, Valid: cronSched != ""},
+				Image:        img,
+			})
+		}
+	}
+
 	var userID sql.NullInt64
 	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
 		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
@@ -295,7 +361,7 @@ func (s *PoolService) UpdatePool(ctx context.Context, req *connect.Request[super
 	}
 
 	return connect.NewResponse(&supervisorv1.UpdatePoolResponse{
-		Pool: s.toProto(updated),
+		Pool: s.toProto(ctx, updated),
 	}), nil
 }
 
@@ -355,7 +421,7 @@ func (s *PoolService) WatchPools(ctx context.Context, req *connect.Request[super
 		}
 		protoPools := make([]*supervisorv1.Pool, 0, len(dbPools))
 		for _, p := range dbPools {
-			protoPools = append(protoPools, s.toProto(p))
+			protoPools = append(protoPools, s.toProto(ctx, p))
 		}
 		return stream.Send(&supervisorv1.WatchPoolsResponse{
 			Pools: protoPools,
