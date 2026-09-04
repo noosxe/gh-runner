@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/noosxe/gh-runner/internal/cron"
 	"github.com/noosxe/gh-runner/internal/db"
 	"github.com/noosxe/gh-runner/internal/keys"
 	_ "github.com/noosxe/gh-runner/internal/provider/forgejo"
@@ -79,6 +80,15 @@ func runDaemonContext(ctx context.Context) error {
 	retentionScheduler := db.NewRetentionScheduler(database, nil)
 	go retentionScheduler.Start(ctx)
 
+	cronScheduler := cron.NewScheduler(cron.Options{})
+	if err := cronScheduler.SyncFromDB(ctx, database, nil, nil); err != nil {
+		logger.Error("failed to initialize cron schedules from database", "err", err)
+	}
+	if err := cronScheduler.Start(ctx); err != nil {
+		return fmt.Errorf("daemon: cron scheduler: %w", err)
+	}
+	defer cronScheduler.Stop()
+
 	health := server.NewHealth()
 	registerHealthChecks(health, database)
 	srv := server.New(server.Options{
@@ -89,6 +99,7 @@ func runDaemonContext(ctx context.Context) error {
 		AuthProfileDB:    database,
 		OnboardingDB:     database,
 		AnalyticsDB:      database,
+		CronScheduler:    cronScheduler,
 		DataDir:          cfg.DataDir,
 		DBEncryptionKey:  derivedKeys.DBEncryptionKey,
 		JWTSigningSecret: derivedKeys.JWTSigningSecret,
