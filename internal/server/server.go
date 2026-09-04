@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/labstack/echo/v5"
@@ -122,18 +123,27 @@ type Options struct {
 	// IsSecureCookie sets the Secure attribute on the session cookie. Defaults to false
 	// for local development/testing without TLS, set to true behind HTTPS.
 	IsSecureCookie bool
+
+	// CronScheduler provides scheduled task status and next-run queries (docs/03 §5, RUN-63, RUN-65).
+	CronScheduler CronScheduler
+}
+
+// CronScheduler provides status and scheduling queries for scheduled tasks (docs/03 §5).
+type CronScheduler interface {
+	NextRun(poolID int64) (time.Time, error)
 }
 
 // Server is the supervisor's HTTP server: an Echo v5 instance (docs/06 §1)
 // that serves health endpoints, ConnectRPC services (binary transport mandatory),
 // and the embedded SPA.
 type Server struct {
-	echo      *echo.Echo
-	http      *http.Server
-	health    *Health
-	staticFS  fs.FS
-	authDB    AuthDatabase
-	jwtSecret []byte
+	echo          *echo.Echo
+	http          *http.Server
+	health        *Health
+	staticFS      fs.FS
+	authDB        AuthDatabase
+	jwtSecret     []byte
+	cronScheduler CronScheduler
 }
 
 // New builds the server and its routes. Construction is infallible: routes
@@ -149,8 +159,9 @@ func New(opts Options) *Server {
 		echo:      e,
 		health:    opts.Health,
 		staticFS:  opts.StaticFS,
-		authDB:    opts.AuthDB,
-		jwtSecret: opts.JWTSigningSecret,
+		authDB:        opts.AuthDB,
+		jwtSecret:     opts.JWTSigningSecret,
+		cronScheduler: opts.CronScheduler,
 	}
 	if s.health == nil {
 		s.health = NewHealth()
@@ -436,5 +447,10 @@ func isSameOrigin(originStr, expectedHost string) bool {
 		ePort = oPort
 	}
 	return oPort == ePort
+}
+
+// CronScheduler returns the configured cron scheduler, if any (RUN-63, RUN-65).
+func (s *Server) CronScheduler() CronScheduler {
+	return s.cronScheduler
 }
 
