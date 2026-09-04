@@ -1,9 +1,17 @@
 import { useState } from "react";
 import { useParams, Link } from "@tanstack/react-router";
-import { usePools, useRunners, useTerminateRunner } from "../lib/api/query-hooks";
+import {
+  usePools,
+  useRunners,
+  useTerminateRunner,
+  useRenovateStatus,
+  useRenovateHistory,
+  useTriggerRenovateRun,
+  useUpdatePool,
+} from "../lib/api/query-hooks";
 import { useWatchRunners, useStreamRunnerLogs } from "../lib/api/streaming-hooks";
 import { LogTerminal } from "../components/terminal/log-terminal";
-import type { RunnerInstance } from "../gen/api_pb";
+import type { RunnerInstance, Pool } from "../gen/api_pb";
 import {
   ArrowLeft,
   Server,
@@ -16,6 +24,12 @@ import {
   Trash2,
   X,
   AlertTriangle,
+  Bot,
+  Play,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Save,
 } from "lucide-react";
 
 function formatUptime(seconds: number | bigint): string {
@@ -39,7 +53,7 @@ export function PoolDetailPage() {
   const { data: runners, isLoading: runnersLoading } = useRunners(poolIdBigInt);
   const { isConnected: isStreamActive } = useWatchRunners(poolIdBigInt);
 
-  const [activeTab, setActiveTab] = useState<"runners" | "config">("runners");
+  const [activeTab, setActiveTab] = useState<"runners" | "config" | "renovate">("runners");
   const [selectedRunnerForLogs, setSelectedRunnerForLogs] = useState<RunnerInstance | null>(null);
   const [runnerToTerminate, setRunnerToTerminate] = useState<RunnerInstance | null>(null);
 
@@ -209,6 +223,20 @@ export function PoolDetailPage() {
         >
           <Server className="h-3.5 w-3.5" />
           <span>Pool Configuration</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("renovate")}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-semibold transition-colors ${
+            activeTab === "renovate"
+              ? "border-blue-600 text-blue-600 dark:border-blue-500 dark:text-blue-400"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+          }`}
+        >
+          <Bot className="h-3.5 w-3.5" />
+          <span>Renovate Bot</span>
+          {pool.renovate?.enabled && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
         </button>
       </div>
 
@@ -398,6 +426,9 @@ export function PoolDetailPage() {
         </div>
       )}
 
+      {/* Tab Content: Renovate Bot */}
+      {activeTab === "renovate" && <PoolRenovateTab pool={pool} />}
+
       {/* Confirmation Modal: Terminate Runner */}
       {runnerToTerminate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
@@ -485,6 +516,355 @@ function RunnerLogViewerModal({
             title={runner.name}
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PoolRenovateTab({ pool }: { pool: Pool }) {
+  const { data: status } = useRenovateStatus(pool.id, {
+    refetchInterval: 5000,
+  });
+  const { data: history, isLoading: historyLoading } = useRenovateHistory(pool.id, 10, 0);
+  const triggerMutation = useTriggerRenovateRun();
+  const updatePoolMutation = useUpdatePool();
+
+  const [enabled, setEnabled] = useState(pool.renovate?.enabled ?? false);
+  const [cronSchedule, setCronSchedule] = useState(pool.renovate?.cronSchedule || "0 3 * * 1");
+  const [image, setImage] = useState(pool.renovate?.image || "renovate/renovate:latest");
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [triggerMsg, setTriggerMsg] = useState<{ type: "success" | "error"; text: string } | null>(
+    null,
+  );
+
+  const isRunning = status?.lastRun?.status === "running";
+
+  const handleTrigger = async () => {
+    setTriggerMsg(null);
+    try {
+      const res = await triggerMutation.mutateAsync(pool.id);
+      if (res.success) {
+        setTriggerMsg({ type: "success", text: `Triggered Renovate run #${res.runId}` });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to trigger Renovate run";
+      setTriggerMsg({ type: "error", text: msg });
+    }
+  };
+
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaveError(null);
+    setSaveSuccess(false);
+    try {
+      await updatePoolMutation.mutateAsync({
+        pool: {
+          ...pool,
+          renovate: {
+            $typeName: "supervisor.v1.RenovateConfig",
+            enabled,
+            cronSchedule: cronSchedule.trim(),
+            image: image.trim(),
+          },
+        },
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to save Renovate settings";
+      setSaveError(msg);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Overview & Manual Trigger Card */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900 lg:col-span-2 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-blue-500" />
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                Renovate Status & Automation
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={handleTrigger}
+              disabled={triggerMutation.isPending || isRunning}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-500 disabled:opacity-50 transition-colors"
+            >
+              {triggerMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Triggering...</span>
+                </>
+              ) : isRunning ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Run in progress...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5 fill-current" />
+                  <span>Trigger Renovate Run</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {triggerMsg && (
+            <div
+              className={`rounded-xl p-3 text-xs flex items-center gap-2 ${
+                triggerMsg.type === "success"
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                  : "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+              }`}
+            >
+              {triggerMsg.type === "success" ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 shrink-0" />
+              )}
+              <span>{triggerMsg.text}</span>
+            </div>
+          )}
+
+          {/* Status Metrics Strip */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+            <div className="rounded-xl bg-slate-50 p-3.5 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[11px] font-medium text-slate-400">Bot State</span>
+              <div className="mt-1 flex items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                    isRunning
+                      ? "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-900"
+                      : status?.lastRun?.status === "success"
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900"
+                        : status?.lastRun?.status === "failure"
+                          ? "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200 dark:border-rose-900"
+                          : pool.renovate?.enabled
+                            ? "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-400 border border-sky-200 dark:border-sky-900"
+                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      isRunning
+                        ? "bg-amber-500 animate-ping"
+                        : status?.lastRun?.status === "success"
+                          ? "bg-emerald-500"
+                          : status?.lastRun?.status === "failure"
+                            ? "bg-rose-500"
+                            : pool.renovate?.enabled
+                              ? "bg-sky-500"
+                              : "bg-slate-400"
+                    }`}
+                  />
+                  <span>
+                    {isRunning
+                      ? "Running"
+                      : status?.lastRun?.status ||
+                        (pool.renovate?.enabled ? "Scheduled" : "Disabled")}
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 p-3.5 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[11px] font-medium text-slate-400">Next Scheduled Run</span>
+              <div className="mt-1 font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                {status?.nextScheduledRun ||
+                  (pool.renovate?.enabled ? pool.renovate.cronSchedule : "Disabled")}
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 p-3.5 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[11px] font-medium text-slate-400">Last Execution</span>
+              <div className="mt-1 text-xs font-medium text-slate-700 dark:text-slate-300">
+                {status?.lastRun?.startedAt
+                  ? new Date(status.lastRun.startedAt).toLocaleString()
+                  : "No runs yet"}
+              </div>
+            </div>
+          </div>
+
+          {status?.lastRun?.summary && (
+            <div className="mt-2 rounded-xl bg-slate-50 p-3 text-xs font-mono text-slate-700 dark:bg-slate-950/60 dark:text-slate-300 border border-slate-100 dark:border-slate-800 whitespace-pre-wrap">
+              <div className="text-[10px] uppercase tracking-wider font-sans font-semibold text-slate-400 mb-1">
+                Latest Run Summary
+              </div>
+              {status.lastRun.summary}
+            </div>
+          )}
+        </div>
+
+        {/* Configuration Form */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs dark:border-slate-800 dark:bg-slate-900 space-y-4">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Bot Settings</h3>
+          </div>
+
+          <form onSubmit={handleSaveConfig} className="space-y-4 text-xs">
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(e) => setEnabled(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                />
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  Enable Managed Renovate
+                </span>
+              </label>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Automatically scans and updates dependencies according to the schedule.
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Cron Schedule
+              </label>
+              <input
+                type="text"
+                value={cronSchedule}
+                onChange={(e) => setCronSchedule(e.target.value)}
+                placeholder="0 3 * * 1"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                Standard 5-part cron syntax (e.g., <code className="font-mono">0 3 * * 1</code> for
+                weekly Monday 3 AM).
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Task Container Image
+              </label>
+              <input
+                type="text"
+                value={image}
+                onChange={(e) => setImage(e.target.value)}
+                placeholder="renovate/renovate:latest"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+              />
+            </div>
+
+            {saveError && (
+              <div className="rounded-xl bg-rose-50 p-2.5 text-xs text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                {saveError}
+              </div>
+            )}
+
+            {saveSuccess && (
+              <div className="rounded-xl bg-emerald-50 p-2.5 text-xs text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                Settings saved successfully!
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={updatePoolMutation.isPending}
+              className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-xs hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white disabled:opacity-50 transition-colors"
+            >
+              {updatePoolMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="h-3.5 w-3.5" />
+                  <span>Save Bot Settings</span>
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* History Table */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Execution History</h3>
+
+        {historyLoading ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-xs text-slate-400 dark:border-slate-800 dark:bg-slate-900">
+            Loading run history...
+          </div>
+        ) : !history?.runs || history.runs.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            <Bot className="mx-auto h-7 w-7 text-slate-400 mb-2" />
+            <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+              No Renovate runs recorded yet
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Trigger a manual run or wait for the scheduled cron run to execute.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
+                <thead className="border-b border-slate-100 bg-slate-50 font-semibold uppercase tracking-wider text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-400">
+                  <tr>
+                    <th className="px-5 py-3">Run ID</th>
+                    <th className="px-5 py-3">Status</th>
+                    <th className="px-5 py-3">Started At</th>
+                    <th className="px-5 py-3">Completed At</th>
+                    <th className="px-5 py-3">Summary</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {history.runs.map((run) => (
+                    <tr
+                      key={run.id.toString()}
+                      className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors"
+                    >
+                      <td className="px-5 py-3.5 font-mono font-semibold text-slate-900 dark:text-white">
+                        #{run.id.toString()}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                            run.status === "running"
+                              ? "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-900"
+                              : run.status === "success"
+                                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900"
+                                : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200 dark:border-rose-900"
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              run.status === "running"
+                                ? "bg-amber-500 animate-ping"
+                                : run.status === "success"
+                                  ? "bg-emerald-500"
+                                  : "bg-rose-500"
+                            }`}
+                          />
+                          <span>{run.status}</span>
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 font-mono text-slate-500 dark:text-slate-400">
+                        {run.startedAt ? new Date(run.startedAt).toLocaleString() : "—"}
+                      </td>
+                      <td className="px-5 py-3.5 font-mono text-slate-500 dark:text-slate-400">
+                        {run.completedAt ? new Date(run.completedAt).toLocaleString() : "—"}
+                      </td>
+                      <td className="px-5 py-3.5 font-mono text-[11px] text-slate-600 dark:text-slate-300 max-w-md truncate">
+                        {run.summary || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

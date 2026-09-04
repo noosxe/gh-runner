@@ -130,6 +130,10 @@ type Options struct {
 
 	// RenovateExecutor handles Renovate bot task execution (docs/03 §5, RUN-64, RUN-65).
 	RenovateExecutor RenovateExecutor
+
+	// RenovateDB is the database interface used for Renovate runs and configurations (RUN-65).
+	// If nil and PoolDB is provided, PoolDB is used as RenovateDB.
+	RenovateDB RenovateDatabase
 }
 
 // CronScheduler provides status and scheduling queries for scheduled tasks (docs/03 §5).
@@ -243,6 +247,19 @@ func New(opts Options) *Server {
 	if opts.DataDir != "" || opts.LogStreamer != nil {
 		logSvc := NewLogService(opts.DataDir, opts.LogStreamer)
 		path, handler := supervisorv1connect.NewLogServiceHandler(logSvc, s.ConnectHandlerOptions()...)
+		s.MountConnectHandler(path, handler)
+	}
+
+	// Mount RenovateService if RenovateDB or PoolDB is provided (RUN-65)
+	renovateDB := opts.RenovateDB
+	if renovateDB == nil && opts.PoolDB != nil {
+		if rdb, ok := opts.PoolDB.(RenovateDatabase); ok {
+			renovateDB = rdb
+		}
+	}
+	if renovateDB != nil {
+		renovateSvc := NewRenovateService(renovateDB, opts.RenovateExecutor, opts.CronScheduler)
+		path, handler := supervisorv1connect.NewRenovateServiceHandler(renovateSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}
 

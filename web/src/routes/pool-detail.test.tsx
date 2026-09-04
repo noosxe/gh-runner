@@ -44,6 +44,8 @@ const mockRunners = [
 ];
 
 const mockMutateAsync = vi.fn();
+const mockTriggerRenovateAsync = vi.fn();
+const mockUpdatePoolAsync = vi.fn();
 
 vi.mock("../lib/api/query-hooks", () => ({
   usePools: () => ({
@@ -56,6 +58,44 @@ vi.mock("../lib/api/query-hooks", () => ({
   }),
   useTerminateRunner: () => ({
     mutateAsync: mockMutateAsync,
+    isPending: false,
+  }),
+  useRenovateStatus: () => ({
+    data: {
+      lastRun: {
+        id: 101n,
+        poolId: 10n,
+        status: "success",
+        startedAt: "2026-09-04T00:00:00Z",
+        completedAt: "2026-09-04T00:01:00Z",
+        summary: "1 dependency update PR created",
+      },
+      nextScheduledRun: "2026-09-05T03:00:00Z",
+    },
+    isLoading: false,
+  }),
+  useRenovateHistory: () => ({
+    data: {
+      runs: [
+        {
+          id: 101n,
+          poolId: 10n,
+          status: "success",
+          startedAt: "2026-09-04T00:00:00Z",
+          completedAt: "2026-09-04T00:01:00Z",
+          summary: "1 dependency update PR created",
+        },
+      ],
+      totalCount: 1,
+    },
+    isLoading: false,
+  }),
+  useTriggerRenovateRun: () => ({
+    mutateAsync: mockTriggerRenovateAsync,
+    isPending: false,
+  }),
+  useUpdatePool: () => ({
+    mutateAsync: mockUpdatePoolAsync,
     isPending: false,
   }),
 }));
@@ -126,6 +166,27 @@ describe("PoolDetailPage", () => {
         poolId: 10n,
         containerId: "cnt-alpha-1234567890",
       });
+    });
+  });
+
+  it("switches to Renovate tab and triggers manual run", async () => {
+    mockTriggerRenovateAsync.mockResolvedValueOnce({
+      success: true,
+      runId: 102n,
+    });
+    render(<PoolDetailPage />);
+
+    const renovateTabBtn = screen.getByRole("button", { name: /renovate bot/i });
+    fireEvent.click(renovateTabBtn);
+
+    expect(screen.getByText("Renovate Status & Automation")).toBeInTheDocument();
+    expect(screen.getAllByText("1 dependency update PR created")).toHaveLength(2);
+
+    const triggerBtn = screen.getByRole("button", { name: /trigger renovate run/i });
+    fireEvent.click(triggerBtn);
+
+    await waitFor(() => {
+      expect(mockTriggerRenovateAsync).toHaveBeenCalledWith(10n);
     });
   });
 });

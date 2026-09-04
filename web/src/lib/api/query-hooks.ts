@@ -6,6 +6,7 @@ import {
   onboardingClient,
   analyticsClient,
   logClient,
+  renovateClient,
   imageClient,
 } from "./transport";
 
@@ -39,6 +40,9 @@ export const queryKeys = {
   runnerLogs: (runnerId: string) => ["logs", runnerId] as const,
   jobRecord: (jobId: bigint) => ["analytics", "jobRecord", jobId.toString()] as const,
   imageUpdates: (poolId?: bigint) => ["imageUpdates", poolId?.toString() ?? "all"] as const,
+  renovateStatus: (poolId: bigint) => ["renovate", "status", poolId.toString()] as const,
+  renovateHistory: (poolId: bigint, limit?: number, offset?: number) =>
+    ["renovate", "history", poolId.toString(), { limit, offset }] as const,
 };
 
 // Onboarding Service Hooks
@@ -380,6 +384,50 @@ export function useDismissImageUpdate() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["imageUpdates"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pools });
+    },
+  });
+}
+
+// Renovate Service Hooks
+export function useRenovateStatus(
+  poolId: bigint,
+  options?: { enabled?: boolean; refetchInterval?: number | false },
+) {
+  return useQuery({
+    queryKey: queryKeys.renovateStatus(poolId),
+    queryFn: async () => {
+      return await renovateClient.getRenovateStatus({ poolId });
+    },
+    enabled: options?.enabled ?? poolId > 0n,
+    refetchInterval: options?.refetchInterval,
+  });
+}
+
+export function useRenovateHistory(
+  poolId: bigint,
+  limit = 10,
+  offset = 0,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: queryKeys.renovateHistory(poolId, limit, offset),
+    queryFn: async () => {
+      return await renovateClient.listRenovateHistory({ poolId, limit, offset });
+    },
+    enabled: options?.enabled ?? poolId > 0n,
+  });
+}
+
+export function useTriggerRenovateRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (poolId: bigint) => {
+      return await renovateClient.triggerRenovateRun({ poolId });
+    },
+    onSuccess: (_, poolId) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.renovateStatus(poolId) });
+      queryClient.invalidateQueries({ queryKey: ["renovate", "history", poolId.toString()] });
       queryClient.invalidateQueries({ queryKey: queryKeys.pools });
     },
   });
