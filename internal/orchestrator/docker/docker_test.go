@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -655,11 +656,23 @@ func TestDockerClient_DegradedModeAndReadiness(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	var pingMu sync.RWMutex
 	var pingError error
+	setPingError := func(err error) {
+		pingMu.Lock()
+		defer pingMu.Unlock()
+		pingError = err
+	}
+	getPingError := func() error {
+		pingMu.RLock()
+		defer pingMu.RUnlock()
+		return pingError
+	}
+
 	mockAPI := &mockDockerAPI{
 		pingFn: func(ctx context.Context) (types.Ping, error) {
-			if pingError != nil {
-				return types.Ping{}, pingError
+			if err := getPingError(); err != nil {
+				return types.Ping{}, err
 			}
 			return types.Ping{APIVersion: "1.47"}, nil
 		},
@@ -687,7 +700,7 @@ func TestDockerClient_DegradedModeAndReadiness(t *testing.T) {
 	}
 
 	// 2. Daemon becomes unreachable (e.g. stopped docker in test env)
-	pingError = errors.New("daemon stopped")
+	setPingError(errors.New("daemon stopped"))
 	// Start monitor with small interval
 	monitorCtx, cancelMonitor := context.WithCancel(ctx)
 	go func() {
@@ -718,7 +731,7 @@ func TestDockerClient_DegradedModeAndReadiness(t *testing.T) {
 	}
 
 	// 5. Daemon recovers (acceptance: process stays alive, recovers when daemon returns)
-	pingError = nil
+	setPingError(nil)
 	deadline = time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if !cli.IsDegraded() {

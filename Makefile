@@ -13,7 +13,7 @@ export CGO_ENABLED := 0
 BINARY := supervisor
 PKG     := ./...
 
-.PHONY: build build-web build-image-runner build-image-supervisor test test-scripts test-web lint lint-web fmt fmt-web vet tidy clean generate proto-lint
+.PHONY: build build-web build-image-runner build-image-supervisor test test-race test-scripts test-web lint lint-web fmt fmt-web vet tidy clean generate proto-lint
 
 ## generate: run code generation tools (sqlc, buf)
 generate:
@@ -43,6 +43,10 @@ build-image-supervisor:
 ## test: run the Go test suite
 test:
 	go test $(PKG)
+
+## test-race: run the Go test suite with data race detection (requires CGO)
+test-race:
+	CGO_ENABLED=1 go test -race $(PKG)
 
 ## test-web: run frontend Vitest suite
 test-web:

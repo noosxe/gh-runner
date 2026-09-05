@@ -2,6 +2,7 @@ package orchestrator_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,9 +12,12 @@ import (
 func TestDockerHealthTracker_DegradedAndRecovery(t *testing.T) {
 	now := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
 	var capturedAlert orchestrator.DockerAlert
+	var alertMu sync.Mutex
 
 	tracker := orchestrator.NewDockerHealthTracker("test-host", func(a orchestrator.DockerAlert) {
+		alertMu.Lock()
 		capturedAlert = a
+		alertMu.Unlock()
 	})
 	tracker.SetNowFn(func() time.Time { return now })
 
@@ -75,8 +79,11 @@ func TestDockerHealthTracker_DegradedAndRecovery(t *testing.T) {
 	}
 	// Give alert goroutine a moment to populate capturedAlert
 	time.Sleep(20 * time.Millisecond)
-	if capturedAlert.HostID != "test-host" || capturedAlert.Duration < 5*time.Minute {
-		t.Errorf("unexpected captured alert: %+v", capturedAlert)
+	alertMu.Lock()
+	alert := capturedAlert
+	alertMu.Unlock()
+	if alert.HostID != "test-host" || alert.Duration < 5*time.Minute {
+		t.Errorf("unexpected captured alert: %+v", alert)
 	}
 
 	// Subsequent failure does not re-raise duplicate alert
