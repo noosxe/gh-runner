@@ -1,0 +1,65 @@
+name: Web CI
+
+# Automated frontend checks: Oxlint, Oxfmt, Vitest suites, and production build.
+# Path-filtered so Go/image-only changes do not trigger frontend runners;
+# the workflow always includes itself so CI definition changes are validated.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'web/**'
+      - '.github/workflows/web.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: these jobs only read the repository (AGENTS.md security rules)
+permissions:
+  contents: read
+
+jobs:
+  web-ci:
+    name: Lint, Test & Build (Web UI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install Dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (Oxlint)
+        working-directory: web
+        run: pnpm run lint
+
+      - name: Format Check (Oxfmt)
+        working-directory: web
+        run: pnpm run format:check
+
+      - name: Test (Vitest)
+        working-directory: web
+        run: pnpm test
+
+      - name: Build (TypeScript + Vite)
+        working-directory: web
+        run: pnpm run build

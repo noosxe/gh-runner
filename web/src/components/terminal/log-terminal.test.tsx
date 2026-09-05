@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { LogTerminal } from "./log-terminal";
 import type { LogChunk } from "../../gen/api_pb";
 
@@ -111,16 +111,22 @@ describe("LogTerminal", () => {
     const createObjectURLMock = vi.fn().mockReturnValue("blob:mock-url");
     window.URL.createObjectURL = createObjectURLMock;
     window.URL.revokeObjectURL = vi.fn();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     render(<LogTerminal logs={mockLogs} mode="historical" runnerName="ghrs-arm64-prod-a8f12c" />);
 
     const copyBtn = screen.getByRole("button", { name: /copy/i });
-    fireEvent.click(copyBtn);
+    await act(async () => {
+      fireEvent.click(copyBtn);
+    });
     expect(writeTextMock).toHaveBeenCalled();
 
     const exportBtn = screen.getByRole("button", { name: /export/i });
     fireEvent.click(exportBtn);
     expect(createObjectURLMock).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+
+    clickSpy.mockRestore();
   });
 
   it("handles clear logs callback", () => {
