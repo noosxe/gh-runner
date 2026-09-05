@@ -38,6 +38,9 @@ const (
 
 	// DefaultShutdownPollInterval is the frequency to poll active containers during graceful shutdown (docs/03 §7).
 	DefaultShutdownPollInterval = 5 * time.Second
+
+	// DefaultScaleToZeroGracePeriod is the idle startup/job-pickup window before an on-demand runner is considered orphaned (RUN-71).
+	DefaultScaleToZeroGracePeriod = 5 * time.Minute
 )
 
 // ProvisionRequest represents a queued runner provisioning request when the global quota is saturated.
@@ -107,26 +110,28 @@ type ControllerOptions struct {
 	GlobalMaxRunners     int
 	ShutdownTimeout      time.Duration
 	ShutdownPollInterval time.Duration
-	Interval             time.Duration
-	TaskExitHandler      TaskExitHandler
+	Interval               time.Duration
+	ScaleToZeroGracePeriod time.Duration
+	TaskExitHandler        TaskExitHandler
 }
 
 // PoolController orchestrates the lifecycle control loop across all runner pools (docs/03 §1).
 type PoolController struct {
-	mu                   sync.RWMutex
-	provisionMu          sync.Mutex // single-writer provisioning lock (RUN-38)
-	db                   PoolRepository
-	jobRecorder          JobHistoryRecorder
-	engine               ContainerProvider
-	providerResolver     GitProviderResolver
-	reconciler           *Reconciler
-	eventListener        *EventListener
-	taskExitHandler      TaskExitHandler
-	dataDir              string
-	globalMaxRunners     int
-	shutdownTimeout      time.Duration
-	shutdownPollInterval time.Duration
-	interval             time.Duration
+	mu                     sync.RWMutex
+	provisionMu            sync.Mutex // single-writer provisioning lock (RUN-38)
+	db                     PoolRepository
+	jobRecorder            JobHistoryRecorder
+	engine                 ContainerProvider
+	providerResolver       GitProviderResolver
+	reconciler             *Reconciler
+	eventListener          *EventListener
+	taskExitHandler        TaskExitHandler
+	dataDir                string
+	globalMaxRunners       int
+	shutdownTimeout        time.Duration
+	shutdownPollInterval   time.Duration
+	interval               time.Duration
+	scaleToZeroGracePeriod time.Duration
 
 	queue         []ProvisionRequest // internal provisioning queue for quota saturation (RUN-39)
 	state         ControllerState
@@ -164,21 +169,27 @@ func NewPoolController(opts ControllerOptions) *PoolController {
 		}
 	}
 
+	gracePeriod := opts.ScaleToZeroGracePeriod
+	if gracePeriod <= 0 {
+		gracePeriod = DefaultScaleToZeroGracePeriod
+	}
+
 	return &PoolController{
-		db:                   opts.DB,
-		jobRecorder:          jobRec,
-		engine:               opts.ContainerEngine,
-		providerResolver:     opts.ProviderResolver,
-		reconciler:           opts.Reconciler,
-		eventListener:        opts.EventListener,
-		taskExitHandler:      opts.TaskExitHandler,
-		dataDir:              opts.DataDir,
-		globalMaxRunners:     globalMax,
-		shutdownTimeout:      shutdownTimeout,
-		shutdownPollInterval: shutdownPollInterval,
-		interval:             opts.Interval,
-		state:                StateStopped,
-		logger:               logging.For("controller"),
+		db:                     opts.DB,
+		jobRecorder:            jobRec,
+		engine:                 opts.ContainerEngine,
+		providerResolver:       opts.ProviderResolver,
+		reconciler:             opts.Reconciler,
+		eventListener:          opts.EventListener,
+		taskExitHandler:        opts.TaskExitHandler,
+		dataDir:                opts.DataDir,
+		globalMaxRunners:       globalMax,
+		shutdownTimeout:        shutdownTimeout,
+		shutdownPollInterval:   shutdownPollInterval,
+		interval:               opts.Interval,
+		scaleToZeroGracePeriod: gracePeriod,
+		state:                  StateStopped,
+		logger:                 logging.For("controller"),
 	}
 }
 
@@ -821,17 +832,70 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 		effectiveTarget = p.MaxConcurrency
 	}
 
-	// Scale down excess idle runners if pool target or max_concurrency was reduced live (RUN-42)
-	if activeCount > effectiveTarget {
-		excess := activeCount - effectiveTarget
-		c.logger.Info("pool target reduced live, draining excess idle runners", "pool", p.Name, "active", activeCount, "target", effectiveTarget, "excess", excess)
+	// 1. Enforce per-pool MaxConcurrency cap if active runners exceed it (e.g. reduced live)
+	if p.MaxConcurrency > 0 && activeCount > p.MaxConcurrency {
+		excess := activeCount - p.MaxConcurrency
+		c.logger.Info("pool active runners exceed max_concurrency, draining idle runners",
+			"pool", p.Name, "active", activeCount, "max_concurrency", p.MaxConcurrency, "excess", excess)
+		drained := int64(0)
+		var remainingIdle []RunnerStatus
+		for _, r := range idleRunners {
+			if drained < excess {
+				c.deregisterRunner(ctx, r)
+				_ = c.engine.TerminateRunner(ctx, r.ID)
+				c.reconciler.UntrackRunner(p.Name, r.ID)
+				drained++
+			} else {
+				remainingIdle = append(remainingIdle, r)
+			}
+		}
+		activeCount -= drained
+		idleRunners = remainingIdle
+	}
+
+	// 2. Scale down idle runners according to pool scaling mode:
+	// - Scale-to-zero mode (MinIdleRunners == 0): idle standby runners are drained immediately,
+	//   while on-demand runners are preserved during their startup grace period so they can accept queued jobs (RUN-71).
+	//   Orphaned on-demand runners that exceed the grace period without picking up a job are drained.
+	// - Fixed idle target (MinIdleRunners > 0): excess idle runners beyond target are drained (RUN-42).
+	if p.MinIdleRunners == 0 {
+		gracePeriod := c.scaleToZeroGracePeriod
+		if p.MaxRunnerLifetimeSeconds > 0 {
+			lifetime := time.Duration(p.MaxRunnerLifetimeSeconds) * time.Second
+			if lifetime < gracePeriod {
+				gracePeriod = lifetime
+			}
+		}
+
+		now := time.Now().UTC()
+		for _, r := range idleRunners {
+			isStaleStandby := !r.OnDemand
+			isStaleOnDemand := r.OnDemand && (!r.SpawnedAt.IsZero() && now.Sub(r.SpawnedAt) >= gracePeriod)
+			if isStaleStandby || isStaleOnDemand {
+				c.logger.Info("scale-to-zero draining idle runner",
+					"pool", p.Name,
+					"runner", r.ID,
+					"on_demand", r.OnDemand,
+					"stale_standby", isStaleStandby,
+					"stale_on_demand", isStaleOnDemand,
+				)
+				c.deregisterRunner(ctx, r)
+				_ = c.engine.TerminateRunner(ctx, r.ID)
+				c.reconciler.UntrackRunner(p.Name, r.ID)
+				activeCount--
+			}
+		}
+	} else if int64(len(idleRunners)) > effectiveTarget {
+		excess := int64(len(idleRunners)) - effectiveTarget
+		c.logger.Info("pool min_idle reduced live, draining excess idle runners",
+			"pool", p.Name, "idle_count", len(idleRunners), "target", effectiveTarget, "excess", excess)
 		for i := int64(0); i < excess && i < int64(len(idleRunners)); i++ {
 			r := idleRunners[i]
 			c.deregisterRunner(ctx, r)
 			_ = c.engine.TerminateRunner(ctx, r.ID)
 			c.reconciler.UntrackRunner(p.Name, r.ID)
+			activeCount--
 		}
-		activeCount -= excess
 	}
 
 	queuedForPool := int64(c.QueueLengthForPool(p.Name))
@@ -849,6 +913,7 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 		"max_concurrency", p.MaxConcurrency,
 	)
 
+	onDemand := (p.MinIdleRunners == 0 || (gitProv != nil && gitProv.ScalingMode() == provider.ScalingPolling))
 	for i := int64(0); i < needed; i++ {
 		// Check per-pool max_concurrency
 		if p.MaxConcurrency > 0 && (activeCount+int64(c.QueueLengthForPool(p.Name))) >= p.MaxConcurrency {
@@ -867,7 +932,7 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 			continue
 		}
 
-		if err := c.spawnSingleRunner(ctx, p, gitProv); err != nil {
+		if err := c.spawnSingleRunner(ctx, p, gitProv, onDemand); err != nil {
 			return err
 		}
 		activeCount++
@@ -876,7 +941,7 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 	return nil
 }
 
-func (c *PoolController) spawnSingleRunner(ctx context.Context, p db.RunnerPool, gitProv provider.GitProvider) error {
+func (c *PoolController) spawnSingleRunner(ctx context.Context, p db.RunnerPool, gitProv provider.GitProvider, onDemand bool) error {
 	if gitProv == nil {
 		var err error
 		gitProv, err = c.providerResolver.ResolveProvider(ctx, p.AuthProfileID)
@@ -927,9 +992,14 @@ func (c *PoolController) spawnSingleRunner(ctx context.Context, p db.RunnerPool,
 		PoolName:  p.Name,
 		State:     "running",
 		SpawnedAt: time.Now().UTC(),
+		OnDemand:  onDemand,
 	})
 
-	c.logger.Info("spawned idle runner", "pool", p.Name, "id", id)
+	if onDemand {
+		c.logger.Info("spawned on-demand runner", "pool", p.Name, "id", id)
+	} else {
+		c.logger.Info("spawned idle runner", "pool", p.Name, "id", id)
+	}
 	return nil
 }
 
@@ -1075,7 +1145,7 @@ func (c *PoolController) drainQueue(ctx context.Context) {
 			continue
 		}
 
-		if err := c.spawnSingleRunner(ctx, p, nil); err != nil {
+		if err := c.spawnSingleRunner(ctx, p, nil, true); err != nil {
 			c.logger.Error("failed spawning queued runner", "pool", p.Name, "err", err)
 			remaining = append(remaining, req)
 			continue
