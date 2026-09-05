@@ -282,7 +282,14 @@ func (d *DB) ImportSeedConfig(ctx context.Context, cfg *SeedConfig, mode ImportM
 
 		existing, err := qtx.GetAuthProfileByName(ctx, name)
 		if err == nil {
-			// Update existing
+			// Update existing: preserve existing encrypted secrets if incoming credentials are empty or redacted
+			if !encPriv.Valid && existing.PrivateKeyEncrypted.Valid {
+				encPriv = existing.PrivateKeyEncrypted
+			}
+			if !encTok.Valid && existing.TokenEncrypted.Valid {
+				encTok = existing.TokenEncrypted
+			}
+
 			updated, err := qtx.UpdateAuthProfile(ctx, UpdateAuthProfileParams{
 				Name:                name,
 				AuthMethod:          prof.AuthMethod,
