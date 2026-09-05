@@ -293,7 +293,7 @@ func (c *PoolController) HandleWorkflowJob(ctx context.Context, providerName str
 			return nil
 		}
 
-		if err := c.spawnSingleRunner(ctx, *targetPool, nil); err != nil {
+		if err := c.spawnSingleRunner(ctx, *targetPool, nil, true); err != nil {
 			c.logger.Error("failed spawning runner for queued webhook event",
 				"pool", targetPool.Name,
 				"job_id", event.WorkflowJob.ID,

@@ -38,6 +38,7 @@ type RunnerStatus struct {
 	ExitCode  int       `json:"exit_code"`
 	SpawnedAt time.Time `json:"spawned_at"`
 	IsBusy    bool      `json:"is_busy,omitempty"`
+	OnDemand  bool      `json:"on_demand,omitempty"`
 }
 
 // ContainerProvider abstracts container lifecycle operations from the underlying container engine.

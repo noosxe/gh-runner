@@ -73,7 +73,17 @@ func (r *Reconciler) Audit(ctx context.Context) (AuditReport, error) {
 			r.tracked[s.PoolName] = poolMap
 		}
 
-		if _, alreadyTracked := poolMap[s.ID]; !alreadyTracked {
+		if existing, alreadyTracked := poolMap[s.ID]; alreadyTracked {
+			if !s.IsBusy && existing.IsBusy {
+				s.IsBusy = existing.IsBusy
+			}
+			if s.SpawnedAt.IsZero() && !existing.SpawnedAt.IsZero() {
+				s.SpawnedAt = existing.SpawnedAt
+			}
+			if !s.OnDemand && existing.OnDemand {
+				s.OnDemand = existing.OnDemand
+			}
+		} else {
 			// Container was discovered on host but not yet in memory -> adopted
 			report.Adopted = append(report.Adopted, s)
 		}
