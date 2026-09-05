@@ -154,3 +154,17 @@ jobs:
             -t "${IMAGE_NAME}:${{ github.ref_name }}" \
             -t "${IMAGE_NAME}:latest" \
             $(printf "${IMAGE_NAME}@sha256:%s " *)
+
+      # Create or update official GitHub Release for the pushed tag
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${{ github.ref_name }} already exists, skipping create."
+          else
+            gh release create "${{ github.ref_name }}" \
+              --repo "${{ github.repository }}" \
+              --title "${{ github.ref_name }}" \
+              --generate-notes
+          fi
