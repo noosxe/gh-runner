@@ -132,6 +132,7 @@ func runDaemonContext(ctx context.Context) error {
 		DataDir:          cfg.DataDir,
 		DBEncryptionKey:  derivedKeys.DBEncryptionKey,
 		JWTSigningSecret: derivedKeys.JWTSigningSecret,
+		IsSecureCookie:   cfg.SecureCookie,
 	})
 
 	// Start blocks, so serve from a goroutine and surface fatal errors

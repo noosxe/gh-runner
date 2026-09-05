@@ -33,6 +33,7 @@ const (
 	EnvBackupIntervalHours = EnvPrefix + "BACKUP_INTERVAL_HOURS"
 	EnvBackupRetention     = EnvPrefix + "BACKUP_RETENTION_COUNT"
 	EnvConfigFile          = EnvPrefix + "CONFIG"
+	EnvSecureCookie        = EnvPrefix + "SECURE_COOKIE"
 )
 
 // Default values for the supervisor environment contract (docs/open-questions.md #3).
@@ -65,6 +66,7 @@ var envKeys = map[string]string{
 	EnvBackupIntervalHours: "backup-interval-hours",
 	EnvBackupRetention:     "backup-retention-count",
 	EnvConfigFile:          "config",
+	EnvSecureCookie:        "secure-cookie",
 }
 
 // Config is the typed result of loading every configuration layer. Field
@@ -79,6 +81,7 @@ type Config struct {
 	BackupIntervalHours  int    `koanf:"backup-interval-hours"`
 	BackupRetentionCount int    `koanf:"backup-retention-count"`
 	ConfigFile           string `koanf:"config"`
+	SecureCookie         bool   `koanf:"secure-cookie"`
 }
 
 // Options parameterizes Load. The zero value loads defaults plus the

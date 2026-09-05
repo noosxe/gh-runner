@@ -1,0 +1,37 @@
+# Caddy reverse-proxy configuration for gh-runner supervisor
+# Terminates TLS with automatic Let's Encrypt / ZeroSSL ACME certificates.
+# ConnectRPC server streaming requires unbuffered proxying (`flush_interval -1`).
+
+{
+    # Global options
+    email {$ACME_EMAIL:admin@example.com}
+}
+
+{$SUPERVISOR_DOMAIN:runner.example.com} {
+    # Security headers
+    header {
+        # Enforce HTTPS via HSTS (preload-ready)
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        # Prevent MIME-type sniffing
+        X-Content-Type-Options "nosniff"
+        # Prevent clickjacking / framing
+        X-Frame-Options "DENY"
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # Reverse proxy upstream to the gh-runner supervisor container
+    reverse_proxy supervisor:8080 {
+        # CRITICAL: Disable response buffering for ConnectRPC server-streaming RPCs
+        # (StreamRunnerLogs, WatchDashboard, WatchPools, WatchRunners).
+        # Without this, streaming events are delayed in 4KB/16KB buffers.
+        flush_interval -1
+
+        # Preserve client headers for proxy awareness and audit logging
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+}

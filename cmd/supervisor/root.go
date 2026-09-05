@@ -50,6 +50,7 @@ Run it with no subcommand to start the daemon.`,
 	// these flags as the highest-precedence layer (RUN-7).
 	var flagConfig, flagLogLevel, flagDataDir, flagDBPath, flagDockerHost string
 	var flagPort int
+	var flagSecureCookie bool
 	f := root.PersistentFlags()
 	f.StringVarP(&flagConfig, "config", "c", "", "path to the configuration file (YAML or TOML)")
 	f.StringVar(&flagLogLevel, "log-level", "info", "log level (debug, info, warn, error)")
@@ -57,6 +58,7 @@ Run it with no subcommand to start the daemon.`,
 	f.StringVar(&flagDBPath, "db-path", "", "path to the SQLite database file (defaults to <data-dir>/supervisor.db)")
 	f.IntVar(&flagPort, "port", 8080, "HTTP port for the API and web control interface")
 	f.StringVar(&flagDockerHost, "docker-host", "", "Docker daemon endpoint (defaults to the local Docker socket)")
+	f.BoolVar(&flagSecureCookie, "secure-cookie", false, "set Secure attribute on session cookies (recommended behind HTTPS reverse proxy)")
 
 	root.AddCommand(
 		newDaemonCommand(),

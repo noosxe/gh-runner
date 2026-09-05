@@ -1,0 +1,72 @@
+services:
+  traefik:
+    image: traefik:v3.3
+    container_name: ghrs-traefik
+    restart: unless-stopped
+    command:
+      - "--global.checknewversion=false"
+      - "--global.sendanonymoususage=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=ghrs-net"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_acme:/letsencrypt
+    networks:
+      - ghrs-net
+
+  supervisor:
+    image: ghcr.io/noosxe/gh-runner-supervisor:latest
+    container_name: ghrs-supervisor
+    restart: unless-stopped
+    environment:
+      # Required: 32+ byte encryption key
+      - SUPERVISOR_DB_ENCRYPTION_KEY=${SUPERVISOR_DB_ENCRYPTION_KEY}
+      - SUPERVISOR_PORT=8080
+      # Enable Secure attribute on session cookies behind TLS proxy
+      - SUPERVISOR_SECURE_COOKIE=true
+      - SUPERVISOR_DATA_DIR=/data
+      - SUPERVISOR_DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - supervisor_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - ghrs-net
+    labels:
+      - "traefik.enable=true"
+      # Route HTTPS requests for the domain to supervisor
+      - "traefik.http.routers.supervisor.rule=Host(`${SUPERVISOR_DOMAIN:-runner.example.com}`)"
+      - "traefik.http.routers.supervisor.entrypoints=websecure"
+      - "traefik.http.routers.supervisor.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.supervisor.middlewares=supervisor-headers"
+      # Upstream service port
+      - "traefik.http.services.supervisor.loadbalancer.server.port=8080"
+      # CRITICAL: Disable response buffering for ConnectRPC server streams
+      # (StreamRunnerLogs, WatchDashboard, WatchPools, WatchRunners).
+      # flushInterval=-1 ensures immediate chunk flushing.
+      - "traefik.http.services.supervisor.loadbalancer.responseforwarding.flushinterval=-1"
+      # Security headers middleware
+      - "traefik.http.middlewares.supervisor-headers.headers.sslredirect=true"
+      - "traefik.http.middlewares.supervisor-headers.headers.stsseconds=63072000"
+      - "traefik.http.middlewares.supervisor-headers.headers.stsincludesubdomains=true"
+      - "traefik.http.middlewares.supervisor-headers.headers.stspreload=true"
+      - "traefik.http.middlewares.supervisor-headers.headers.framedeny=true"
+      - "traefik.http.middlewares.supervisor-headers.headers.contenttypenosniff=true"
+
+volumes:
+  traefik_acme:
+  supervisor_data:
+
+networks:
+  ghrs-net:
+    driver: bridge

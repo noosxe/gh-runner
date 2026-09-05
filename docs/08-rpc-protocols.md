@@ -252,5 +252,16 @@ message GetSystemStatsResponse {
   int32 failed_jobs_24h = 6;
   double average_runtime_seconds = 7;
   double success_rate_percent = 8;
-}
 ```
+
+## Reverse Proxy & Streaming Considerations
+
+ConnectRPC server-streaming RPCs (`LogService.StreamRunnerLogs`, `DashboardService.WatchDashboard`, `PoolService.WatchPools`, `PoolService.WatchRunners`) push chunks over long-lived HTTP/2 or chunked HTTP/1.1 connections.
+
+When operating behind a reverse proxy:
+- **Disable Buffering**: Proxies must not buffer responses (e.g. Caddy `flush_interval -1`, Traefik `flushInterval: -1`, Nginx `proxy_buffering off;`).
+- **HTTP/2 Transport**: Terminates TLS at the proxy and allows multiplexing streaming RPCs without running into browser per-host connection limits.
+- **Secure Cookie**: Ensure `SUPERVISOR_SECURE_COOKIE=true` is set when TLS is terminated at the proxy.
+
+For detailed configuration examples and deployment manifests, see [docs/10-reverse-proxy-tls.md](10-reverse-proxy-tls.md).
+

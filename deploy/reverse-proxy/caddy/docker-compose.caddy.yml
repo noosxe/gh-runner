@@ -1,0 +1,51 @@
+services:
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: ghrs-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3 (QUIC)
+    environment:
+      - SUPERVISOR_DOMAIN=${SUPERVISOR_DOMAIN:-runner.example.com}
+      - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - ghrs-net
+    depends_on:
+      - supervisor
+
+  supervisor:
+    image: ghcr.io/noosxe/gh-runner-supervisor:latest
+    container_name: ghrs-supervisor
+    restart: unless-stopped
+    environment:
+      # Required: 32+ byte encryption key for database and derived JWT secret
+      - SUPERVISOR_DB_ENCRYPTION_KEY=${SUPERVISOR_DB_ENCRYPTION_KEY}
+      # Listen port inside container network
+      - SUPERVISOR_PORT=8080
+      # Enable Secure attribute on session cookies when behind TLS reverse proxy
+      - SUPERVISOR_SECURE_COOKIE=true
+      - SUPERVISOR_DATA_DIR=/data
+      - SUPERVISOR_DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - supervisor_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - ghrs-net
+    # Do not expose port 8080 to host directly; all traffic flows through Caddy
+    expose:
+      - "8080"
+
+volumes:
+  caddy_data:
+  caddy_config:
+  supervisor_data:
+
+networks:
+  ghrs-net:
+    driver: bridge

@@ -16,6 +16,7 @@ A lightweight, secure, and self-contained self-hosted GitHub Actions Runner pack
 - **Embedded SQLite & Auto-Migration Runner:** Pure-Go SQLite persistence via `modernc.org/sqlite` (strictly CGO-free for seamless ARM64/AMD64 cross-compilation) with automatic Goose migrations at startup, strict migration error logging, and startup refusal on corrupted databases directing administrators to backup snapshots (OQ #21).
 - **Unified Multi-Provider Runner Image (`runner-aio`):** A single multi-stage, multi-architecture (`amd64` and `arm64`) container image packaging GitHub Actions runner, Gitea `act_runner`, and Forgejo `forgejo-runner` with version-pinned downloads, SHA256 checksum verification, automatic provider detection (`RUNNER_PROVIDER`, `GITEA_INSTANCE_URL`, `FORGEJO_INSTANCE_URL`), ephemeral one-job execution semantics, non-root hardening (`UID/GID 1001`), and automatic interrupt de-registration traps. Published to GHCR as `ghcr.io/noosxe/runner-aio:latest`.
 - **Git Provider Integration & Dynamic Token Engine:** Swappable `GitProvider` interface supporting GitHub (App auth chain with RS256 JWTs and PAT fallback), Gitea (PAT API), and Forgejo (PAT API with queued-job polling). Includes shared rate-limit backoff middleware honoring `Retry-After` and `X-RateLimit-Reset` headers, a 15-minute maximum backoff cap, persistent 10-minute alert dispatching, and strict token segregation ensuring master credentials never leak into runner container specs.
+- **Reverse-Proxy TLS Termination & Hardened Cookies:** Plain HTTP daemon architecture (OQ #25) delegating TLS termination to external reverse proxies (Caddy, Traefik). Features unbuffered ConnectRPC streaming (`flush_interval -1` / `responseForwarding.flushInterval: -1`) for real-time log tailing and dashboard updates, HTTP/2 multiplexing, and configurable `SUPERVISOR_SECURE_COOKIE` enforcing `Secure; HttpOnly; SameSite=Strict` session cookies behind HTTPS (see [docs/10-reverse-proxy-tls.md](docs/10-reverse-proxy-tls.md)).
 
 ---
 
@@ -140,6 +141,7 @@ The `supervisor` daemon layers its configuration, lowest to highest precedence:
 | `SUPERVISOR_BACKUP_INTERVAL_HOURS` | Int | No | `6` | Hours between automated SQLite snapshot backups. |
 | `SUPERVISOR_BACKUP_RETENTION_COUNT` | Int | No | `7` | Number of snapshot backups to retain. |
 | `SUPERVISOR_CONFIG` | String | No | — | Path to a YAML/TOML settings file (overridden by `--config`). |
+| `SUPERVISOR_SECURE_COOKIE` | Bool | No | `false` | Set `Secure` attribute on session cookies (`Secure; HttpOnly; SameSite=Strict`). Recommended behind HTTPS reverse proxy (overridden by `--secure-cookie`). |
 
 ---
 
