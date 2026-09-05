@@ -174,6 +174,7 @@ type Server struct {
 	webhookReceiver  WebhookHandler
 	cronScheduler    CronScheduler
 	renovateExecutor RenovateExecutor
+	imageUpdateSvc   *ImageUpdateService
 }
 
 // New builds the server and its routes. Construction is infallible: routes
@@ -262,6 +263,7 @@ func New(opts Options) *Server {
 			imgOpts = append(imgOpts, WithRegistryChecker(opts.RegistryChecker))
 		}
 		imgSvc := NewImageUpdateService(imgDB, opts.ImagePuller, imgOpts...)
+		s.imageUpdateSvc = imgSvc
 		path, handler := supervisorv1connect.NewImageUpdateServiceHandler(imgSvc, s.ConnectHandlerOptions()...)
 		s.MountConnectHandler(path, handler)
 	}
@@ -524,6 +526,11 @@ func (s *Server) RenovateExecutor() RenovateExecutor {
 // WebhookReceiver returns the configured webhook receiver, if any (M11, RUN-68).
 func (s *Server) WebhookReceiver() WebhookHandler {
 	return s.webhookReceiver
+}
+
+// ImageUpdateService returns the configured image update service, if mounted (RUN-62, RUN-66).
+func (s *Server) ImageUpdateService() *ImageUpdateService {
+	return s.imageUpdateSvc
 }
 
 func (s *Server) handleWebhook(c *echo.Context) error {

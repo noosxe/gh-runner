@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -103,16 +102,9 @@ func (s *OnboardingService) SetAppSetting(ctx context.Context, req *connect.Requ
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("setting app setting %q: %w", key, err))
 	}
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "app_setting_update",
-		ResourceType: sql.NullString{String: "app_setting", Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Updated app setting %s", key), Valid: true},
+	recordAuditLog(ctx, s.db, "setting.update", "app_setting", nil, map[string]any{
+		"key":   key,
+		"value": req.Msg.Value,
 	})
 
 	return connect.NewResponse(&supervisorv1.SetAppSettingResponse{

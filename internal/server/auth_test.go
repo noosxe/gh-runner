@@ -72,8 +72,8 @@ func TestAuthEngineFullLifecycleAndRevocation(t *testing.T) {
 
 	// Verify audit log for admin setup
 	auditLogs, err := database.ListAuditLogs(ctx, db.ListAuditLogsParams{Limit: 10, Offset: 0})
-	if err != nil || len(auditLogs) != 1 || auditLogs[0].Action != "admin_setup" {
-		t.Fatalf("expected 1 audit log for admin_setup, got %+v (err %v)", auditLogs, err)
+	if err != nil || len(auditLogs) != 1 || auditLogs[0].Action != "auth.setup_admin" {
+		t.Fatalf("expected 1 audit log for auth.setup_admin, got %+v (err %v)", auditLogs, err)
 	}
 
 	// 3. SetupAdmin second time fails with FailedPrecondition
@@ -95,8 +95,8 @@ func TestAuthEngineFullLifecycleAndRevocation(t *testing.T) {
 	}
 
 	auditLogs, err = database.ListAuditLogs(ctx, db.ListAuditLogsParams{Limit: 10, Offset: 0})
-	if err != nil || len(auditLogs) != 2 || auditLogs[0].Action != "login_failed" {
-		t.Fatalf("expected audit log for login_failed, got %+v", auditLogs)
+	if err != nil || len(auditLogs) != 2 || auditLogs[0].Action != "auth.login_failed" {
+		t.Fatalf("expected audit log for auth.login_failed, got %+v", auditLogs)
 	}
 
 	// 5. Login with correct credentials succeeds and returns Set-Cookie header
