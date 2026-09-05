@@ -432,8 +432,8 @@ export function PoolDetailPage() {
                         <span>
                           Update available:{" "}
                           <code className="font-mono text-[11px]">
-                            {checkUpdateMutation.data.imageUpdate?.latestDigest
-                              ? `${checkUpdateMutation.data.imageUpdate.latestDigest.slice(0, 19)}...`
+                            {checkUpdateMutation.data.update?.latestDigest
+                              ? `${checkUpdateMutation.data.update.latestDigest.slice(0, 19)}...`
                               : "Newer version in registry"}
                           </code>
                         </span>

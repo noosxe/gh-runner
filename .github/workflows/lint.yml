@@ -11,6 +11,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'Dockerfile'
+      - 'Dockerfile.supervisor'
       - '.dockerignore'
       - '.github/workflows/lint.yml'
   pull_request:
@@ -18,6 +19,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'Dockerfile'
+      - 'Dockerfile.supervisor'
       - '.dockerignore'
       - '.github/workflows/lint.yml'
   workflow_dispatch:
@@ -47,8 +49,13 @@ jobs:
         run: bash tests/unit/entrypoint_test.sh
 
   hadolint:
-    name: Hadolint (Dockerfile)
+    name: Hadolint (${{ matrix.dockerfile }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dockerfile:
+          - Dockerfile
+          - Dockerfile.supervisor
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -56,7 +63,7 @@ jobs:
       - name: Run Hadolint
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: Dockerfile
+          dockerfile: ${{ matrix.dockerfile }}
           # The runner image currently carries pre-existing style warnings
           # (DL3008 unpinned apt packages, DL4006 pipefail, DL3059 RUN
           # consolidation). They surface as PR annotations but do not fail CI

@@ -238,7 +238,7 @@ describe("PoolDetailPage", () => {
       isSuccess: true,
       data: {
         updateAvailable: true,
-        imageUpdate: {
+        update: {
           poolId: 10n,
           currentDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
           latestDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",

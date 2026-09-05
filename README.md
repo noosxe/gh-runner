@@ -17,6 +17,7 @@ A lightweight, secure, and self-contained self-hosted GitHub Actions Runner pack
 - **Unified Multi-Provider Runner Image (`runner-aio`):** A single multi-stage, multi-architecture (`amd64` and `arm64`) container image packaging GitHub Actions runner, Gitea `act_runner`, and Forgejo `forgejo-runner` with version-pinned downloads, SHA256 checksum verification, automatic provider detection (`RUNNER_PROVIDER`, `GITEA_INSTANCE_URL`, `FORGEJO_INSTANCE_URL`), ephemeral one-job execution semantics, non-root hardening (`UID/GID 1001`), and automatic interrupt de-registration traps. Published to GHCR as `ghcr.io/noosxe/runner-aio:latest`.
 - **Git Provider Integration & Dynamic Token Engine:** Swappable `GitProvider` interface supporting GitHub (App auth chain with RS256 JWTs and PAT fallback), Gitea (PAT API), and Forgejo (PAT API with queued-job polling). Includes shared rate-limit backoff middleware honoring `Retry-After` and `X-RateLimit-Reset` headers, a 15-minute maximum backoff cap, persistent 10-minute alert dispatching, and strict token segregation ensuring master credentials never leak into runner container specs.
 - **Reverse-Proxy TLS Termination & Hardened Cookies:** Plain HTTP daemon architecture (OQ #25) delegating TLS termination to external reverse proxies (Caddy, Traefik). Features unbuffered ConnectRPC streaming (`flush_interval -1` / `responseForwarding.flushInterval: -1`) for real-time log tailing and dashboard updates, HTTP/2 multiplexing, and configurable `SUPERVISOR_SECURE_COOKIE` enforcing `Secure; HttpOnly; SameSite=Strict` session cookies behind HTTPS (see [docs/10-reverse-proxy-tls.md](docs/10-reverse-proxy-tls.md)).
+- **Multi-Stage Supervisor Image with s6-overlay:** 3-stage multi-architecture container (`Dockerfile.supervisor`) packaging the entire supervisor stack: Stage 1 `node:24-alpine` compiling the Vite/React/TypeScript SPA, Stage 2 `golang:1.26-alpine` embedding frontend assets via `go:embed`, and Stage 3 minimal `alpine:3.21` supervised by s6-overlay v3 for robust signal forwarding (SIGTERM drain), child process reaping, and persistent `/data` volume support. Published to GHCR as `ghcr.io/noosxe/gh-runner-supervisor:latest`.
 
 ---
 
@@ -184,15 +185,23 @@ Builds, vets, and tests the Go module (`cmd/`, `internal/`) on every PR and push
 
 Automated shell and Docker linter checks on PRs and pushes to `main` touching image inputs:
 - **ShellCheck:** validates `src/*.sh` — identical to the mandated local check `nix develop --command shellcheck src/*.sh`.
-- **Hadolint:** validates the runner `Dockerfile`; error-severity findings fail the job, style warnings surface as annotations.
+- **Hadolint:** validates both `Dockerfile` and `Dockerfile.supervisor`; error-severity findings fail the job, style warnings surface as annotations.
 
-### Multi-Arch Image Build (`build.yml`)
+### Runner Multi-Arch Image Build (`build.yml`)
 
-The **Parallel Native Matrix & Manifest Merger** workflow:
+The **Parallel Native Matrix & Manifest Merger** workflow for `runner-aio`:
 - **Pull Requests and Push to main:** Triggers a native dry-run compilation on parallel AMD64 and ARM64 GitHub runners to ensure code and Docker layer compatibility (only when image inputs change).
 - **Releases (Tag Push `v*`):** 
   1. Compiles the containers on native runners and publishes them by content-digest to the GitHub Container Registry (GHCR) as `ghcr.io/<owner>/runner-aio`.
   2. Runs a downstream coordination job that merges the digests into a unified multi-architecture manifest list under the version tag (e.g., `v1.0.0`) and the `latest` tag.
+
+### Supervisor Multi-Arch Image Build (`supervisor-build.yml`)
+
+The **Parallel Native Matrix & Manifest Merger** workflow for `gh-runner-supervisor`:
+- **Pull Requests and Push to main:** Triggers a native dry-run compilation on parallel AMD64 (`ubuntu-latest`) and ARM64 (`ubuntu-24.04-arm`) GitHub runners whenever supervisor source files, frontend assets, or Dockerfile change.
+- **Releases (Tag Push `v*`):** 
+  1. Compiles the supervisor images natively and publishes them by digest to GHCR as `ghcr.io/<owner>/gh-runner-supervisor`.
+  2. Merges multi-architecture manifests into a unified multi-arch image under version tags (e.g., `v1.0.0`) and `latest`.
 
 ---
 
