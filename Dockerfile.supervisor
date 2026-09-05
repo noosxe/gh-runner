@@ -1,0 +1,108 @@
+# syntax=docker/dockerfile:1
+
+# ------------------------------------------------------------------------------
+# Stage 1: Frontend Build
+# Compiles the Vite/React/TypeScript SPA into static production assets
+# ------------------------------------------------------------------------------
+FROM node:24-alpine AS frontend-builder
+WORKDIR /build/web
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+ENV CI=true
+RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
+
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY web/ ./
+RUN pnpm run build
+
+# ------------------------------------------------------------------------------
+# Stage 2: Backend Build
+# Compiles the pure-Go supervisor daemon with embedded frontend assets
+# ------------------------------------------------------------------------------
+FROM golang:1.26-alpine AS backend-builder
+WORKDIR /build
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache ca-certificates git
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY cmd/ cmd/
+COPY internal/ internal/
+COPY proto/ proto/
+COPY web/embed.go web/embed.go
+
+# Copy static frontend assets from Stage 1 into web/dist so go:embed embeds them
+COPY --from=frontend-builder /build/web/dist web/dist
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -ldflags "-s -w -X main.version=${VERSION}" -o /build/bin/supervisor ./cmd/supervisor
+
+# ------------------------------------------------------------------------------
+# Stage 3: Final Runtime
+# Minimal Alpine Linux base image with s6-overlay process supervision
+# ------------------------------------------------------------------------------
+FROM alpine:3.21
+
+ARG TARGETARCH
+ARG S6_OVERLAY_VERSION=3.2.3.2
+
+# hadolint ignore=DL3018,DL3003,DL4006
+RUN apk add --no-cache ca-certificates curl tzdata xz tar \
+    && mkdir -p /tmp/s6 \
+    && cd /tmp/s6 \
+    && if [ "${TARGETARCH}" = "amd64" ] || [ -z "${TARGETARCH}" ]; then \
+        S6_ARCH="x86_64"; \
+        S6_ARCH_SHA256="e6befcc96a437a3831386ecfc51808c5d3e939dc5fe3c02ae9284599e8aa2408"; \
+    elif [ "${TARGETARCH}" = "arm64" ]; then \
+        S6_ARCH="aarch64"; \
+        S6_ARCH_SHA256="b17f17a82e7a515c682a91edaf2ffdabb73f891981b6c1fd712115693a2f8b4c"; \
+    else \
+        echo "Unsupported architecture: ${TARGETARCH}" >&2; exit 1; \
+    fi \
+    && S6_NOARCH_SHA256="5379750ed30a84bbd2e2dd74847ba6b5bd29cd0b2e3ea2ec58049b57eb2eda12" \
+    && S6_SYMLINKS_NOARCH_SHA256="a215675c375aca9efecde3065df22b19fb8dcdc1362566931c6b5e778099a0fb" \
+    && S6_SYMLINKS_ARCH_SHA256="6251226709efc0c88800a8c140404d93b391e1b4051ef50fa0e8aac1fdcf738c" \
+    && S6_BASE_URL="https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}" \
+    && curl -fsSLO "${S6_BASE_URL}/s6-overlay-noarch.tar.xz" \
+    && echo "${S6_NOARCH_SHA256}  s6-overlay-noarch.tar.xz" | sha256sum -c - \
+    && tar -C / -Jxpf s6-overlay-noarch.tar.xz \
+    && curl -fsSLO "${S6_BASE_URL}/s6-overlay-${S6_ARCH}.tar.xz" \
+    && echo "${S6_ARCH_SHA256}  s6-overlay-${S6_ARCH}.tar.xz" | sha256sum -c - \
+    && tar -C / -Jxpf "s6-overlay-${S6_ARCH}.tar.xz" \
+    && curl -fsSLO "${S6_BASE_URL}/s6-overlay-symlinks-noarch.tar.xz" \
+    && echo "${S6_SYMLINKS_NOARCH_SHA256}  s6-overlay-symlinks-noarch.tar.xz" | sha256sum -c - \
+    && tar -C / -Jxpf s6-overlay-symlinks-noarch.tar.xz \
+    && curl -fsSLO "${S6_BASE_URL}/s6-overlay-symlinks-arch.tar.xz" \
+    && echo "${S6_SYMLINKS_ARCH_SHA256}  s6-overlay-symlinks-arch.tar.xz" | sha256sum -c - \
+    && tar -C / -Jxpf s6-overlay-symlinks-arch.tar.xz \
+    && cd / \
+    && rm -rf /tmp/s6 \
+    && apk del xz tar
+
+# Copy compiled supervisor binary
+COPY --from=backend-builder /build/bin/supervisor /usr/local/bin/supervisor
+
+# Copy s6-overlay service definitions
+COPY deploy/supervisor/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
+COPY deploy/supervisor/user-bundles.d/ /etc/s6-overlay/user-bundles.d/
+RUN chmod +x /etc/s6-overlay/s6-rc.d/supervisor/run /etc/s6-overlay/s6-rc.d/supervisor/finish
+
+# Persistent data directory
+VOLUME ["/data"]
+
+# Default supervisor HTTP port
+EXPOSE 8080
+
+# Configure s6-overlay environment
+ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
+ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=10000
+
+ENTRYPOINT ["/init"]

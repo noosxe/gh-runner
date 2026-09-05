@@ -13,7 +13,7 @@ export CGO_ENABLED := 0
 BINARY := supervisor
 PKG     := ./...
 
-.PHONY: build build-web test test-scripts test-web lint lint-web fmt fmt-web vet tidy clean generate proto-lint
+.PHONY: build build-web build-image-runner build-image-supervisor test test-scripts test-web lint lint-web fmt fmt-web vet tidy clean generate proto-lint
 
 ## generate: run code generation tools (sqlc, buf)
 generate:
@@ -31,6 +31,14 @@ build-web:
 ## build: compile all packages and produce the supervisor binary
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/$(BINARY) ./cmd/$(BINARY)
+
+## build-image-runner: build local runner-aio container image
+build-image-runner:
+	docker build -f Dockerfile -t runner-aio:local .
+
+## build-image-supervisor: build local supervisor container image
+build-image-supervisor:
+	docker build -f Dockerfile.supervisor -t gh-runner-supervisor:local .
 
 ## test: run the Go test suite
 test:
