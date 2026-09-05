@@ -20,12 +20,14 @@ func testFlags(t *testing.T, args ...string) *pflag.FlagSet {
 	fs := pflag.NewFlagSet("supervisor", pflag.ContinueOnError)
 	var configPath, logLevel, dataDir, dbPath, dockerHost string
 	var port int
+	var secureCookie bool
 	fs.StringVarP(&configPath, "config", "c", "", "path to the configuration file (YAML or TOML)")
 	fs.StringVar(&logLevel, "log-level", DefaultLogLevel, "log level")
 	fs.StringVar(&dataDir, "data-dir", DefaultDataDir, "data directory")
 	fs.StringVar(&dbPath, "db-path", "", "path to the SQLite database file")
 	fs.IntVar(&port, "port", DefaultPort, "HTTP port")
 	fs.StringVar(&dockerHost, "docker-host", "", "Docker daemon endpoint")
+	fs.BoolVar(&secureCookie, "secure-cookie", false, "set the Secure attribute on the session cookie")
 	if err := fs.Parse(args); err != nil {
 		t.Fatalf("parsing test flags %v: %v", args, err)
 	}
@@ -83,6 +85,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.DBEncryptionKey != testKey {
 		t.Errorf("db encryption key not carried through from the environment")
+	}
+	if cfg.SecureCookie {
+		t.Errorf("secure cookie = true, want default false")
 	}
 }
 
@@ -170,6 +175,43 @@ func TestUnchangedFlagDefaultsDoNotOverrideEnv(t *testing.T) {
 	if cfg.Port != 6060 {
 		t.Errorf("port = %d, want 6060: untouched flag default shadowed the environment", cfg.Port)
 	}
+}
+
+func TestLoadSecureCookie(t *testing.T) {
+	t.Setenv(EnvDBEncryptionKey, testKey)
+
+	t.Run("from environment", func(t *testing.T) {
+		t.Setenv(EnvSecureCookie, "true")
+		cfg, err := Load(Options{})
+		if err != nil {
+			t.Fatalf("loading: %v", err)
+		}
+		if !cfg.SecureCookie {
+			t.Errorf("secure-cookie = false, want true from env")
+		}
+	})
+
+	t.Run("from yaml file", func(t *testing.T) {
+		path := writeFile(t, "secure.yaml", "secure-cookie: true\n")
+		cfg, err := Load(Options{Flags: testFlags(t, "--config", path)})
+		if err != nil {
+			t.Fatalf("loading: %v", err)
+		}
+		if !cfg.SecureCookie {
+			t.Errorf("secure-cookie = false, want true from yaml")
+		}
+	})
+
+	t.Run("from cli flag overriding false env", func(t *testing.T) {
+		t.Setenv(EnvSecureCookie, "false")
+		cfg, err := Load(Options{Flags: testFlags(t, "--secure-cookie")})
+		if err != nil {
+			t.Fatalf("loading: %v", err)
+		}
+		if !cfg.SecureCookie {
+			t.Errorf("secure-cookie = false, want true from flag")
+		}
+	})
 }
 
 func TestConfigFileResolution(t *testing.T) {

@@ -120,7 +120,7 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 
 ## 25. Web UI TLS / HTTPS Strategy
 - The security doc covers credential encryption and container hardening but doesn't address transport security for the Web UI. Does the supervisor terminate TLS itself (self-signed cert generation)? Is a reverse proxy (nginx, Caddy, Traefik) expected in front? Should the docs recommend a deployment pattern?
-> **✅ Resolved**: Supervisor listens on plain HTTP only. TLS termination is delegated to a reverse proxy. No self-signed certificate generation. Documentation will include example reverse proxy configurations for Caddy and Traefik. Native TLS termination may be considered in the future but is not prioritized.
+> **✅ Resolved**: Supervisor listens on plain HTTP only. TLS termination is delegated to a reverse proxy. No self-signed certificate generation. Documentation will include example reverse proxy configurations for Caddy and Traefik (see [docs/10-reverse-proxy-tls.md](10-reverse-proxy-tls.md)). Native TLS termination may be considered in the future but is not prioritized.
 
 ## 26. CORS & HTTP Security Headers
 - The SPA frontend is served by the Go backend. No document defines CORS policy, Content Security Policy (CSP), or other HTTP security headers (`X-Frame-Options`, `Strict-Transport-Security`). These are standard hardening measures for web applications.

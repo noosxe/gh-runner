@@ -4,7 +4,7 @@ This document describes the high-level architecture, directory structure, and co
 
 ## 1. System Architecture
 
-The following diagram illustrates how the Supervisor manages the lifecycle of ephemeral runner containers and communicates with Git providers and the host container engine.
+The following diagram illustrates how the Supervisor manages the lifecycle of ephemeral runner containers and communicates with Git providers and the host container engine. Transport security for the Web Control UI and ConnectRPC API is terminated via an external reverse proxy (Caddy, Traefik) in front of the supervisor daemon (see [10-reverse-proxy-tls.md](10-reverse-proxy-tls.md)).
 
 ```mermaid
 graph TD
