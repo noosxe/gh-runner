@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { ImageUpdateNotification } from "./image-update-notification";
 import type { ImageUpdate } from "../../gen/api_pb";
 
@@ -43,11 +43,15 @@ describe("ImageUpdateNotification", () => {
     expect(screen.getByText("ghcr.io/noosxe/runner-aio:v1.2.0")).toBeInTheDocument();
 
     const pullBtn = screen.getByRole("button", { name: /pull update/i });
-    fireEvent.click(pullBtn);
+    await act(async () => {
+      fireEvent.click(pullBtn);
+    });
     expect(mockPullMutate).toHaveBeenCalledWith(1n);
 
     const dismissBtn = screen.getByTitle("Dismiss update notification");
-    fireEvent.click(dismissBtn);
+    await act(async () => {
+      fireEvent.click(dismissBtn);
+    });
     expect(mockDismissMutate).toHaveBeenCalledWith(10n);
   });
 });

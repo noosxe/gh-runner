@@ -55,8 +55,15 @@ vi.mock("../lib/api/query-hooks", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to, ...props }: any) => (
-    <a href={to} {...props}>
+  Link: ({ children, to, onClick, ...props }: any) => (
+    <a
+      href={to}
+      onClick={(e) => {
+        e.preventDefault();
+        onClick?.(e);
+      }}
+      {...props}
+    >
       {children}
     </a>
   ),
@@ -111,6 +118,7 @@ describe("HistoryPage", () => {
     const revokeObjectURLMock = vi.fn();
     window.URL.createObjectURL = createObjectURLMock;
     window.URL.revokeObjectURL = revokeObjectURLMock;
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
     render(<HistoryPage />);
 
@@ -118,5 +126,7 @@ describe("HistoryPage", () => {
     fireEvent.click(exportBtn);
 
     expect(createObjectURLMock).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
   });
 });

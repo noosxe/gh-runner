@@ -39,7 +39,7 @@ const rootRoute = createRootRoute({
 });
 
 // Public Routes
-const loginRoute = createRoute({
+export const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: LoginPage,
@@ -58,7 +58,7 @@ const loginRoute = createRoute({
   },
 });
 
-const onboardingRoute = createRoute({
+export const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/onboarding",
   component: OnboardingPage,
@@ -75,7 +75,7 @@ const onboardingRoute = createRoute({
 });
 
 // Authenticated App Shell Layout
-const authenticatedRoute = createRoute({
+export const authenticatedRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "_authenticated",
   component: AppShell,

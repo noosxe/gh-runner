@@ -214,4 +214,160 @@ describe("OnboardingPage (Full 5 Steps)", () => {
     expect(dockerCheckbox.disabled).toBe(true);
     expect(screen.getByText(/Locked to Enabled for GITEA runners/i)).toBeInTheDocument();
   });
+
+  it("displays error banner if admin setup API call fails in Step 1", async () => {
+    mockSetupAdmin.mockRejectedValueOnce(new Error("Database write failure"));
+
+    render(<OnboardingPage />);
+
+    fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
+      target: { value: "validpassword123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm Password"), {
+      target: { value: "validpassword123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Git Provider/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Database write failure")).toBeInTheDocument();
+    });
+  });
+
+  it("resumes at Step 2 if admin is already created", () => {
+    mockOnboardingStatus = {
+      adminCreated: true,
+      authProfileExists: false,
+      poolExists: false,
+      setupComplete: false,
+    };
+
+    render(<OnboardingPage />);
+
+    expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
+  });
+
+  it("supports navigating back between steps using Back button", async () => {
+    mockSetupAdmin.mockResolvedValueOnce({});
+
+    render(<OnboardingPage />);
+
+    fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
+      target: { value: "validpassword123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm Password"), {
+      target: { value: "validpassword123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Git Provider/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
+    });
+
+    const backBtn = screen.getByRole("button", { name: /Back/i });
+    fireEvent.click(backBtn);
+
+    expect(screen.getByText("Step 1 of 5: Create Master Administrator")).toBeInTheDocument();
+  });
+
+  it("validates that min idle runners cannot exceed max concurrency in Step 4", async () => {
+    mockSetupAdmin.mockResolvedValueOnce({});
+    mockCreateAuthProfile.mockResolvedValueOnce({ profile: { id: 10n } });
+    mockSetAppSetting.mockResolvedValue({});
+
+    render(<OnboardingPage />);
+
+    // Step 1
+    fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm Password"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Git Provider/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
+    });
+
+    // Step 2
+    fireEvent.change(screen.getByLabelText("Personal Access Token (PAT)"), {
+      target: { value: "ghp_token12345" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Safeguards/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 3 of 5: Global Scaling Safeguards")).toBeInTheDocument();
+    });
+
+    // Step 3
+    fireEvent.click(screen.getByRole("button", { name: /Next: Initial Pool/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 4 of 5: Initial Runner Pool Setup")).toBeInTheDocument();
+    });
+
+    // Step 4: set minIdle > maxConcurrency
+    fireEvent.change(screen.getByLabelText("Min Idle Runners"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Max Concurrency"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Review & Launch/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Min idle runners cannot exceed max concurrency"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("displays error banner when launch supervisor fails in Step 5", async () => {
+    mockSetupAdmin.mockResolvedValueOnce({});
+    mockCreateAuthProfile.mockResolvedValueOnce({ profile: { id: 10n } });
+    mockSetAppSetting.mockResolvedValue({});
+    mockCreatePool.mockRejectedValueOnce(new Error("Docker daemon communication timeout"));
+
+    render(<OnboardingPage />);
+
+    // Step 1
+    fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm Password"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Git Provider/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
+    });
+
+    // Step 2
+    fireEvent.change(screen.getByLabelText("Personal Access Token (PAT)"), {
+      target: { value: "ghp_token12345" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Safeguards/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 3 of 5: Global Scaling Safeguards")).toBeInTheDocument();
+    });
+
+    // Step 3
+    fireEvent.click(screen.getByRole("button", { name: /Next: Initial Pool/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 4 of 5: Initial Runner Pool Setup")).toBeInTheDocument();
+    });
+
+    // Step 4
+    fireEvent.click(screen.getByRole("button", { name: /Next: Review & Launch/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 5 of 5: Review & Launch Supervisor")).toBeInTheDocument();
+    });
+
+    // Step 5: Launch
+    fireEvent.click(screen.getByRole("button", { name: /Confirm & Launch Supervisor/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Docker daemon communication timeout")).toBeInTheDocument();
+    });
+  });
 });
