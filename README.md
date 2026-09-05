@@ -1,216 +1,179 @@
-# Custom Self-Hosted GitHub Actions Runner
+# Custom Self-Hosted GitHub Actions Runner & Supervisor
 
-A lightweight, secure, and self-contained self-hosted GitHub Actions Runner packaged as a multi-architecture Docker container. Designed to run natively on **ARM64** (Apple Silicon, AWS Graviton, Raspberry Pi) and **AMD64** platforms, with seamless local orchestration via Docker Compose.
+[![Go CI](https://github.com/noosxe/gh-runner/actions/workflows/go.yml/badge.svg)](https://github.com/noosxe/gh-runner/actions/workflows/go.yml)
+[![Web CI](https://github.com/noosxe/gh-runner/actions/workflows/web.yml/badge.svg)](https://github.com/noosxe/gh-runner/actions/workflows/web.yml)
+[![Lint](https://github.com/noosxe/gh-runner/actions/workflows/lint.yml/badge.svg)](https://github.com/noosxe/gh-runner/actions/workflows/lint.yml)
+[![Runner Multi-Arch Build](https://github.com/noosxe/gh-runner/actions/workflows/build.yml/badge.svg)](https://github.com/noosxe/gh-runner/actions/workflows/build.yml)
+[![Supervisor Multi-Arch Build](https://github.com/noosxe/gh-runner/actions/workflows/supervisor-build.yml/badge.svg)](https://github.com/noosxe/gh-runner/actions/workflows/supervisor-build.yml)
+
+A lightweight, secure, and self-contained self-hosted runner and orchestrator stack for **GitHub Actions**, **Gitea Actions**, and **Forgejo Actions**. Packaged as production-ready, multi-architecture Docker containers designed to run natively on **ARM64** (Apple Silicon, AWS Graviton, Raspberry Pi) and **AMD64** hosts without emulation overhead.
 
 ---
 
 ## ✨ Features
 
-- **Native Architecture Execution:** Built and executed natively on both ARM64 and AMD64 hosts without CPU emulation overhead.
-- **Graceful Lifecycle Management:** Intercepts system termination signals (`SIGTERM`/`SIGINT`) to cleanly de-register the runner from the GitHub repository before container teardown, preventing "offline ghost runners" in your dashboard.
-- **Secure Non-Root Isolation:** The runner agent and jobs execute under a dedicated, low-privilege `runner` system user rather than `root`.
-- **Fast Build Times:** Pre-bakes dotnet runtimes and core operating system dependencies into the container layer to minimize boot latency.
-- **Layered Supervisor Configuration:** The `supervisor` daemon merges built-in defaults, an optional YAML/TOML settings file, `SUPERVISOR_*` environment variables, and CLI flags (in increasing precedence), with typed validation that refuses to start without a strong `SUPERVISOR_DB_ENCRYPTION_KEY`.
-- **Single Master Key, Derived Secrets:** The one required `SUPERVISOR_DB_ENCRYPTION_KEY` is expanded via HKDF-SHA256 (`internal/keys`) into two independent runtime secrets — the AES-256 database encryption key and the JWT signing secret — each under its own context label, so there is no separate `JWT_SECRET` to configure or leak, and both remain stable across restarts.
-- **Health Endpoints:** The daemon serves `GET /healthz` (liveness: process alive + DB accessible) and `GET /readyz` (readiness: DB + auditor/control loop; Docker unreachable reports `degraded` but stays ready) on `SUPERVISOR_PORT`, answering JSON with per-check detail — e.g. `{ "status": "ready", "checks": { "db": "ok", "docker": "degraded", "auditor": "ok" } }` — for compose healthchecks, load balancers, and monitoring probes.
-- **Embedded SQLite & Auto-Migration Runner:** Pure-Go SQLite persistence via `modernc.org/sqlite` (strictly CGO-free for seamless ARM64/AMD64 cross-compilation) with automatic Goose migrations at startup, strict migration error logging, and startup refusal on corrupted databases directing administrators to backup snapshots (OQ #21).
-- **Unified Multi-Provider Runner Image (`runner-aio`):** A single multi-stage, multi-architecture (`amd64` and `arm64`) container image packaging GitHub Actions runner, Gitea `act_runner`, and Forgejo `forgejo-runner` with version-pinned downloads, SHA256 checksum verification, automatic provider detection (`RUNNER_PROVIDER`, `GITEA_INSTANCE_URL`, `FORGEJO_INSTANCE_URL`), ephemeral one-job execution semantics, non-root hardening (`UID/GID 1001`), and automatic interrupt de-registration traps. Published to GHCR as `ghcr.io/noosxe/runner-aio:latest`.
-- **Git Provider Integration & Dynamic Token Engine:** Swappable `GitProvider` interface supporting GitHub (App auth chain with RS256 JWTs and PAT fallback), Gitea (PAT API), and Forgejo (PAT API with queued-job polling). Includes shared rate-limit backoff middleware honoring `Retry-After` and `X-RateLimit-Reset` headers, a 15-minute maximum backoff cap, persistent 10-minute alert dispatching, and strict token segregation ensuring master credentials never leak into runner container specs.
-- **Reverse-Proxy TLS Termination & Hardened Cookies:** Plain HTTP daemon architecture (OQ #25) delegating TLS termination to external reverse proxies (Caddy, Traefik). Features unbuffered ConnectRPC streaming (`flush_interval -1` / `responseForwarding.flushInterval: -1`) for real-time log tailing and dashboard updates, HTTP/2 multiplexing, and configurable `SUPERVISOR_SECURE_COOKIE` enforcing `Secure; HttpOnly; SameSite=Strict` session cookies behind HTTPS (see [docs/10-reverse-proxy-tls.md](docs/10-reverse-proxy-tls.md)).
-- **Multi-Stage Supervisor Image with s6-overlay:** 3-stage multi-architecture container (`Dockerfile.supervisor`) packaging the entire supervisor stack: Stage 1 `node:24-alpine` compiling the Vite/React/TypeScript SPA, Stage 2 `golang:1.26-alpine` embedding frontend assets via `go:embed`, and Stage 3 minimal `alpine:3.21` supervised by s6-overlay v3 for robust signal forwarding (SIGTERM drain), child process reaping, and persistent `/data` volume support. Published to GHCR as `ghcr.io/noosxe/gh-runner-supervisor:latest`.
+- **All-in-One Multi-Provider Supervisor:** Database-driven daemon that automatically provisions, monitors, scales, and maintains dynamic pools of ephemeral runner containers across GitHub, Gitea, and Forgejo repositories.
+- **Embedded Web UI & 5-Step Onboarding Wizard:** Single-Page Application (React 19, TypeScript, TanStack Router & Query, TailwindCSS) embedded directly into the Go supervisor binary via `go:embed`. Features a zero-config 5-step onboarding wizard, dark/light theme switching, and live pool management.
+- **Dynamic Ephemeral Scaling:** Automatically manages warm standby containers (`min_idle_runners`) ready for immediate job dispatch, auto-scales up to concurrency limits (`max_concurrency`), and aggressively prunes completed or failed containers within seconds.
+- **Real-Time Streaming Logs & Interactive Terminal:** Unbuffered ConnectRPC server-sent streaming (`StreamRunnerLogs`, `StreamSystemMetrics`) pushing real-time container output directly to an embedded xterm.js terminal emulator with auto-scroll and quick-copy.
+- **Dependency Automation via Renovate:** Built-in scheduled Renovate task runner for autonomous dependency updates, configured via cron expressions with isolated ephemeral container execution.
+- **Single Master Key, Derived Secrets:** The single required `SUPERVISOR_DB_ENCRYPTION_KEY` expands via HKDF-SHA256 into two distinct, deterministic secrets — an AES-256 database encryption key for credentials at rest and a HMAC secret for JWT session tokens.
+- **Embedded SQLite & Auto-Migrations:** Pure-Go SQLite persistence via `modernc.org/sqlite` (strictly CGO-free) with automated Goose migrations on boot, rolling snapshot backups (`SUPERVISOR_BACKUP_INTERVAL_HOURS`), and strict corruption detection.
+- **Unified Multi-Provider Runner Image (`runner-aio`):** Multi-stage container image bundling GitHub Actions runner, Gitea `act_runner`, and Forgejo `forgejo-runner` with automatic provider detection, non-root user execution (`UID 1001`), and active signal traps for clean deregistration.
+- **Automated Health Probes:** Serves `GET /healthz` (liveness: process and SQLite accessible) and `GET /readyz` (readiness: database, audit loop, and Docker daemon reachability; reports `degraded` during Docker outages while remaining responsive).
+- **Reverse-Proxy TLS & Hardened Cookies:** Designed for TLS termination via external reverse proxies (Caddy, Traefik, Nginx) with unbuffered HTTP/2 streaming support and configurable `SUPERVISOR_SECURE_COOKIE` enforcing `Secure; HttpOnly; SameSite=Strict` attributes.
+- **Comprehensive Automated Test Suites:** Extensive test coverage across Go unit, race detection (`go test -race`), and testify test suites (`mockery`-backed Docker and GitProvider clients), runner script test harnesses, and 20 frontend Vitest test suites.
 
 ---
 
-## 🚀 Usage Guide
+## 🚀 Quickstart: Supervisor Stack (Recommended)
 
-This self-hosted runner can be deployed either by pulling the pre-built multi-architecture container from the **GitHub Container Registry (GHCR)** (recommended) or by compiling it locally from source.
+Deploy the complete supervisor daemon and web control interface using Docker Compose:
 
-### Option A: Using the Pre-Built Image (Recommended)
+### 1. Configure the Environment
+Clone this repository (or download `docker-compose.yml` and `.env.example`):
 
-To run the runner without needing to download or build the source code locally, create a `compose.yml` file and a `.env` file in a directory of your choice.
-
-#### 1. Create a `compose.yml` File
-Save the following configuration as `compose.yml`:
-
-```yaml
-services:
-  runner:
-    image: ghcr.io/noosxe/runner-aio:latest
-    container_name: runner-aio
-    # Use standard init process to reap zombie processes spawned by runner jobs
-    init: true
-    restart: unless-stopped
-    environment:
-      - GITHUB_REPOSITORY_URL=${GITHUB_REPOSITORY_URL}
-      - RUNNER_TOKEN=${RUNNER_TOKEN}
-      - RUNNER_NAME=${RUNNER_NAME:-runner-aio}
-      - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64}
-      - RUNNER_WORKDIR=${RUNNER_WORKDIR:-_work}
-    # Mount volumes to support Docker-outside-of-Docker (DooD) operations
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    # Optional: If your jobs need to communicate with Docker outside the container,
-    # uncomment below and match "999" to your host's docker group GID (run `getent group docker`).
-    # group_add:
-    #   - "999"
+```bash
+git clone https://github.com/noosxe/gh-runner.git
+cd gh-runner
+cp .env.example .env
 ```
 
-#### 2. Create the Environment Configuration
-Create a `.env` file in the same directory:
-
+Generate a 256-bit encryption key (minimum 32 bytes) and set it in your `.env` file:
+```bash
+# Generate encryption key
+openssl rand -base64 32
+```
+Add the output to `.env`:
 ```env
-# The full URL of the GitHub repository
-GITHUB_REPOSITORY_URL=https://github.com/owner/repo
-
-# A fresh, short-lived runner registration token from repository settings:
-# Settings -> Actions -> Runners -> New self-hosted runner
-RUNNER_TOKEN=your_registration_token_here
-
-# Optional Configurations
-RUNNER_NAME=prod-gh-runner
-RUNNER_LABELS=self-hosted,linux,arm64
-RUNNER_WORKDIR=_work
+SUPERVISOR_DB_ENCRYPTION_KEY=your_generated_base64_key_here
+SUPERVISOR_PORT=8080
 ```
 
-#### 3. Spin Up the Runner
-Deploy the container in the background:
+### 2. Launch the Supervisor Stack
+Start the containerized supervisor daemon:
 ```bash
 docker compose up -d
 ```
 
-To monitor the registration and execution logs:
+Verify that the supervisor is healthy:
 ```bash
-docker compose logs -f
+docker compose ps
+curl -s http://localhost:8080/healthz
+# Expected output: {"status":"healthy","checks":{"db":"ok"}}
 ```
+
+### 3. Complete the Onboarding Wizard
+Navigate to `http://localhost:8080` in your browser. The system will automatically direct you to the 5-step onboarding wizard:
+1. **Create Master Administrator:** Set administrative credentials for the dashboard.
+2. **Connect Git Provider:** Connect GitHub (GitHub App or PAT), Gitea (PAT), or Forgejo (PAT).
+3. **Global Scaling Safeguards:** Establish total allowed runner limits, idle warm pool quotas, and history retention.
+4. **Initial Runner Pool Setup:** Configure your repository URL, warm standby targets, concurrency limits, and optional Renovate automation.
+5. **Review & Launch:** Review configuration and launch your supervisor!
 
 ---
 
-### Option B: Local Build and Execution (From Source)
+## 📦 Standalone Runner Deployment (Optional)
 
-If you have cloned this repository and want to build the container locally:
+If you only need a single static runner for a specific GitHub repository without the supervisor daemon or dynamic autoscaling:
 
-#### 1. Setup Your Environment File
-Duplicate the provided example configuration:
 ```bash
-cp .env.example .env
-```
-Open `.env` and fill in your `GITHUB_REPOSITORY_URL` and `RUNNER_TOKEN`.
+# Set runner credentials in .env
+GITHUB_REPOSITORY_URL=https://github.com/owner/repo
+RUNNER_TOKEN=your_short_lived_registration_token
 
-#### 2. Start the Runner via Local Build
-Build and run the container locally:
-```bash
-docker compose up --build -d
+# Spin up standalone runner using the runner-standalone compose profile
+docker compose --profile runner-standalone up -d runner
 ```
 
-To monitor logs or tear it down:
+To monitor runner registration logs:
 ```bash
-docker compose logs -f
-docker compose down
+docker compose logs -f runner
 ```
 
 ---
 
 ## ⚙️ Configuration & Environment Variables
 
-The runner container is highly customizable via environment variables defined in your `.env` file:
+### Supervisor Daemon (`gh-runner-supervisor`)
+
+The supervisor daemon layers configuration in increasing precedence: **built-in defaults → configuration file (`--config`) → environment variables → CLI flags**.
 
 | Variable | Type | Required | Default | Description |
-| :--- | :--- | :---: | :--- | :--- |
-| `GITHUB_REPOSITORY_URL` | String | **Yes** | — | The full repository URL to register the runner to (e.g., `https://github.com/owner/repo`). |
-| `RUNNER_TOKEN` | String | **Yes** | — | The temporary registration token obtained from GitHub runner settings (expires after 1 hour). |
-| `RUNNER_NAME` | String | No | *container-hostname* | The name displayed for this runner on the GitHub Actions dashboard. |
-| `RUNNER_LABELS` | String | No | `self-hosted,linux,arm64` | A comma-separated list of custom labels to tag the runner with. |
-| `RUNNER_WORKDIR` | String | No | `_work` | The internal working directory where workflow jobs will run. |
+| :--- | :---: | :---: | :--- | :--- |
+| `SUPERVISOR_DB_ENCRYPTION_KEY` | String | **Yes** | — | Master key (min 32 bytes) used for AES-256 database encryption and HKDF JWT secret derivation. |
+| `SUPERVISOR_PORT` | Int | No | `8080` | HTTP port for the ConnectRPC API and embedded web control interface. |
+| `SUPERVISOR_DATA_DIR` | String | No | `/data` | Data directory for SQLite database, snapshot backups, and gzipped execution logs. |
+| `SUPERVISOR_DB_PATH` | String | No | `/data/supervisor.db` | Explicit file path for the SQLite database. |
+| `SUPERVISOR_LOG_LEVEL` | String | No | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`. Logs format as structured JSON. |
+| `SUPERVISOR_DOCKER_HOST` | String | No | `unix:///var/run/docker.sock` | Docker daemon endpoint for orchestrating runner containers. |
+| `SUPERVISOR_BACKUP_INTERVAL_HOURS` | Int | No | `6` | Frequency of automated rolling SQLite snapshot backups in hours. |
+| `SUPERVISOR_BACKUP_RETENTION_COUNT` | Int | No | `7` | Number of automated SQLite backups retained before pruning. |
+| `SUPERVISOR_CONFIG` | String | No | — | Path to an optional YAML or TOML configuration file. |
+| `SUPERVISOR_SECURE_COOKIE` | Bool | No | `false` | Enables the `Secure` attribute on auth cookies. Set to `true` when behind HTTPS. |
 
-### Supervisor Daemon Configuration
-
-The `supervisor` daemon layers its configuration, lowest to highest precedence:
-
-1. built-in defaults,
-2. an optional settings file (`--config` / `SUPERVISOR_CONFIG`; YAML or TOML, keys spelled like the flags below, e.g. `data-dir: /data`),
-3. `SUPERVISOR_*` environment variables,
-4. CLI flags (only flags you actually pass override lower layers).
+### Standalone Runner Container (`runner-aio`)
 
 | Variable | Type | Required | Default | Description |
-| :--- | :--- | :---: | :--- | :--- |
-| `SUPERVISOR_DB_ENCRYPTION_KEY` | String | **Yes** | — | Master key encrypting credentials in the database (AES-256) and deriving the JWT signing secret. Must be at least 32 bytes (`openssl rand -base64 32`); the daemon refuses to start without it. |
-| `SUPERVISOR_PORT` | Int | No | `8080` | HTTP port for the API and web control interface. |
-| `SUPERVISOR_DB_PATH` | String | No | `<data-dir>/supervisor.db` | Path to the SQLite database file. |
-| `SUPERVISOR_LOG_LEVEL` | String | No | `info` | One of `debug`, `info`, `warn`, `error`. Selecting `debug` is explicit debug mode: it also unlocks trace output. Logs are structured JSON on stdout, one record per module (`module` field). |
-| `SUPERVISOR_DOCKER_HOST` | String | No | `unix:///var/run/docker.sock` | Docker daemon endpoint used to launch runner containers. |
-| `SUPERVISOR_DATA_DIR` | String | No | `/data` | Data directory holding the database, backups, and runner logs. |
-| `SUPERVISOR_BACKUP_INTERVAL_HOURS` | Int | No | `6` | Hours between automated SQLite snapshot backups. |
-| `SUPERVISOR_BACKUP_RETENTION_COUNT` | Int | No | `7` | Number of snapshot backups to retain. |
-| `SUPERVISOR_CONFIG` | String | No | — | Path to a YAML/TOML settings file (overridden by `--config`). |
-| `SUPERVISOR_SECURE_COOKIE` | Bool | No | `false` | Set `Secure` attribute on session cookies (`Secure; HttpOnly; SameSite=Strict`). Recommended behind HTTPS reverse proxy (overridden by `--secure-cookie`). |
+| :--- | :---: | :---: | :--- | :--- |
+| `GITHUB_REPOSITORY_URL` | String | **Yes** | — | Target repository URL (e.g., `https://github.com/owner/repo`). |
+| `RUNNER_TOKEN` | String | **Yes** | — | Temporary runner registration token from repository settings (1 hour expiry). |
+| `RUNNER_NAME` | String | No | *container-id* | Runner display name in the provider dashboard. |
+| `RUNNER_LABELS` | String | No | `self-hosted,linux,arm64` | Comma-separated list of runner labels for workflow targeting. |
+| `RUNNER_WORKDIR` | String | No | `_work` | Workspace directory path inside the runner container. |
 
 ---
 
-## 🔒 Security & Execution Features
+## 🔒 Security Architecture & Hardening
 
-### Docker-Outside-of-Docker (DooD)
-This runner is configured to support Docker-outside-of-Docker execution. This allows workflow actions inside the runner to invoke sibling containers on the host machine.
-* The container mounts `/var/run/docker.sock` from the host.
-* **Important Permission Note:** To allow the non-root `runner` user inside the container to talk to the host's Docker socket, you may need to uncomment the `group_add` section in `compose.yml` and provide your host machine's `docker` group ID:
-  ```bash
-  # Find host docker GID
-  getent group docker | cut -d: -f3
-  ```
+### Supervisor Docker Socket Access (Accepted Risk Callout)
 
-### Graceful Lifecycle Management
-* On startup, the container registers with the GitHub API using the provided token.
-* Upon termination (`docker compose down`, `docker stop`, `SIGTERM`/`SIGINT`), a trap triggers a cleanup routine that automatically de-registers the runner from the repository. This guarantees that your runner dashboard does not get cluttered with offline zombie runners.
+> [!CAUTION]
+> **Elevated Docker Socket Privileges:**
+> The `supervisor` container executes as `root` inside the container and mounts the host Docker socket (`/var/run/docker.sock`) read-write. This elevated access is **strictly required by design** so that the supervisor daemon can communicate with the Docker Engine SDK to dynamically create, inspect, attach logs to, and destroy ephemeral runner containers on the host.
 
-### Docker Orchestrator Core
-* **Ephemeral Runner Lifecycle:** Spawns and manages ephemeral runner and task containers with deterministic naming (`ghrs-<pool-slug>-<6-hex>`), supervisor tracking labels (`com.github-runner-supervisor.*`), CPU/memory limits, and environment segregation.
-* **Supervisor-Managed Bridge Network:** Connects runners to a dedicated `ghrs-supervisor` bridge network isolated from supervisor host networks.
-* **Event-Driven Container Reaping:** Subscribes to Docker Engine `die` and `destroy` events with deduplication to ensure low-latency (<2s) cleanup without duplicate provisioning races.
-* **Exit Log Capture & Compression:** Captures container stdout and stderr via the Docker Logs API on exit, structures them into JSONL with timestamps and stream tagging, and streams them directly into gzipped files (`DATA_DIR/logs/<runner-id>.log.jsonl.gz`) before container removal.
-* **Degraded-Mode Handling:** Gracefully handles Docker daemon disconnections by pausing container spawning and rate-limiting log errors. Surfaces reachability via `/readyz` (`checks.docker: "degraded"`) while keeping the supervisor alive, and automatically recovers when the daemon returns.
+**Operational Hardening Recommendations:**
+- **Host Isolation:** Deploy the supervisor on a dedicated virtual machine or host instance isolated from shared production application workloads.
+- **Network Boundaries:** Do not expose the supervisor port (`8080`) directly to the public internet without an authenticating reverse proxy and firewall rules.
+- **Docker Socket Proxies:** In high-compliance environments, front the Docker socket with a capability-filtering socket proxy restricting container creation parameters.
 
-> [!WARNING]
-> Keep your `RUNNER_TOKEN` confidential. It is short-lived, but it grants the ability to register runners capable of executing arbitrary code inside your host environment.
+### Credential & Token Segregation
+- **Zero Master Token Leakage:** Master credentials (GitHub App private keys, provider PATs) are encrypted at rest with AES-256 and are **never** mounted, passed as environment variables, or serialized into spawned runner containers.
+- **Ephemeral Job Tokens:** Spawner routines fetch short-lived, single-use runner registration tokens from Git provider APIs immediately before container creation.
+
+### Non-Root Runner Execution
+- Ephemeral runner containers run under a dedicated, low-privilege system user (`runner`, `UID 1001`, `GID 1001`). Workloads inside the runner cannot write to host filesystem paths outside their designated volume bounds.
+
+### Reverse-Proxy & TLS Hardening
+The supervisor daemon intentionally serves unencrypted HTTP on loopback/internal networks, delegating TLS termination to reverse proxies (such as Caddy, Traefik, or Nginx).
+
+- For complete reverse proxy configurations, HTTP/2 setup, and unbuffered ConnectRPC streaming directives, consult the comprehensive guide: **[docs/10-reverse-proxy-tls.md](docs/10-reverse-proxy-tls.md)**.
+- When running behind TLS, ensure `SUPERVISOR_SECURE_COOKIE=true` is set to protect session tokens against plaintext interception.
 
 ---
 
 ## 🛠️ CI/CD Pipelines
 
-### Go CI (`go.yml`)
+Automated GitHub Actions workflows ensure continuous verification and multi-architecture publishing:
 
-Builds, vets, and tests the Go module (`cmd/`, `internal/`) on every PR and push to `main` touching Go inputs:
-- **Native AMD64 + ARM64 matrix:** `go build ./...`, `go vet ./...`, and `go test ./...` run on native runners (`ubuntu-latest` / `ubuntu-24.04-arm`) with `CGO_ENABLED=0`, matching the pure-Go stack mandate (docs/06 §1) and the local `nix develop` Makefile targets.
-- **Toolchain pinned to `go.mod`:** CI resolves the Go version from `go-version-file: go.mod` so it never drifts from the module definition.
-
-### Lint (`lint.yml`)
-
-Automated shell and Docker linter checks on PRs and pushes to `main` touching image inputs:
-- **ShellCheck:** validates `src/*.sh` — identical to the mandated local check `nix develop --command shellcheck src/*.sh`.
-- **Hadolint:** validates both `Dockerfile` and `Dockerfile.supervisor`; error-severity findings fail the job, style warnings surface as annotations.
-
-### Runner Multi-Arch Image Build (`build.yml`)
-
-The **Parallel Native Matrix & Manifest Merger** workflow for `runner-aio`:
-- **Pull Requests and Push to main:** Triggers a native dry-run compilation on parallel AMD64 and ARM64 GitHub runners to ensure code and Docker layer compatibility (only when image inputs change).
-- **Releases (Tag Push `v*`):** 
-  1. Compiles the containers on native runners and publishes them by content-digest to the GitHub Container Registry (GHCR) as `ghcr.io/<owner>/runner-aio`.
-  2. Runs a downstream coordination job that merges the digests into a unified multi-architecture manifest list under the version tag (e.g., `v1.0.0`) and the `latest` tag.
-
-### Supervisor Multi-Arch Image Build (`supervisor-build.yml`)
-
-The **Parallel Native Matrix & Manifest Merger** workflow for `gh-runner-supervisor`:
-- **Pull Requests and Push to main:** Triggers a native dry-run compilation on parallel AMD64 (`ubuntu-latest`) and ARM64 (`ubuntu-24.04-arm`) GitHub runners whenever supervisor source files, frontend assets, or Dockerfile change.
-- **Releases (Tag Push `v*`):** 
-  1. Compiles the supervisor images natively and publishes them by digest to GHCR as `ghcr.io/<owner>/gh-runner-supervisor`.
-  2. Merges multi-architecture manifests into a unified multi-arch image under version tags (e.g., `v1.0.0`) and `latest`.
+- **Go CI (`go.yml`):** Runs `go build`, `go vet`, unit tests, and the Go data race detector (`go test -race`) on native AMD64 (`ubuntu-latest`) and ARM64 (`ubuntu-24.04-arm`) runners on every PR and push to `main`.
+- **Web CI (`web.yml`):** Automated static analysis (`oxlint`), code formatting check (`oxfmt`), Vitest unit test suite execution, and production Vite compilation for frontend changes.
+- **Lint CI (`lint.yml`):** Runs `shellcheck` across all runner lifecycle scripts and `hadolint` across both `Dockerfile` and `Dockerfile.supervisor`.
+- **Runner Multi-Arch Release (`build.yml`):** Native AMD64 and ARM64 parallel matrix build creating and publishing multi-arch manifests for `ghcr.io/<owner>/runner-aio` upon git tag release (`v*`).
+- **Supervisor Multi-Arch Release (`supervisor-build.yml`):** Native multi-stage AMD64 and ARM64 build compiling the supervisor daemon and embedded UI into `ghcr.io/<owner>/gh-runner-supervisor` upon git tag release (`v*`).
 
 ---
 
-## 🗺️ Roadmap
+## 🗺️ Roadmap & Future Enhancements
 
-The repository is actively developing the following advanced runner solutions:
+The core supervisor daemon, web control interface, multi-provider engine, and test suites are complete. Active research is focused on post-MVP enhancements:
 
-- **GitHub, Gitea & Forgejo Actions Runner AIO Supervisor** `*[Design Phase]*`  
-  A database-driven and GUI-configured containerized manager/coordinator daemon that runs on the host and automatically provisions, schedules, and maintains dynamic pools of ephemeral runner containers across multiple GitHub, Gitea, and Forgejo repositories. High-level requirements and architecture specifications can be found in the [docs/](docs/) directory (see [01-product-requirements.md](docs/01-product-requirements.md) and [02-architecture-design.md](docs/02-architecture-design.md)).
-- **Supervisor Web UI & Onboarding Wizard (M8)** `*[Design Phase]*`  
-  A responsive single-page application built with React 19, TypeScript, Vite, TanStack Router & Query, and TailwindCSS. Features a 5-step zero-config onboarding wizard, real-time streaming logs viewer, dynamic pool monitoring, and authenticated management interfaces. Detailed layout wireframes, route trees, and component specifications are documented in [docs/09-frontend-design.md](docs/09-frontend-design.md).
+- **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
+- **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
+- **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.
 
+---
+
+## 📄 License
+
+Distributed under the Apache 2.0 License. See `LICENSE` for more information.

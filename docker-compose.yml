@@ -1,25 +1,56 @@
 services:
+  # All-in-One Multi-Provider Runner Supervisor Stack
+  supervisor:
+    build:
+      context: .
+      dockerfile: Dockerfile.supervisor
+    image: ghcr.io/noosxe/gh-runner-supervisor:latest
+    container_name: gh-runner-supervisor
+    restart: unless-stopped
+    ports:
+      - "${SUPERVISOR_PORT:-8080}:8080"
+    environment:
+      - SUPERVISOR_DB_ENCRYPTION_KEY=${SUPERVISOR_DB_ENCRYPTION_KEY}
+      - SUPERVISOR_PORT=${SUPERVISOR_PORT:-8080}
+      - SUPERVISOR_LOG_LEVEL=${SUPERVISOR_LOG_LEVEL:-info}
+      - SUPERVISOR_DOCKER_HOST=${SUPERVISOR_DOCKER_HOST:-unix:///var/run/docker.sock}
+      - SUPERVISOR_DATA_DIR=${SUPERVISOR_DATA_DIR:-/data}
+      - SUPERVISOR_BACKUP_INTERVAL_HOURS=${SUPERVISOR_BACKUP_INTERVAL_HOURS:-6}
+      - SUPERVISOR_BACKUP_RETENTION_COUNT=${SUPERVISOR_BACKUP_RETENTION_COUNT:-7}
+      - SUPERVISOR_SECURE_COOKIE=${SUPERVISOR_SECURE_COOKIE:-false}
+    volumes:
+      # Persistent SQLite database, backups, and compressed runner execution logs
+      - supervisor-data:/data
+      # Docker daemon socket to spawn ephemeral runner containers (see security note in README)
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz && curl -f http://localhost:8080/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Optional Standalone Static Runner (Single repository, no supervisor daemon)
   runner:
+    profiles: ["runner-standalone"]
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        # Version of the GitHub runner agent to bake into the image
         - RUNNER_VERSION=2.335.1
     image: ghcr.io/noosxe/runner-aio:latest
     container_name: runner-aio
-    # Use standard init process to reap zombie processes spawned by runner jobs
     init: true
     restart: unless-stopped
     environment:
       - GITHUB_REPOSITORY_URL=${GITHUB_REPOSITORY_URL}
       - RUNNER_TOKEN=${RUNNER_TOKEN}
-      - RUNNER_NAME=${RUNNER_NAME:-github-runner-local}
+      - RUNNER_NAME=${RUNNER_NAME:-runner-aio}
       - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64}
       - RUNNER_WORKDIR=${RUNNER_WORKDIR:-_work}
-    # Mount volumes to support Docker-outside-of-Docker (DooD) operations
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    # Add runner user to the host's docker group GID (e.g. 998 or 999) to grant access to docker.sock
-    # group_add:
-    #   - "999"
+
+volumes:
+  supervisor-data:
+    name: supervisor-data
