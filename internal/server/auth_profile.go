@@ -155,17 +155,9 @@ func (s *AuthProfileService) CreateAuthProfile(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating auth profile: %w", err))
 	}
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "auth_profile_create",
-		ResourceType: sql.NullString{String: "auth_profile", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: created.ID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Created auth profile %s (%s)", created.Name, created.AuthMethod), Valid: true},
+	recordAuditLog(ctx, s.db, "auth_profile.create", "auth_profile", &created.ID, map[string]any{
+		"name":        created.Name,
+		"auth_method": created.AuthMethod,
 	})
 
 	return connect.NewResponse(&supervisorv1.CreateAuthProfileResponse{
@@ -199,17 +191,9 @@ func (s *AuthProfileService) DeleteAuthProfile(ctx context.Context, req *connect
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("deleting auth profile: %w", err))
 	}
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "auth_profile_delete",
-		ResourceType: sql.NullString{String: "auth_profile", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: existing.ID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Deleted auth profile %s", existing.Name), Valid: true},
+	recordAuditLog(ctx, s.db, "auth_profile.delete", "auth_profile", &existing.ID, map[string]any{
+		"name":        existing.Name,
+		"auth_method": existing.AuthMethod,
 	})
 
 	return connect.NewResponse(&supervisorv1.DeleteAuthProfileResponse{

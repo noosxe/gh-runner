@@ -11,6 +11,7 @@ import (
 
 	"github.com/noosxe/gh-runner/internal/db"
 	"github.com/noosxe/gh-runner/internal/keys"
+	"github.com/noosxe/gh-runner/internal/server"
 )
 
 // newImportCommand creates the `supervisor import` subcommand: an explicit
@@ -80,6 +81,12 @@ func newImportCommand() *cobra.Command {
 			if err := database.ImportSeedConfig(cmd.Context(), seedCfg, parsedMode); err != nil {
 				return fmt.Errorf("importing seed config: %w", err)
 			}
+
+			server.RecordAuditLog(cmd.Context(), database, "config.import", "configuration", nil, map[string]any{
+				"config_path": configPath,
+				"mode":        parsedMode,
+				"source":      "cli",
+			})
 
 			logger.Info("configuration imported successfully", "config", configPath, "mode", parsedMode)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Successfully imported configuration from %s (mode: %s)\n", configPath, parsedMode)

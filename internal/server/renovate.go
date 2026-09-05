@@ -71,16 +71,9 @@ func (s *RenovateService) TriggerRenovateRun(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("triggering renovate run: %w", err))
 	}
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "renovate_trigger",
-		ResourceType: sql.NullString{String: "runner_pool", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: poolID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Manually triggered Renovate run %d", run.ID), Valid: true},
+	recordAuditLog(ctx, s.db, "renovate.trigger", "runner_pool", &poolID, map[string]any{
+		"run_id":  run.ID,
+		"pool_id": poolID,
 	})
 
 	return connect.NewResponse(&supervisorv1.TriggerRenovateRunResponse{

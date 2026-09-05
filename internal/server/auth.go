@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -257,12 +256,8 @@ func (s *AuthService) SetupAdmin(ctx context.Context, req *connect.Request[super
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating admin user: %w", err))
 	}
 
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       sql.NullInt64{Int64: user.ID, Valid: true},
-		Action:       "admin_setup",
-		ResourceType: sql.NullString{String: "admin_user", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: user.ID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Initial administrator %s configured", username), Valid: true},
+	recordAuditLogWithUser(ctx, s.db, &user.ID, "auth.setup_admin", "admin_user", &user.ID, map[string]any{
+		"username": username,
 	})
 
 	return connect.NewResponse(&supervisorv1.SetupAdminResponse{
@@ -282,23 +277,17 @@ func (s *AuthService) Login(ctx context.Context, req *connect.Request[supervisor
 	user, err := s.db.GetAdminUserByUsername(ctx, username)
 	if err != nil {
 		// Log failed attempt to audit_logs
-		_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-			UserID:       sql.NullInt64{},
-			Action:       "login_failed",
-			ResourceType: sql.NullString{String: "admin_user", Valid: true},
-			ResourceID:   sql.NullInt64{},
-			Details:      sql.NullString{String: fmt.Sprintf("Failed login attempt for username: %s", username), Valid: true},
+		recordAuditLogWithUser(ctx, s.db, nil, "auth.login_failed", "admin_user", nil, map[string]any{
+			"username": username,
+			"reason":   "user_not_found",
 		})
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid username or password"))
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-			UserID:       sql.NullInt64{Int64: user.ID, Valid: true},
-			Action:       "login_failed",
-			ResourceType: sql.NullString{String: "admin_user", Valid: true},
-			ResourceID:   sql.NullInt64{Int64: user.ID, Valid: true},
-			Details:      sql.NullString{String: fmt.Sprintf("Invalid password for user: %s", username), Valid: true},
+		recordAuditLogWithUser(ctx, s.db, &user.ID, "auth.login_failed", "admin_user", &user.ID, map[string]any{
+			"username": username,
+			"reason":   "invalid_password",
 		})
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid username or password"))
 	}
@@ -318,12 +307,9 @@ func (s *AuthService) Login(ctx context.Context, req *connect.Request[supervisor
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("recording session: %w", err))
 	}
 
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       sql.NullInt64{Int64: user.ID, Valid: true},
-		Action:       "login_success",
-		ResourceType: sql.NullString{String: "admin_user", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: user.ID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Administrator %s logged in successfully", username), Valid: true},
+	recordAuditLogWithUser(ctx, s.db, &user.ID, "auth.login", "admin_user", &user.ID, map[string]any{
+		"username": username,
+		"status":   "success",
 	})
 
 	cookie := &http.Cookie{

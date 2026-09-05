@@ -181,8 +181,8 @@ func TestPoolServiceCRUDAndValidation(t *testing.T) {
 	stats.mu.Unlock()
 
 	auditLogs, err := database.ListAuditLogs(ctx, db.ListAuditLogsParams{Limit: 10, Offset: 0})
-	if err != nil || len(auditLogs) == 0 || auditLogs[0].Action != "pool_create" {
-		t.Fatalf("expected pool_create audit log, got: %+v", auditLogs)
+	if err != nil || len(auditLogs) == 0 || auditLogs[0].Action != "pool.create" {
+		t.Fatalf("expected pool.create audit log, got: %+v", auditLogs)
 	}
 
 	// 4. ListPools returns the created pool with stats

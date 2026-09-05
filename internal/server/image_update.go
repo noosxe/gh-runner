@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -217,17 +216,9 @@ func (s *ImageUpdateService) PullImage(ctx context.Context, req *connect.Request
 	}
 	s.mu.Unlock()
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "image_pull",
-		ResourceType: sql.NullString{String: "runner_pool", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: poolID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Triggered pull for updated runner image %s (pool %s)", p.RunnerImage, p.Name), Valid: true},
+	recordAuditLog(ctx, s.db, "image.pull", "runner_pool", &poolID, map[string]any{
+		"pool_name": p.Name,
+		"image":     p.RunnerImage,
 	})
 
 	if s.syncPull {
@@ -336,17 +327,8 @@ func (s *ImageUpdateService) DismissImageUpdate(ctx context.Context, req *connec
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("image update notification %d not found", updateID))
 	}
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "image_update_dismiss",
-		ResourceType: sql.NullString{String: "image_update", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: updateID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Dismissed image update notification %d", updateID), Valid: true},
+	recordAuditLog(ctx, s.db, "image.dismiss_update", "image_update", &updateID, map[string]any{
+		"notification_id": updateID,
 	})
 
 	return connect.NewResponse(&supervisorv1.DismissImageUpdateResponse{

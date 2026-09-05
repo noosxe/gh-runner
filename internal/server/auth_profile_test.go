@@ -234,15 +234,15 @@ func TestAuthProfileServiceCRUDAndSecurity(t *testing.T) {
 	}
 	var foundCreate, foundDelete bool
 	for _, l := range auditLogs {
-		if l.Action == "auth_profile_create" {
+		if l.Action == "auth_profile.create" {
 			foundCreate = true
 		}
-		if l.Action == "auth_profile_delete" {
+		if l.Action == "auth_profile.delete" {
 			foundDelete = true
 		}
 	}
 	if !foundCreate || !foundDelete {
-		t.Errorf("expected auth_profile_create and auth_profile_delete in audit logs, got: %+v", auditLogs)
+		t.Errorf("expected auth_profile.create and auth_profile.delete in audit logs, got: %+v", auditLogs)
 	}
 }
 

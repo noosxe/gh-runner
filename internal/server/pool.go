@@ -249,17 +249,13 @@ func (s *PoolService) CreatePool(ctx context.Context, req *connect.Request[super
 		})
 	}
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "pool_create",
-		ResourceType: sql.NullString{String: "runner_pool", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: created.ID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Created runner pool %s (%s)", created.Name, created.Provider), Valid: true},
+	recordAuditLog(ctx, s.db, "pool.create", "runner_pool", &created.ID, map[string]any{
+		"name":            created.Name,
+		"provider":        created.Provider,
+		"repository_url":  created.RepositoryUrl,
+		"scope":           created.Scope,
+		"min_idle":        created.MinIdleRunners,
+		"max_concurrency": created.MaxConcurrency,
 	})
 
 	if s.statsProvider != nil {
@@ -343,17 +339,11 @@ func (s *PoolService) UpdatePool(ctx context.Context, req *connect.Request[super
 		}
 	}
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "pool_update",
-		ResourceType: sql.NullString{String: "runner_pool", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: updated.ID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Updated runner pool %s", updated.Name), Valid: true},
+	recordAuditLog(ctx, s.db, "pool.update", "runner_pool", &updated.ID, map[string]any{
+		"name":            updated.Name,
+		"provider":        updated.Provider,
+		"min_idle":        updated.MinIdleRunners,
+		"max_concurrency": updated.MaxConcurrency,
 	})
 
 	if s.statsProvider != nil {
@@ -380,17 +370,9 @@ func (s *PoolService) DeletePool(ctx context.Context, req *connect.Request[super
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("deleting runner pool: %w", err))
 	}
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "pool_delete",
-		ResourceType: sql.NullString{String: "runner_pool", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: existing.ID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Deleted runner pool %s", existing.Name), Valid: true},
+	recordAuditLog(ctx, s.db, "pool.delete", "runner_pool", &existing.ID, map[string]any{
+		"name":     existing.Name,
+		"provider": existing.Provider,
 	})
 
 	if s.statsProvider != nil {
@@ -482,16 +464,10 @@ func (s *PoolService) TerminateRunner(ctx context.Context, req *connect.Request[
 		}
 	}
 
-	var userID sql.NullInt64
-	if user, ok := GetUserContext(ctx); ok && user.UserID > 0 {
-		userID = sql.NullInt64{Int64: user.UserID, Valid: true}
-	}
-	_, _ = s.db.CreateAuditLog(ctx, db.CreateAuditLogParams{
-		UserID:       userID,
-		Action:       "runner_terminate",
-		ResourceType: sql.NullString{String: "runner_container", Valid: true},
-		ResourceID:   sql.NullInt64{Int64: p.ID, Valid: true},
-		Details:      sql.NullString{String: fmt.Sprintf("Terminated runner container %s in pool %s", containerID, p.Name), Valid: true},
+	recordAuditLog(ctx, s.db, "runner.terminate", "runner_container", &p.ID, map[string]any{
+		"container_id": containerID,
+		"pool_name":    p.Name,
+		"pool_id":      p.ID,
 	})
 
 	if s.statsProvider != nil {

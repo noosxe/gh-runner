@@ -248,9 +248,14 @@ pools:
 		t.Fatalf("Open: %v", err)
 	}
 	pools, err := database.ListRunnerPools(context.Background())
-	_ = database.Close()
 	if err != nil || len(pools) != 1 || pools[0].Name != "cli-pool" {
+		_ = database.Close()
 		t.Fatalf("expected 1 pool named cli-pool, got: %+v (err: %v)", pools, err)
+	}
+	auditLogs, err := database.ListAuditLogs(context.Background(), db.ListAuditLogsParams{Limit: 10, Offset: 0})
+	_ = database.Close()
+	if err != nil || len(auditLogs) == 0 || auditLogs[0].Action != "config.import" {
+		t.Fatalf("expected config.import audit log, got: %+v (err: %v)", auditLogs, err)
 	}
 
 	// 2. Run export command
