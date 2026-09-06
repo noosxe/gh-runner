@@ -171,6 +171,7 @@ For comprehensive pipeline architecture, gatekeeper filtering rules, and cross-s
 
 ## 🗺️ Roadmap & Future Enhancements
 
+- **Automated Dependabot Ecosystem Maintenance:** *[Design Phase]* Configuring `.github/dependabot.yml` across `github-actions`, `gomod`, `npm` (`/web`), and `docker` ecosystems with weekly update cadence, grouped minor/patch PRs, and a mandatory 1-day supply chain cool-off period for frontend npm packages.
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.
