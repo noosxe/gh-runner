@@ -2,15 +2,8 @@ package docker
 
 import (
 	"context"
-	"io"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
-	dockerimage "github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -24,9 +17,9 @@ func NewMockDockerAPIClient() *MockDockerAPIClient {
 	return &MockDockerAPIClient{}
 }
 
-func (m *MockDockerAPIClient) Ping(ctx context.Context) (types.Ping, error) {
-	args := m.Called(ctx)
-	return args.Get(0).(types.Ping), args.Error(1)
+func (m *MockDockerAPIClient) Ping(ctx context.Context, options client.PingOptions) (client.PingResult, error) {
+	args := m.Called(ctx, options)
+	return args.Get(0).(client.PingResult), args.Error(1)
 }
 
 func (m *MockDockerAPIClient) Close() error {
@@ -34,91 +27,97 @@ func (m *MockDockerAPIClient) Close() error {
 	return args.Error(0)
 }
 
-func (m *MockDockerAPIClient) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error) {
-	args := m.Called(ctx, config, hostConfig, networkingConfig, platform, containerName)
-	return args.Get(0).(container.CreateResponse), args.Error(1)
+func (m *MockDockerAPIClient) ContainerCreate(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+	args := m.Called(ctx, options)
+	return args.Get(0).(client.ContainerCreateResult), args.Error(1)
 }
 
-func (m *MockDockerAPIClient) ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error {
+func (m *MockDockerAPIClient) ContainerStart(ctx context.Context, containerID string, options client.ContainerStartOptions) (client.ContainerStartResult, error) {
 	args := m.Called(ctx, containerID, options)
-	return args.Error(0)
+	if res := args.Get(0); res != nil {
+		return res.(client.ContainerStartResult), args.Error(1)
+	}
+	return client.ContainerStartResult{}, args.Error(1)
 }
 
-func (m *MockDockerAPIClient) ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error {
+func (m *MockDockerAPIClient) ContainerStop(ctx context.Context, containerID string, options client.ContainerStopOptions) (client.ContainerStopResult, error) {
 	args := m.Called(ctx, containerID, options)
-	return args.Error(0)
+	if res := args.Get(0); res != nil {
+		return res.(client.ContainerStopResult), args.Error(1)
+	}
+	return client.ContainerStopResult{}, args.Error(1)
 }
 
-func (m *MockDockerAPIClient) ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error {
+func (m *MockDockerAPIClient) ContainerRemove(ctx context.Context, containerID string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error) {
 	args := m.Called(ctx, containerID, options)
-	return args.Error(0)
+	if res := args.Get(0); res != nil {
+		return res.(client.ContainerRemoveResult), args.Error(1)
+	}
+	return client.ContainerRemoveResult{}, args.Error(1)
 }
 
-func (m *MockDockerAPIClient) ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error) {
+func (m *MockDockerAPIClient) ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error) {
 	args := m.Called(ctx, options)
 	if res := args.Get(0); res != nil {
-		return res.([]container.Summary), args.Error(1)
+		return res.(client.ContainerListResult), args.Error(1)
+	}
+	return client.ContainerListResult{}, args.Error(1)
+}
+
+func (m *MockDockerAPIClient) ContainerLogs(ctx context.Context, containerID string, options client.ContainerLogsOptions) (client.ContainerLogsResult, error) {
+	args := m.Called(ctx, containerID, options)
+	if res := args.Get(0); res != nil {
+		return res.(client.ContainerLogsResult), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *MockDockerAPIClient) ContainerLogs(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error) {
-	args := m.Called(ctx, containerID, options)
-	if res := args.Get(0); res != nil {
-		return res.(io.ReadCloser), args.Error(1)
-	}
-	return nil, args.Error(1)
+func (m *MockDockerAPIClient) ContainerPrune(ctx context.Context, opts client.ContainerPruneOptions) (client.ContainerPruneResult, error) {
+	args := m.Called(ctx, opts)
+	return args.Get(0).(client.ContainerPruneResult), args.Error(1)
 }
 
-func (m *MockDockerAPIClient) ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error) {
-	args := m.Called(ctx, pruneFilters)
-	return args.Get(0).(container.PruneReport), args.Error(1)
-}
-
-func (m *MockDockerAPIClient) Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error) {
-	args := m.Called(ctx, options)
-	var msgChan <-chan events.Message
-	if res := args.Get(0); res != nil {
-		msgChan = res.(<-chan events.Message)
-	}
-	var errChan <-chan error
-	if res := args.Get(1); res != nil {
-		errChan = res.(<-chan error)
-	}
-	return msgChan, errChan
-}
-
-func (m *MockDockerAPIClient) NetworkList(ctx context.Context, options network.ListOptions) ([]network.Summary, error) {
+func (m *MockDockerAPIClient) Events(ctx context.Context, options client.EventsListOptions) client.EventsResult {
 	args := m.Called(ctx, options)
 	if res := args.Get(0); res != nil {
-		return res.([]network.Summary), args.Error(1)
+		return res.(client.EventsResult)
 	}
-	return nil, args.Error(1)
+	return client.EventsResult{}
 }
 
-func (m *MockDockerAPIClient) NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error) {
+func (m *MockDockerAPIClient) NetworkList(ctx context.Context, options client.NetworkListOptions) (client.NetworkListResult, error) {
+	args := m.Called(ctx, options)
+	if res := args.Get(0); res != nil {
+		return res.(client.NetworkListResult), args.Error(1)
+	}
+	return client.NetworkListResult{}, args.Error(1)
+}
+
+func (m *MockDockerAPIClient) NetworkCreate(ctx context.Context, name string, options client.NetworkCreateOptions) (client.NetworkCreateResult, error) {
 	args := m.Called(ctx, name, options)
-	return args.Get(0).(network.CreateResponse), args.Error(1)
+	return args.Get(0).(client.NetworkCreateResult), args.Error(1)
 }
 
-func (m *MockDockerAPIClient) NetworkConnect(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error {
-	args := m.Called(ctx, networkID, containerID, config)
-	return args.Error(0)
-}
-
-func (m *MockDockerAPIClient) ImageInspectWithRaw(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error) {
-	args := m.Called(ctx, imageID)
-	var raw []byte
-	if b := args.Get(1); b != nil {
-		raw = b.([]byte)
+func (m *MockDockerAPIClient) NetworkConnect(ctx context.Context, networkID string, options client.NetworkConnectOptions) (client.NetworkConnectResult, error) {
+	args := m.Called(ctx, networkID, options)
+	if res := args.Get(0); res != nil {
+		return res.(client.NetworkConnectResult), args.Error(1)
 	}
-	return args.Get(0).(dockerimage.InspectResponse), raw, args.Error(2)
+	return client.NetworkConnectResult{}, args.Error(1)
 }
 
-func (m *MockDockerAPIClient) ImagePull(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error) {
+func (m *MockDockerAPIClient) ImageInspect(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+	args := m.Called(ctx, imageID, inspectOpts)
+	if res := args.Get(0); res != nil {
+		return res.(client.ImageInspectResult), args.Error(1)
+	}
+	return client.ImageInspectResult{}, args.Error(1)
+}
+
+func (m *MockDockerAPIClient) ImagePull(ctx context.Context, refStr string, options client.ImagePullOptions) (client.ImagePullResponse, error) {
 	args := m.Called(ctx, refStr, options)
 	if res := args.Get(0); res != nil {
-		return res.(io.ReadCloser), args.Error(1)
+		return res.(client.ImagePullResponse), args.Error(1)
 	}
 	return nil, args.Error(1)
 }

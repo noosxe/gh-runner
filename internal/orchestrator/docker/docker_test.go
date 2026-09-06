@@ -4,47 +4,61 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
-	dockerimage "github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"iter"
+
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/events"
+	dockerimage "github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/api/types/jsonstream"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 
 	"github.com/noosxe/gh-runner/internal/orchestrator"
 	"github.com/noosxe/gh-runner/internal/orchestrator/docker"
 	"github.com/noosxe/gh-runner/internal/server"
 )
 
-type mockDockerAPI struct {
-	pingFn                func(ctx context.Context) (types.Ping, error)
-	closeFn               func() error
-	containerCreateFn     func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error)
-	containerStartFn      func(ctx context.Context, containerID string, options container.StartOptions) error
-	containerStopFn       func(ctx context.Context, containerID string, options container.StopOptions) error
-	containerRemoveFn     func(ctx context.Context, containerID string, options container.RemoveOptions) error
-	containerListFn       func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
-	containerLogsFn       func(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error)
-	containersPruneFn     func(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
-	eventsFn              func(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
-	networkListFn         func(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
-	networkCreateFn       func(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
-	networkConnectFn      func(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error
-	imageInspectWithRawFn func(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error)
-	imagePullFn           func(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error)
+type nopPullResponse struct {
+	io.ReadCloser
 }
 
-func (m *mockDockerAPI) Ping(ctx context.Context) (types.Ping, error) {
+func (nopPullResponse) JSONMessages(context.Context) iter.Seq2[jsonstream.Message, error] {
+	return func(yield func(jsonstream.Message, error) bool) {}
+}
+
+func (nopPullResponse) Wait(context.Context) error {
+	return nil
+}
+
+type mockDockerAPI struct {
+	pingFn            func(ctx context.Context, options client.PingOptions) (client.PingResult, error)
+	closeFn           func() error
+	containerCreateFn func(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error)
+	containerStartFn  func(ctx context.Context, containerID string, options client.ContainerStartOptions) (client.ContainerStartResult, error)
+	containerStopFn   func(ctx context.Context, containerID string, options client.ContainerStopOptions) (client.ContainerStopResult, error)
+	containerRemoveFn func(ctx context.Context, containerID string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error)
+	containerListFn   func(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error)
+	containerLogsFn   func(ctx context.Context, containerID string, options client.ContainerLogsOptions) (client.ContainerLogsResult, error)
+	containersPruneFn func(ctx context.Context, opts client.ContainerPruneOptions) (client.ContainerPruneResult, error)
+	eventsFn          func(ctx context.Context, options client.EventsListOptions) client.EventsResult
+	networkListFn     func(ctx context.Context, options client.NetworkListOptions) (client.NetworkListResult, error)
+	networkCreateFn   func(ctx context.Context, name string, options client.NetworkCreateOptions) (client.NetworkCreateResult, error)
+	networkConnectFn  func(ctx context.Context, networkID string, options client.NetworkConnectOptions) (client.NetworkConnectResult, error)
+	imageInspectFn    func(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	imagePullFn       func(ctx context.Context, refStr string, options client.ImagePullOptions) (client.ImagePullResponse, error)
+}
+
+func (m *mockDockerAPI) Ping(ctx context.Context, options client.PingOptions) (client.PingResult, error) {
 	if m.pingFn != nil {
-		return m.pingFn(ctx)
+		return m.pingFn(ctx, options)
 	}
-	return types.Ping{APIVersion: "1.47"}, nil
+	return client.PingResult{APIVersion: "1.47"}, nil
 }
 
 func (m *mockDockerAPI) Close() error {
@@ -54,99 +68,98 @@ func (m *mockDockerAPI) Close() error {
 	return nil
 }
 
-func (m *mockDockerAPI) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error) {
+func (m *mockDockerAPI) ContainerCreate(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
 	if m.containerCreateFn != nil {
-		return m.containerCreateFn(ctx, config, hostConfig, networkingConfig, platform, containerName)
+		return m.containerCreateFn(ctx, options)
 	}
-	return container.CreateResponse{ID: "mock-container-id"}, nil
+	return client.ContainerCreateResult{ID: "mock-container-id"}, nil
 }
 
-func (m *mockDockerAPI) ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error {
+func (m *mockDockerAPI) ContainerStart(ctx context.Context, containerID string, options client.ContainerStartOptions) (client.ContainerStartResult, error) {
 	if m.containerStartFn != nil {
 		return m.containerStartFn(ctx, containerID, options)
 	}
-	return nil
+	return client.ContainerStartResult{}, nil
 }
 
-func (m *mockDockerAPI) ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error {
+func (m *mockDockerAPI) ContainerStop(ctx context.Context, containerID string, options client.ContainerStopOptions) (client.ContainerStopResult, error) {
 	if m.containerStopFn != nil {
 		return m.containerStopFn(ctx, containerID, options)
 	}
-	return nil
+	return client.ContainerStopResult{}, nil
 }
 
-func (m *mockDockerAPI) ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error {
+func (m *mockDockerAPI) ContainerRemove(ctx context.Context, containerID string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error) {
 	if m.containerRemoveFn != nil {
 		return m.containerRemoveFn(ctx, containerID, options)
 	}
-	return nil
+	return client.ContainerRemoveResult{}, nil
 }
 
-func (m *mockDockerAPI) ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error) {
+func (m *mockDockerAPI) ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error) {
 	if m.containerListFn != nil {
 		return m.containerListFn(ctx, options)
 	}
-	return []container.Summary{}, nil
+	return client.ContainerListResult{}, nil
 }
 
-func (m *mockDockerAPI) ContainerLogs(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error) {
+func (m *mockDockerAPI) ContainerLogs(ctx context.Context, containerID string, options client.ContainerLogsOptions) (client.ContainerLogsResult, error) {
 	if m.containerLogsFn != nil {
 		return m.containerLogsFn(ctx, containerID, options)
 	}
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
-func (m *mockDockerAPI) ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error) {
+func (m *mockDockerAPI) ContainerPrune(ctx context.Context, opts client.ContainerPruneOptions) (client.ContainerPruneResult, error) {
 	if m.containersPruneFn != nil {
-		return m.containersPruneFn(ctx, pruneFilters)
+		return m.containersPruneFn(ctx, opts)
 	}
-	return container.PruneReport{}, nil
+	return client.ContainerPruneResult{}, nil
 }
 
-func (m *mockDockerAPI) Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error) {
+func (m *mockDockerAPI) Events(ctx context.Context, options client.EventsListOptions) client.EventsResult {
 	if m.eventsFn != nil {
 		return m.eventsFn(ctx, options)
 	}
-	return nil, nil
+	return client.EventsResult{}
 }
 
-func (m *mockDockerAPI) NetworkList(ctx context.Context, options network.ListOptions) ([]network.Summary, error) {
+func (m *mockDockerAPI) NetworkList(ctx context.Context, options client.NetworkListOptions) (client.NetworkListResult, error) {
 	if m.networkListFn != nil {
 		return m.networkListFn(ctx, options)
 	}
-	return []network.Summary{}, nil
+	return client.NetworkListResult{}, nil
 }
 
-func (m *mockDockerAPI) NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error) {
+func (m *mockDockerAPI) NetworkCreate(ctx context.Context, name string, options client.NetworkCreateOptions) (client.NetworkCreateResult, error) {
 	if m.networkCreateFn != nil {
 		return m.networkCreateFn(ctx, name, options)
 	}
-	return network.CreateResponse{ID: "mock-net-id"}, nil
+	return client.NetworkCreateResult{ID: "mock-net-id"}, nil
 }
 
-func (m *mockDockerAPI) NetworkConnect(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error {
+func (m *mockDockerAPI) NetworkConnect(ctx context.Context, networkID string, options client.NetworkConnectOptions) (client.NetworkConnectResult, error) {
 	if m.networkConnectFn != nil {
-		return m.networkConnectFn(ctx, networkID, containerID, config)
+		return m.networkConnectFn(ctx, networkID, options)
 	}
-	return nil
+	return client.NetworkConnectResult{}, nil
 }
 
-func (m *mockDockerAPI) ImageInspectWithRaw(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error) {
-	if m.imageInspectWithRawFn != nil {
-		return m.imageInspectWithRawFn(ctx, imageID)
+func (m *mockDockerAPI) ImageInspect(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+	if m.imageInspectFn != nil {
+		return m.imageInspectFn(ctx, imageID, inspectOpts...)
 	}
-	return dockerimage.InspectResponse{
-		ID:          "sha256:mock-image-id",
-		RepoDigests: []string{"ghcr.io/noosxe/runner-aio@sha256:mock-repo-digest"},
-	}, nil, nil
+	return client.ImageInspectResult{}, nil
 }
 
-func (m *mockDockerAPI) ImagePull(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error) {
+func (m *mockDockerAPI) ImagePull(ctx context.Context, refStr string, options client.ImagePullOptions) (client.ImagePullResponse, error) {
 	if m.imagePullFn != nil {
 		return m.imagePullFn(ctx, refStr, options)
 	}
-	return io.NopCloser(strings.NewReader("")), nil
+	return nopPullResponse{io.NopCloser(strings.NewReader(""))}, nil
 }
+
+var _ docker.APIClient = (*mockDockerAPI)(nil)
 
 func TestDockerClient_BootstrapAndPing(t *testing.T) {
 	ctx := context.Background()
@@ -173,8 +186,8 @@ func TestDockerClient_BootstrapAndPing(t *testing.T) {
 
 	// 2. Failed Ping (daemon unreachable)
 	failingAPI := &mockDockerAPI{
-		pingFn: func(ctx context.Context) (types.Ping, error) {
-			return types.Ping{}, errors.New("connection refused")
+		pingFn: func(ctx context.Context, options client.PingOptions) (client.PingResult, error) {
+			return client.PingResult{}, errors.New("connection refused")
 		},
 	}
 	failingCli, err := docker.NewClient(ctx, docker.WithAPIClient(failingAPI))
@@ -203,16 +216,16 @@ func TestDockerClient_SpawnRunner(t *testing.T) {
 	var startedID string
 
 	mockAPI := &mockDockerAPI{
-		containerCreateFn: func(ctx context.Context, cfg *container.Config, hostCfg *container.HostConfig, netCfg *network.NetworkingConfig, platform *v1.Platform, name string) (container.CreateResponse, error) {
-			createdConfig = cfg
-			createdHostConfig = hostCfg
-			createdNetConfig = netCfg
-			createdName = name
-			return container.CreateResponse{ID: "c-123456"}, nil
+		containerCreateFn: func(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+			createdConfig = options.Config
+			createdHostConfig = options.HostConfig
+			createdNetConfig = options.NetworkingConfig
+			createdName = options.Name
+			return client.ContainerCreateResult{ID: "c-123456"}, nil
 		},
-		containerStartFn: func(ctx context.Context, id string, options container.StartOptions) error {
+		containerStartFn: func(ctx context.Context, id string, options client.ContainerStartOptions) (client.ContainerStartResult, error) {
 			startedID = id
-			return nil
+			return client.ContainerStartResult{}, nil
 		},
 	}
 
@@ -311,9 +324,9 @@ func TestDockerClient_SpawnTask(t *testing.T) {
 
 	var createdConfig *container.Config
 	mockAPI := &mockDockerAPI{
-		containerCreateFn: func(ctx context.Context, cfg *container.Config, hostCfg *container.HostConfig, netCfg *network.NetworkingConfig, platform *v1.Platform, name string) (container.CreateResponse, error) {
-			createdConfig = cfg
-			return container.CreateResponse{ID: "task-999"}, nil
+		containerCreateFn: func(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+			createdConfig = options.Config
+			return client.ContainerCreateResult{ID: "task-999"}, nil
 		},
 	}
 
@@ -363,16 +376,16 @@ func TestDockerClient_SpawnFailureCleanup(t *testing.T) {
 	var forceRemoved bool
 
 	mockAPI := &mockDockerAPI{
-		containerCreateFn: func(ctx context.Context, cfg *container.Config, hostCfg *container.HostConfig, netCfg *network.NetworkingConfig, platform *v1.Platform, name string) (container.CreateResponse, error) {
-			return container.CreateResponse{ID: "doomed-container"}, nil
+		containerCreateFn: func(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+			return client.ContainerCreateResult{ID: "doomed-container"}, nil
 		},
-		containerStartFn: func(ctx context.Context, id string, options container.StartOptions) error {
-			return errors.New("cannot start: port conflict")
+		containerStartFn: func(ctx context.Context, id string, options client.ContainerStartOptions) (client.ContainerStartResult, error) {
+			return client.ContainerStartResult{}, errors.New("cannot start: port conflict")
 		},
-		containerRemoveFn: func(ctx context.Context, id string, options container.RemoveOptions) error {
+		containerRemoveFn: func(ctx context.Context, id string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error) {
 			removedID = id
 			forceRemoved = options.Force
-			return nil
+			return client.ContainerRemoveResult{}, nil
 		},
 	}
 
@@ -443,24 +456,26 @@ func TestParseLimits(t *testing.T) {
 func TestDockerClient_AuditRunners(t *testing.T) {
 	ctx := context.Background()
 
-	var filterUsed filters.Args
+	var filterUsed client.Filters
 	mockAPI := &mockDockerAPI{
-		containerListFn: func(ctx context.Context, options container.ListOptions) ([]container.Summary, error) {
+		containerListFn: func(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error) {
 			filterUsed = options.Filters
-			return []container.Summary{
-				{
-					ID:    "cnt-1",
-					Names: []string{"/ghrs-pool-a-abcdef"},
-					State: "running",
-					Labels: map[string]string{
-						orchestrator.LabelManaged:   "true",
-						orchestrator.LabelPoolName:  "pool-a",
-						orchestrator.LabelID:        "ghrs-pool-a-abcdef",
-						orchestrator.LabelSpawnedAt: "2026-09-03T12:00:00Z",
-					},
-					NetworkSettings: &container.NetworkSettingsSummary{
-						Networks: map[string]*network.EndpointSettings{
-							"bridge": {IPAddress: "172.17.0.2"},
+			return client.ContainerListResult{
+				Items: []container.Summary{
+					{
+						ID:    "cnt-1",
+						Names: []string{"/ghrs-pool-a-abcdef"},
+						State: "running",
+						Labels: map[string]string{
+							orchestrator.LabelManaged:   "true",
+							orchestrator.LabelPoolName:  "pool-a",
+							orchestrator.LabelID:        "ghrs-pool-a-abcdef",
+							orchestrator.LabelSpawnedAt: "2026-09-03T12:00:00Z",
+						},
+						NetworkSettings: &container.NetworkSettingsSummary{
+							Networks: map[string]*network.EndpointSettings{
+								"bridge": {IPAddress: netip.MustParseAddr("172.17.0.2")},
+							},
 						},
 					},
 				},
@@ -487,9 +502,8 @@ func TestDockerClient_AuditRunners(t *testing.T) {
 	}
 
 	// Verify label filter
-	labels := filterUsed.Get("label")
-	if len(labels) == 0 || labels[0] != orchestrator.LabelManaged+"=true" {
-		t.Errorf("expected managed label filter, got %+v", labels)
+	if !filterUsed["label"][orchestrator.LabelManaged+"=true"] {
+		t.Errorf("expected managed label filter, got %+v", filterUsed)
 	}
 }
 
@@ -501,14 +515,14 @@ func TestDockerClient_TerminateRunner(t *testing.T) {
 	var forceRemoved bool
 
 	mockAPI := &mockDockerAPI{
-		containerStopFn: func(ctx context.Context, containerID string, options container.StopOptions) error {
+		containerStopFn: func(ctx context.Context, containerID string, options client.ContainerStopOptions) (client.ContainerStopResult, error) {
 			stoppedID = containerID
-			return nil
+			return client.ContainerStopResult{}, nil
 		},
-		containerRemoveFn: func(ctx context.Context, containerID string, options container.RemoveOptions) error {
+		containerRemoveFn: func(ctx context.Context, containerID string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error) {
 			removedID = containerID
 			forceRemoved = options.Force
-			return nil
+			return client.ContainerRemoveResult{}, nil
 		},
 	}
 
@@ -528,13 +542,15 @@ func TestDockerClient_TerminateRunner(t *testing.T) {
 func TestDockerClient_PruneExitedContainers(t *testing.T) {
 	ctx := context.Background()
 
-	var pruneFiltersUsed filters.Args
+	var pruneFiltersUsed client.Filters
 	mockAPI := &mockDockerAPI{
-		containersPruneFn: func(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error) {
-			pruneFiltersUsed = pruneFilters
-			return container.PruneReport{
-				ContainersDeleted: []string{"c-dead-1", "c-dead-2"},
-				SpaceReclaimed:    1024,
+		containersPruneFn: func(ctx context.Context, opts client.ContainerPruneOptions) (client.ContainerPruneResult, error) {
+			pruneFiltersUsed = opts.Filters
+			return client.ContainerPruneResult{
+				Report: container.PruneReport{
+					ContainersDeleted: []string{"c-dead-1", "c-dead-2"},
+					SpaceReclaimed:    1024,
+				},
 			}, nil
 		},
 	}
@@ -548,9 +564,8 @@ func TestDockerClient_PruneExitedContainers(t *testing.T) {
 		t.Fatalf("PruneExitedContainers failed: %v", err)
 	}
 
-	labels := pruneFiltersUsed.Get("label")
-	if len(labels) == 0 || labels[0] != orchestrator.LabelManaged+"=true" {
-		t.Errorf("expected managed label in prune filters: %+v", labels)
+	if !pruneFiltersUsed["label"][orchestrator.LabelManaged+"=true"] {
+		t.Errorf("expected managed label in prune filters: %+v", pruneFiltersUsed)
 	}
 }
 
@@ -561,8 +576,11 @@ func TestDockerClient_Events(t *testing.T) {
 	errChan := make(chan error, 1)
 
 	mockAPI := &mockDockerAPI{
-		eventsFn: func(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error) {
-			return msgChan, errChan
+		eventsFn: func(ctx context.Context, options client.EventsListOptions) client.EventsResult {
+			return client.EventsResult{
+				Messages: msgChan,
+				Err:      errChan,
+			}
 		},
 	}
 
@@ -571,8 +589,8 @@ func TestDockerClient_Events(t *testing.T) {
 		t.Fatalf("NewClient failed: %v", err)
 	}
 
-	outMsg, outErr := cli.Events(ctx, events.ListOptions{})
-	if outMsg == nil || outErr == nil {
+	res := cli.Events(ctx, client.EventsListOptions{})
+	if res.Messages == nil || res.Err == nil {
 		t.Fatalf("expected non-nil event channels")
 	}
 }
@@ -584,18 +602,22 @@ func TestDockerClient_EnsureNetwork(t *testing.T) {
 	listCalled := false
 	createCalled := false
 	mockAPIExisting := &mockDockerAPI{
-		networkListFn: func(ctx context.Context, options network.ListOptions) ([]network.Summary, error) {
+		networkListFn: func(ctx context.Context, options client.NetworkListOptions) (client.NetworkListResult, error) {
 			listCalled = true
-			return []network.Summary{
-				{
-					ID:   "net-existing-123",
-					Name: orchestrator.DefaultNetworkName,
+			return client.NetworkListResult{
+				Items: []network.Summary{
+					{
+						Network: network.Network{
+							ID:   "net-existing-123",
+							Name: orchestrator.DefaultNetworkName,
+						},
+					},
 				},
 			}, nil
 		},
-		networkCreateFn: func(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error) {
+		networkCreateFn: func(ctx context.Context, name string, options client.NetworkCreateOptions) (client.NetworkCreateResult, error) {
 			createCalled = true
-			return network.CreateResponse{ID: "should-not-be-called"}, nil
+			return client.NetworkCreateResult{ID: "should-not-be-called"}, nil
 		},
 	}
 
@@ -617,15 +639,15 @@ func TestDockerClient_EnsureNetwork(t *testing.T) {
 
 	// 2. Network does not exist -> created with driver bridge and managed label
 	var createdNetName string
-	var createdOptions network.CreateOptions
+	var createdOptions client.NetworkCreateOptions
 	mockAPINew := &mockDockerAPI{
-		networkListFn: func(ctx context.Context, options network.ListOptions) ([]network.Summary, error) {
-			return []network.Summary{}, nil
+		networkListFn: func(ctx context.Context, options client.NetworkListOptions) (client.NetworkListResult, error) {
+			return client.NetworkListResult{}, nil
 		},
-		networkCreateFn: func(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error) {
+		networkCreateFn: func(ctx context.Context, name string, options client.NetworkCreateOptions) (client.NetworkCreateResult, error) {
 			createdNetName = name
 			createdOptions = options
-			return network.CreateResponse{ID: "net-created-456"}, nil
+			return client.NetworkCreateResult{ID: "net-created-456"}, nil
 		},
 	}
 
@@ -670,17 +692,17 @@ func TestDockerClient_DegradedModeAndReadiness(t *testing.T) {
 	}
 
 	mockAPI := &mockDockerAPI{
-		pingFn: func(ctx context.Context) (types.Ping, error) {
+		pingFn: func(ctx context.Context, options client.PingOptions) (client.PingResult, error) {
 			if err := getPingError(); err != nil {
-				return types.Ping{}, err
+				return client.PingResult{}, err
 			}
-			return types.Ping{APIVersion: "1.47"}, nil
+			return client.PingResult{APIVersion: "1.47"}, nil
 		},
-		containerCreateFn: func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error) {
-			return container.CreateResponse{ID: "cnt-spawned"}, nil
+		containerCreateFn: func(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+			return client.ContainerCreateResult{ID: "cnt-spawned"}, nil
 		},
-		containerStartFn: func(ctx context.Context, containerID string, options container.StartOptions) error {
-			return nil
+		containerStartFn: func(ctx context.Context, containerID string, options client.ContainerStartOptions) (client.ContainerStartResult, error) {
+			return client.ContainerStartResult{}, nil
 		},
 	}
 
@@ -763,7 +785,7 @@ func TestDockerClient_CaptureLogs(t *testing.T) {
 
 	rawLog := "2026-09-03T10:00:00.000000000Z Runner connected to GitHub\n2026-09-03T10:00:01.000000000Z Job completed with exit 0\n"
 	mockAPI := &mockDockerAPI{
-		containerLogsFn: func(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error) {
+		containerLogsFn: func(ctx context.Context, containerID string, options client.ContainerLogsOptions) (client.ContainerLogsResult, error) {
 			if containerID != "runner-capture-test" {
 				return nil, errors.New("container not found")
 			}
@@ -808,14 +830,16 @@ func TestDockerClient_ImageOperations(t *testing.T) {
 	ctx := context.Background()
 	var pulled string
 	mockAPI := &mockDockerAPI{
-		imagePullFn: func(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error) {
+		imagePullFn: func(ctx context.Context, refStr string, options client.ImagePullOptions) (client.ImagePullResponse, error) {
 			pulled = refStr
-			return io.NopCloser(strings.NewReader("")), nil
+			return nopPullResponse{io.NopCloser(strings.NewReader(""))}, nil
 		},
-		imageInspectWithRawFn: func(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error) {
-			return dockerimage.InspectResponse{
-				RepoDigests: []string{"ghcr.io/noosxe/runner-aio@sha256:digest-abc"},
-			}, nil, nil
+		imageInspectFn: func(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: dockerimage.InspectResponse{
+					RepoDigests: []string{"ghcr.io/noosxe/runner-aio@sha256:digest-abc"},
+				},
+			}, nil
 		},
 	}
 
@@ -856,41 +880,43 @@ func TestDockerClient_ImageHandoff_InFlightJobUnchanged(t *testing.T) {
 	containers := make(map[string]*containerState)
 
 	mockAPI := &mockDockerAPI{
-		containerCreateFn: func(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error) {
-			cid := "cnt-" + containerName
+		containerCreateFn: func(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
+			cid := "cnt-" + options.Name
 			containers[cid] = &containerState{
-				name:    containerName,
+				name:    options.Name,
 				imageID: currentDigest,
 				status:  "created",
 			}
-			return container.CreateResponse{ID: cid}, nil
+			return client.ContainerCreateResult{ID: cid}, nil
 		},
-		containerStartFn: func(ctx context.Context, containerID string, options container.StartOptions) error {
+		containerStartFn: func(ctx context.Context, containerID string, options client.ContainerStartOptions) (client.ContainerStartResult, error) {
 			if c, ok := containers[containerID]; ok {
 				c.status = "running"
 			}
-			return nil
+			return client.ContainerStartResult{}, nil
 		},
-		containerStopFn: func(ctx context.Context, containerID string, options container.StopOptions) error {
+		containerStopFn: func(ctx context.Context, containerID string, options client.ContainerStopOptions) (client.ContainerStopResult, error) {
 			if c, ok := containers[containerID]; ok {
 				c.status = "stopped"
 			}
-			return nil
+			return client.ContainerStopResult{}, nil
 		},
-		containerRemoveFn: func(ctx context.Context, containerID string, options container.RemoveOptions) error {
+		containerRemoveFn: func(ctx context.Context, containerID string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error) {
 			delete(containers, containerID)
-			return nil
+			return client.ContainerRemoveResult{}, nil
 		},
-		imageInspectWithRawFn: func(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error) {
-			return dockerimage.InspectResponse{
-				RepoDigests: []string{tag + "@" + currentDigest},
-			}, nil, nil
+		imageInspectFn: func(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				InspectResponse: dockerimage.InspectResponse{
+					RepoDigests: []string{tag + "@" + currentDigest},
+				},
+			}, nil
 		},
-		imagePullFn: func(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error) {
+		imagePullFn: func(ctx context.Context, refStr string, options client.ImagePullOptions) (client.ImagePullResponse, error) {
 			if refStr == tag {
 				currentDigest = digestV2
 			}
-			return io.NopCloser(strings.NewReader("")), nil
+			return nopPullResponse{io.NopCloser(strings.NewReader(""))}, nil
 		},
 	}
 
