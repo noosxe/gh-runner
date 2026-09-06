@@ -584,13 +584,7 @@ export function CreatePoolWizardModal({
                         )}
                       </div>
 
-                      {target.avatarUrl ? (
-                        <img
-                          src={target.avatarUrl}
-                          alt={target.name}
-                          className="h-6 w-6 rounded-md object-cover shrink-0 mt-0.5"
-                        />
-                      ) : scope === "org" ? (
+                      {scope === "org" ? (
                         <Building className="h-5 w-5 text-slate-400 shrink-0 mt-0.5" />
                       ) : (
                         <FolderGit2 className="h-5 w-5 text-slate-400 shrink-0 mt-0.5" />
