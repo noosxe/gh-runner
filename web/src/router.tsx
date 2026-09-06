@@ -48,12 +48,12 @@ export const loginRoute = createRoute({
   }),
   beforeLoad: async () => {
     const onboarding = await fetchOnboardingStatus(queryClient);
-    if (!onboarding.setupComplete) {
+    if (!onboarding.adminCreated) {
       throw redirect({ to: "/onboarding" });
     }
     const session = await fetchSession(queryClient);
     if (session) {
-      throw redirect({ to: "/" });
+      throw redirect({ to: onboarding.setupComplete ? "/" : "/onboarding" });
     }
   },
 });

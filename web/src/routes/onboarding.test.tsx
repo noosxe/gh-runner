@@ -16,6 +16,9 @@ let mockOnboardingStatus = {
   setupComplete: false,
 };
 
+let mockSession: { username: string; isAdmin: boolean } | null = null;
+const mockLogin = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
@@ -24,6 +27,14 @@ vi.mock("../lib/api/query-hooks", () => ({
   useOnboardingStatus: () => ({
     data: mockOnboardingStatus,
     isLoading: false,
+  }),
+  useSession: () => ({
+    data: mockSession,
+    isLoading: false,
+  }),
+  useLogin: () => ({
+    mutateAsync: mockLogin,
+    isPending: false,
   }),
   useSetupAdmin: () => ({
     mutateAsync: mockSetupAdmin,
@@ -50,6 +61,7 @@ vi.mock("../lib/api/query-hooks", () => ({
 describe("OnboardingPage (Full 5 Steps)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSession = null;
     mockOnboardingStatus = {
       adminCreated: false,
       authProfileExists: false,
@@ -246,9 +258,61 @@ describe("OnboardingPage (Full 5 Steps)", () => {
       setupComplete: false,
     };
 
+    mockSession = { username: "admin", isAdmin: true };
     render(<OnboardingPage />);
 
     expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
+  });
+
+  it("renders administrator authentication form if admin is created but no session is active, and authenticates successfully", async () => {
+    mockOnboardingStatus = {
+      adminCreated: true,
+      authProfileExists: false,
+      poolExists: false,
+      setupComplete: false,
+    };
+    mockSession = null;
+    mockLogin.mockResolvedValueOnce({ success: true, username: "admin" });
+
+    render(<OnboardingPage />);
+
+    expect(
+      screen.getByText("Step 1 of 5: Master Administrator Authentication"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Admin Password")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Admin Password"), {
+      target: { value: "mypassword123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Log In to Continue Setup/i }));
+
+    await waitFor(() => {
+      expect(mockLogin).toHaveBeenCalledWith({
+        username: "admin",
+        password: "mypassword123",
+      });
+    });
+  });
+
+  it("prevents skipping to dashboard when admin is created but unauthenticated", async () => {
+    mockOnboardingStatus = {
+      adminCreated: true,
+      authProfileExists: false,
+      poolExists: false,
+      setupComplete: false,
+    };
+    mockSession = null;
+
+    render(<OnboardingPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Skip to Dashboard/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Please log in with administrator credentials first to complete setup."),
+      ).toBeInTheDocument();
+    });
+    expect(mockCompleteOnboarding).not.toHaveBeenCalled();
   });
 
   it("supports navigating back between steps using Back button", async () => {

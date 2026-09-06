@@ -70,6 +70,22 @@ func TestAuthEngineFullLifecycleAndRevocation(t *testing.T) {
 		t.Errorf("SetupAdmin want success=true, got: %v", setupRes.Msg.Success)
 	}
 
+	setupCookie := setupRes.Header().Get("Set-Cookie")
+	if !strings.Contains(setupCookie, "session_token=") || !strings.Contains(setupCookie, "HttpOnly") || !strings.Contains(setupCookie, "SameSite=Strict") {
+		t.Fatalf("SetupAdmin Set-Cookie header missing required security directives: %s", setupCookie)
+	}
+
+	// Verify session row exists in DB from SetupAdmin
+	rawSetupCookie := strings.Split(strings.Split(setupCookie, ";")[0], "=")[1]
+	setupTokenHash := server.HashToken(rawSetupCookie)
+	setupSess, err := database.GetSessionByTokenHash(ctx, setupTokenHash)
+	if err != nil {
+		t.Fatalf("GetSessionByTokenHash after SetupAdmin failed: %v", err)
+	}
+	if setupSess.TokenHash != setupTokenHash {
+		t.Errorf("token_hash mismatch: got %s, want %s", setupSess.TokenHash, setupTokenHash)
+	}
+
 	// Verify audit log for admin setup
 	auditLogs, err := database.ListAuditLogs(ctx, db.ListAuditLogsParams{Limit: 10, Offset: 0})
 	if err != nil || len(auditLogs) != 1 || auditLogs[0].Action != "auth.setup_admin" {

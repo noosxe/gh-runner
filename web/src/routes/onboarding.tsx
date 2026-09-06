@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   useOnboardingStatus,
+  useSession,
+  useLogin,
   useSetupAdmin,
   useCreateAuthProfile,
   useSetAppSetting,
@@ -29,16 +31,19 @@ import {
 
 export function OnboardingPage() {
   const { data: status } = useOnboardingStatus();
+  const { data: session } = useSession();
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
 
   // Active step state (1: Admin, 2: Provider, 3: Safeguards, 4: Pool, 5: Review)
   const defaultStep = status?.adminCreated
-    ? !status.authProfileExists
-      ? 2
-      : !status.poolExists
-        ? 4
-        : 5
+    ? !session
+      ? 1
+      : !status.authProfileExists
+        ? 2
+        : !status.poolExists
+          ? 4
+          : 5
     : 1;
   const [stepOverride, setStepOverride] = useState<number | null>(null);
   const currentStep = stepOverride ?? defaultStep;
@@ -107,6 +112,7 @@ export function OnboardingPage() {
 
   // Mutations
   const setupAdminMutation = useSetupAdmin();
+  const loginMutation = useLogin();
   const createAuthProfileMutation = useCreateAuthProfile();
   const setAppSettingMutation = useSetAppSetting();
   const createPoolMutation = useCreatePool();
@@ -115,6 +121,11 @@ export function OnboardingPage() {
   // Skip to Dashboard shortcut
   const handleSkipToDashboard = async () => {
     setError(null);
+    if (status?.adminCreated && !session) {
+      setError("Please log in with administrator credentials first to complete setup.");
+      setCurrentStep(1);
+      return;
+    }
     try {
       await completeOnboardingMutation.mutateAsync();
       navigate({ to: "/" });
@@ -140,7 +151,7 @@ export function OnboardingPage() {
     setCurrentStep(5);
   };
 
-  // Step 1 Submission
+  // Step 1 Submission: Create Master Admin
   const handleAdminSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -159,6 +170,24 @@ export function OnboardingPage() {
       setCurrentStep(2);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to create administrator");
+    }
+  };
+
+  // Step 1 Submission: Log in when administrator is already configured
+  const handleAdminLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!password) {
+      setError("Password is required");
+      return;
+    }
+
+    try {
+      await loginMutation.mutateAsync({ username, password });
+      setCurrentStep(!status?.authProfileExists ? 2 : !status?.poolExists ? 4 : 5);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Invalid administrator credentials");
     }
   };
 
@@ -440,96 +469,207 @@ export function OnboardingPage() {
           </div>
         )}
 
-        {/* Step 1: Admin Setup */}
-        {currentStep === 1 && (
-          <form onSubmit={handleAdminSubmit} className="mt-6 space-y-4 text-xs">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                Step 1 of 5: Create Master Administrator
-              </h2>
-              <p className="mt-0.5 text-slate-500 dark:text-slate-400">
-                Administrative credentials are protected with bcrypt password hashing and 24h JWT
-                sessions.
-              </p>
-            </div>
+        {/* Step 1: Admin Setup / Authentication */}
+        {currentStep === 1 &&
+          (status?.adminCreated ? (
+            session ? (
+              <div className="mt-6 space-y-4 text-xs">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Step 1 of 5: Master Administrator Configured
+                  </h2>
+                  <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+                    Master administrator credentials are configured and authenticated.
+                  </p>
+                </div>
 
-            <div>
-              <label
-                htmlFor="admin-username"
-                className="font-semibold text-slate-700 dark:text-slate-300"
-              >
-                Admin Username
-              </label>
-              <input
-                id="admin-username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                required
-                autoFocus
-              />
-            </div>
+                <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-800/40 dark:bg-emerald-950/20">
+                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <div>
+                    <div className="font-semibold text-emerald-900 dark:text-emerald-300">
+                      Active Administrator Session ({session.username})
+                    </div>
+                    <div className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80">
+                      Session token is active. You may proceed with configuring Git providers and
+                      runner pools, or skip to the dashboard.
+                    </div>
+                  </div>
+                </div>
 
-            <div>
-              <label
-                htmlFor="admin-password"
-                className="font-semibold text-slate-700 dark:text-slate-300"
-              >
-                Password (min 10 characters)
-              </label>
-              <div className="relative mt-1">
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCurrentStep(!status.authProfileExists ? 2 : !status.poolExists ? 4 : 5)
+                    }
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-sm hover:bg-blue-700"
+                  >
+                    <span>Next: Git Provider</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleAdminLogin} className="mt-6 space-y-4 text-xs">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Step 1 of 5: Master Administrator Authentication
+                  </h2>
+                  <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+                    Administrator credentials are already configured. Please log in with your master
+                    credentials to continue onboarding.
+                  </p>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="admin-username"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Admin Username
+                  </label>
+                  <input
+                    id="admin-username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="admin-password"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Admin Password
+                  </label>
+                  <div className="relative mt-1">
+                    <input
+                      id="admin-password"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 pr-10 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      required
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      aria-label="Toggle password visibility"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={loginMutation.isPending}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    <span>
+                      {loginMutation.isPending ? "Authenticating..." : "Log In to Continue Setup"}
+                    </span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </form>
+            )
+          ) : (
+            <form onSubmit={handleAdminSubmit} className="mt-6 space-y-4 text-xs">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Step 1 of 5: Create Master Administrator
+                </h2>
+                <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+                  Administrative credentials are protected with bcrypt password hashing and 24h JWT
+                  sessions.
+                </p>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="admin-username"
+                  className="font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  Admin Username
+                </label>
                 <input
-                  id="admin-password"
+                  id="admin-username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="admin-password"
+                  className="font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  Password (min 10 characters)
+                </label>
+                <div className="relative mt-1">
+                  <input
+                    id="admin-password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 pr-10 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                  <button
+                    type="button"
+                    aria-label="Toggle password visibility"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="admin-confirm-password"
+                  className="font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  Confirm Password
+                </label>
+                <input
+                  id="admin-confirm-password"
                   type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 pr-10 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                   required
                 />
+              </div>
+
+              <div className="pt-2">
                 <button
-                  type="button"
-                  aria-label="Toggle password visibility"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                  tabIndex={-1}
+                  type="submit"
+                  disabled={setupAdminMutation.isPending}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  <span>
+                    {setupAdminMutation.isPending ? "Creating Admin..." : "Next: Git Provider"}
+                  </span>
+                  <ArrowRight className="h-4 w-4" />
                 </button>
               </div>
-            </div>
-
-            <div>
-              <label
-                htmlFor="admin-confirm-password"
-                className="font-semibold text-slate-700 dark:text-slate-300"
-              >
-                Confirm Password
-              </label>
-              <input
-                id="admin-confirm-password"
-                type={showPassword ? "text" : "password"}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                required
-              />
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={setupAdminMutation.isPending}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
-              >
-                <span>
-                  {setupAdminMutation.isPending ? "Creating Admin..." : "Next: Git Provider"}
-                </span>
-                <ArrowRight className="h-4 w-4" />
-              </button>
-            </div>
-          </form>
-        )}
+            </form>
+          ))}
 
         {/* Step 2: Git Provider Auth Profile */}
         {currentStep === 2 && (

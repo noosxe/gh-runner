@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -79,10 +80,15 @@ func GenerateToken(userID int64, username string, secret []byte, duration time.D
 		return "", time.Time{}, errors.New("jwt secret must not be empty")
 	}
 	expiresAt := time.Now().Add(duration)
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", time.Time{}, fmt.Errorf("generating token nonce: %w", err)
+	}
 	claims := Claims{
 		UserID:   userID,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        hex.EncodeToString(nonce[:]),
 			Subject:   strconv.FormatInt(userID, 10),
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -260,9 +266,36 @@ func (s *AuthService) SetupAdmin(ctx context.Context, req *connect.Request[super
 		"username": username,
 	})
 
-	return connect.NewResponse(&supervisorv1.SetupAdminResponse{
+	tokenString, expiresAt, err := GenerateToken(user.ID, user.Username, s.jwtSecret, SessionDuration)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("generating session token: %w", err))
+	}
+
+	tokenHash := HashToken(tokenString)
+	_, err = s.db.CreateSession(ctx, db.CreateSessionParams{
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("recording session: %w", err))
+	}
+
+	cookie := &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    tokenString,
+		Path:     "/",
+		MaxAge:   int(SessionDuration.Seconds()),
+		HttpOnly: true,
+		Secure:   s.isSecureCookie,
+		SameSite: http.SameSiteStrictMode,
+	}
+
+	res := connect.NewResponse(&supervisorv1.SetupAdminResponse{
 		Success: true,
-	}), nil
+	})
+	res.Header().Set("Set-Cookie", cookie.String())
+	return res, nil
 }
 
 // Login verifies credentials, creates an active session in SQLite, and returns an HttpOnly session cookie.
