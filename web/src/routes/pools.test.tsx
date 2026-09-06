@@ -37,11 +37,17 @@ const mockPools = [
 
 let mockIsLoading = false;
 let mockIsConnected = true;
+let mockPoolsData: any = mockPools;
+let mockAuthProfilesData: any = [{ id: 1n, name: "prod-profile" }];
 
 vi.mock("../lib/api/query-hooks", () => ({
   usePools: () => ({
-    data: mockIsLoading ? undefined : mockPools,
+    data: mockIsLoading ? undefined : mockPoolsData,
     isLoading: mockIsLoading,
+  }),
+  useAuthProfiles: () => ({
+    data: mockAuthProfilesData,
+    isLoading: false,
   }),
 }));
 
@@ -63,6 +69,8 @@ describe("PoolsPage", () => {
   beforeEach(() => {
     mockIsLoading = false;
     mockIsConnected = true;
+    mockPoolsData = mockPools;
+    mockAuthProfilesData = [{ id: 1n, name: "prod-profile" }];
     vi.clearAllMocks();
   });
 
@@ -97,5 +105,39 @@ describe("PoolsPage", () => {
 
     expect(screen.getByText("arm64-prod-pool")).toBeInTheDocument();
     expect(screen.queryByText("gitea-org-pool")).not.toBeInTheDocument();
+  });
+
+  it("displays warning banner when no auth profiles are configured", () => {
+    mockAuthProfilesData = [];
+
+    render(<PoolsPage />);
+
+    expect(screen.getByText("Git Authentication Profile Required")).toBeInTheDocument();
+    expect(screen.getByText(/Runner pools require upstream credentials/i)).toBeInTheDocument();
+    expect(screen.getByText(/Configure Profile →/i)).toBeInTheDocument();
+  });
+
+  it("displays guided empty state when zero pools and no auth profiles exist", () => {
+    mockPoolsData = [];
+    mockAuthProfilesData = [];
+
+    render(<PoolsPage />);
+
+    expect(screen.getByText("No runner pools configured")).toBeInTheDocument();
+    expect(
+      screen.getByText(/No Git authentication profiles are configured yet/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Launch Setup Wizard")).toBeInTheDocument();
+  });
+
+  it("displays add pool CTA when zero pools and auth profiles exist", () => {
+    mockPoolsData = [];
+    mockAuthProfilesData = [{ id: 1n, name: "default" }];
+
+    render(<PoolsPage />);
+
+    expect(screen.getByText("No runner pools configured")).toBeInTheDocument();
+    expect(screen.getByText(/Git authentication profile is ready/i)).toBeInTheDocument();
+    expect(screen.getAllByText("+ Add Runner Pool").length).toBeGreaterThan(0);
   });
 });

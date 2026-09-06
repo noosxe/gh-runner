@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { useSystemStats, usePools, useJobHistory, useImageUpdates } from "../lib/api/query-hooks";
+import {
+  useSystemStats,
+  usePools,
+  useJobHistory,
+  useImageUpdates,
+  useAuthProfiles,
+} from "../lib/api/query-hooks";
 import { QueueLatencyChart } from "../components/analytics/queue-latency-chart";
 import { SuccessFailureWidget } from "../components/analytics/success-failure-widget";
 import { ImageUpdateNotification } from "../components/notifications/image-update-notification";
@@ -39,8 +45,11 @@ export function DashboardPage() {
 
   const { data: stats, isLoading: statsLoading } = useSystemStats(timeframeHours);
   const { data: pools, isLoading: poolsLoading } = usePools();
+  const { data: authProfiles } = useAuthProfiles();
   const { data: history } = useJobHistory({ limit: 5 });
   const { data: updates } = useImageUpdates();
+
+  const hasAuthProfiles = Boolean(authProfiles && authProfiles.length > 0);
 
   const totalJobs = stats?.totalJobs24h ?? 0;
   const successfulJobs = stats?.successfulJobs24h ?? 0;
@@ -183,8 +192,30 @@ export function DashboardPage() {
         {poolsLoading ? (
           <div className="text-sm text-slate-400">Loading pools...</div>
         ) : !pools || pools.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            No runner pools configured yet.
+          <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center dark:border-slate-800">
+            <Server className="mx-auto mb-2 h-8 w-8 text-slate-400" />
+            <p className="text-base font-semibold text-slate-800 dark:text-slate-200">
+              No runner pools configured yet
+            </p>
+            <p className="mx-auto mt-1 max-w-md text-xs text-slate-500 dark:text-slate-400">
+              {hasAuthProfiles
+                ? "Git credentials are connected. Create your first auto-scaling runner pool to begin processing CI workflow runs."
+                : "To start dispatching ephemeral runner containers, connect a Git provider authentication profile and create your first runner pool."}
+            </p>
+            <div className="mt-4 flex items-center justify-center gap-3">
+              <Link
+                to={hasAuthProfiles ? "/pools" : "/onboarding"}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-blue-500"
+              >
+                <span>{hasAuthProfiles ? "Create First Pool" : "Connect Git Provider"}</span>
+              </Link>
+              <Link
+                to="/pools"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-xs transition-colors hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <span>Manage Pools</span>
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
