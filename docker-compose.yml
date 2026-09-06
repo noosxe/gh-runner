@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.supervisor
-    image: ghcr.io/noosxe/gh-runner-supervisor:latest
+    image: ghcr.io/noosxe/runnero-supervisor:latest
     container_name: gh-runner-supervisor
     restart: unless-stopped
     ports:
