@@ -38,7 +38,7 @@ build-image-runner:
 
 ## build-image-supervisor: build local supervisor container image
 build-image-supervisor:
-	docker build -f Dockerfile.supervisor -t gh-runner-supervisor:local .
+	docker build -f Dockerfile.supervisor -t ghcr.io/noosxe/runnero-supervisor:local .
 
 ## test: run the Go test suite
 test: build-web
