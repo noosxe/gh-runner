@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+FROM mcr.microsoft.com/playwright:v1.55.0-noble
+
+WORKDIR /e2e
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+ENV CI=true
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
+
+COPY tests/e2e/package.json ./
+RUN pnpm install
+
+COPY tests/e2e/ ./
+
+CMD ["pnpm", "exec", "playwright", "test"]

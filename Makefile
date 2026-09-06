@@ -13,7 +13,7 @@ export CGO_ENABLED := 0
 BINARY := supervisor
 PKG     := ./...
 
-.PHONY: build build-web build-image-runner build-image-supervisor test test-race test-scripts test-web lint lint-web fmt fmt-web vet tidy clean generate proto-lint
+.PHONY: build build-web build-image-runner build-image-supervisor test test-race test-scripts test-web test-e2e test-e2e-ui clean-e2e lint lint-web fmt fmt-web vet tidy clean generate proto-lint
 
 ## generate: run code generation tools (sqlc, buf)
 generate:
@@ -81,6 +81,22 @@ tidy:
 	go mod tidy
 
 ## clean: remove build artifacts
-clean:
+clean: clean-e2e
 	rm -rf bin web/dist
+
+## test-e2e: run containerized Playwright E2E tests
+test-e2e:
+	docker compose -f tests/e2e/docker-compose.e2e.yml up \
+		--build \
+		--abort-on-container-exit \
+		--exit-code-from e2e-playwright
+
+## test-e2e-ui: run Playwright E2E tests with UI mode on port 9323
+test-e2e-ui:
+	docker compose -f tests/e2e/docker-compose.e2e.yml run \
+		--rm -p 9323:9323 e2e-playwright pnpm exec playwright test --ui-port=9323 --ui-host=0.0.0.0
+
+## clean-e2e: clean up E2E containers, networks, and scratch volumes
+clean-e2e:
+	docker compose -f tests/e2e/docker-compose.e2e.yml down -v --remove-orphans 2>/dev/null || true
 
