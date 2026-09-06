@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { usePools } from "../lib/api/query-hooks";
+import { usePools, useAuthProfiles } from "../lib/api/query-hooks";
 import { useWatchPools } from "../lib/api/streaming-hooks";
 import { Link } from "@tanstack/react-router";
 import {
@@ -11,11 +11,14 @@ import {
   Activity,
   Layers,
   ArrowUpRight,
+  Info,
 } from "lucide-react";
 
 export function PoolsPage() {
   const { data: pools, isLoading } = usePools();
+  const { data: authProfiles, isLoading: authProfilesLoading } = useAuthProfiles();
   const { isConnected } = useWatchPools();
+  const hasAuthProfiles = Boolean(authProfiles && authProfiles.length > 0);
 
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
@@ -78,6 +81,28 @@ export function PoolsPage() {
         </Link>
       </div>
 
+      {/* Missing Auth Profile Warning Banner */}
+      {!hasAuthProfiles && !authProfilesLoading && (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="flex-1 space-y-1">
+            <p className="font-semibold text-slate-900 dark:text-white">
+              Git Authentication Profile Required
+            </p>
+            <p className="text-[11px] text-amber-700 dark:text-amber-400">
+              Runner pools require upstream credentials to register ephemeral runners with GitHub,
+              Gitea, or Forgejo. Connect an auth profile first or run through the setup wizard.
+            </p>
+          </div>
+          <Link
+            to="/onboarding"
+            className="shrink-0 rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+          >
+            Configure Profile &rarr;
+          </Link>
+        </div>
+      )}
+
       {/* Filters Toolbar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-slate-200 bg-white p-3 shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="relative flex-1">
@@ -123,15 +148,27 @@ export function PoolsPage() {
         </div>
       ) : filteredPools.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 p-12 text-center text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          <Server className="mx-auto h-8 w-8 text-slate-400 mb-2" />
+          <Server className="mx-auto mb-2 h-8 w-8 text-slate-400" />
           <p className="text-base font-semibold text-slate-800 dark:text-slate-200">
             {pools?.length === 0 ? "No runner pools configured" : "No pools match your filters"}
           </p>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="mx-auto mt-1 max-w-md text-xs text-slate-500 dark:text-slate-400">
             {pools?.length === 0
-              ? "Complete the setup wizard or create a pool to start processing CI workflows."
+              ? hasAuthProfiles
+                ? "Git authentication profile is ready. Create your first runner pool to start processing CI workflows."
+                : "No Git authentication profiles are configured yet. Connect a Git profile in the setup wizard before creating your first pool."
               : "Try adjusting your search terms or filter criteria."}
           </p>
+          {pools?.length === 0 && (
+            <div className="mt-4 flex items-center justify-center gap-3">
+              <Link
+                to="/onboarding"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-blue-500"
+              >
+                <span>{hasAuthProfiles ? "+ Add Runner Pool" : "Launch Setup Wizard"}</span>
+              </Link>
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">

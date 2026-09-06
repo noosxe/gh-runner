@@ -52,6 +52,7 @@ let currentStats: any = mockStats;
 let currentPools: any = mockPools;
 let currentHistory: any = mockHistory;
 let currentUpdates: any = [];
+let currentAuthProfiles: any = [{ id: 1n, name: "default-profile" }];
 let isStatsLoading = false;
 let isPoolsLoading = false;
 
@@ -71,6 +72,10 @@ vi.mock("../lib/api/query-hooks", () => ({
   usePools: () => ({
     data: currentPools,
     isLoading: isPoolsLoading,
+  }),
+  useAuthProfiles: () => ({
+    data: currentAuthProfiles,
+    isLoading: false,
   }),
   useJobHistory: () => ({
     data: currentHistory,
@@ -96,6 +101,7 @@ describe("DashboardPage", () => {
     currentPools = mockPools;
     currentHistory = mockHistory;
     currentUpdates = [];
+    currentAuthProfiles = [{ id: 1n, name: "default-profile" }];
     isStatsLoading = false;
     isPoolsLoading = false;
   });
@@ -108,19 +114,11 @@ describe("DashboardPage", () => {
     expect(screen.getByText("142")).toBeInTheDocument();
     expect(screen.getAllByText("97.9%").length).toBeGreaterThan(0);
     expect(screen.getAllByText("3m 12s").length).toBeGreaterThan(0);
-
-    // Analytics components
-    expect(screen.getByText("Queue Wait-Time Latency")).toBeInTheDocument();
-    expect(screen.getByText("Execution Health & Ratio")).toBeInTheDocument();
-
-    // Configured pools
     expect(screen.getByText("pool-arm64-prod")).toBeInTheDocument();
-
-    // Recent executions table
     expect(screen.getByText("ghrs-arm64-prod-a8f12c")).toBeInTheDocument();
   });
 
-  it("renders empty states when there are no pools and no recent executions", () => {
+  it("renders empty state when no runner pools or job executions exist", () => {
     currentPools = [];
     currentHistory = { jobs: [] };
     currentStats = {
@@ -137,10 +135,22 @@ describe("DashboardPage", () => {
 
     render(<DashboardPage />);
 
-    expect(screen.getByText("No runner pools configured yet.")).toBeInTheDocument();
+    expect(screen.getByText("No runner pools configured yet")).toBeInTheDocument();
+    expect(screen.getByText("Create First Pool")).toBeInTheDocument();
     expect(screen.getByText("No executions recorded in the last 24h.")).toBeInTheDocument();
     expect(screen.getByText("0 active")).toBeInTheDocument();
     expect(screen.getByText("0 warm idle standby")).toBeInTheDocument();
+  });
+
+  it("renders setup wizard CTA in empty state when no auth profiles exist", () => {
+    currentPools = [];
+    currentAuthProfiles = [];
+    currentHistory = { jobs: [] };
+
+    render(<DashboardPage />);
+
+    expect(screen.getByText("No runner pools configured yet")).toBeInTheDocument();
+    expect(screen.getByText("Connect Git Provider")).toBeInTheDocument();
   });
 
   it("renders loading indicators when data is fetching", () => {

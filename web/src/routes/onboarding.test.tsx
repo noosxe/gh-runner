@@ -458,4 +458,67 @@ describe("OnboardingPage (Full 5 Steps)", () => {
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/" });
     });
   });
+
+  it("allows creating Git profile, skipping pool setup, and finishing onboarding", async () => {
+    mockSetupAdmin.mockResolvedValueOnce({});
+    mockCreateAuthProfile.mockResolvedValueOnce({ profile: { id: 10n } });
+    mockCompleteOnboarding.mockResolvedValueOnce({});
+
+    render(<OnboardingPage />);
+
+    // Step 1: Admin
+    fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm Password"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Git Provider/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
+    });
+
+    // Step 2: Configure Git profile
+    fireEvent.change(screen.getByLabelText("Personal Access Token (PAT)"), {
+      target: { value: "ghp_validtoken123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Safeguards/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 3 of 5: Global Scaling Safeguards")).toBeInTheDocument();
+    });
+
+    // Step 3: Safeguards -> Next
+    fireEvent.click(screen.getByRole("button", { name: /Keep defaults & continue/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 4 of 5: Initial Runner Pool Setup")).toBeInTheDocument();
+      // Should show the pool form, not the prerequisite warning
+      expect(screen.queryByText("Git Authentication Profile Required")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Pool Name")).toBeInTheDocument();
+    });
+
+    // Step 4: Skip pool creation
+    fireEvent.click(screen.getByRole("button", { name: /Skip this step/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 5 of 5: Review & Launch Supervisor")).toBeInTheDocument();
+      // Git profile should NOT be skipped
+      expect(screen.queryByText(/Skipped — not configured/i)).not.toBeInTheDocument();
+      expect(screen.getByText("github-primary")).toBeInTheDocument();
+      // Initial pool should be skipped
+      expect(screen.getByText(/Skipped — no pool created/i)).toBeInTheDocument();
+      expect(screen.getByText("Ready to Finish Setup")).toBeInTheDocument();
+    });
+
+    // Step 5: Finish
+    fireEvent.click(screen.getByRole("button", { name: /Finish & Open Dashboard/i }));
+
+    await waitFor(() => {
+      expect(mockCreatePool).not.toHaveBeenCalled();
+      expect(mockCompleteOnboarding).toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/" });
+    });
+  });
 });

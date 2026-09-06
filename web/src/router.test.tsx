@@ -45,6 +45,10 @@ vi.mock("./lib/api/query-hooks", () => ({
     data: [],
     isLoading: false,
   }),
+  useAuthProfiles: () => ({
+    data: [{ id: 1n, name: "test-auth-profile" }],
+    isLoading: false,
+  }),
 }));
 
 describe("AppRouter", () => {
