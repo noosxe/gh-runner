@@ -158,5 +158,38 @@ describe("Route Guards & Redirect Matrix Logic", () => {
         onboarding: { setupComplete: true },
       });
     });
+
+    it("Optional onboarding completion (admin created, zero pools, onboardingCompleted: true) allows access to authenticated routes", async () => {
+      vi.spyOn(onboardingClient, "getOnboardingStatus").mockResolvedValue({
+        setupComplete: true,
+        adminCreated: true,
+        authProfileExists: false,
+        poolExists: false,
+        onboardingCompleted: true,
+      } as any);
+      vi.spyOn(authClient, "getSession").mockResolvedValue({
+        username: "admin",
+        isAdmin: true,
+      } as any);
+
+      // onboardingRoute redirects to /
+      await expect(onboardingRoute.options.beforeLoad?.({} as any)).rejects.toMatchObject({
+        options: { to: "/" },
+      });
+
+      // authenticatedRoute beforeLoad succeeds with session and onboarding
+      const context = await authenticatedRoute.options.beforeLoad?.({
+        location: { pathname: "/" },
+      } as any);
+      expect(context).toMatchObject({
+        session: { username: "admin" },
+        onboarding: {
+          setupComplete: true,
+          adminCreated: true,
+          poolExists: false,
+          onboardingCompleted: true,
+        },
+      });
+    });
   });
 });
