@@ -10,9 +10,11 @@ services:
     ports:
       - "${SUPERVISOR_PORT:-8080}:8080"
     environment:
-      - SUPERVISOR_DB_ENCRYPTION_KEY=${SUPERVISOR_DB_ENCRYPTION_KEY}
-      - SUPERVISOR_PORT=${SUPERVISOR_PORT:-8080}
-      - SUPERVISOR_LOG_LEVEL=${SUPERVISOR_LOG_LEVEL:-info}
+      # Safe dev fallback allows instant 'docker compose up' without manual .env creation
+      - SUPERVISOR_DB_ENCRYPTION_KEY=${SUPERVISOR_DB_ENCRYPTION_KEY:-dev-insecure-master-encryption-key-for-local-testing-32b}
+      # Fixed internal container port; host port controlled by SUPERVISOR_PORT in ports mapping
+      - SUPERVISOR_PORT=8080
+      - SUPERVISOR_LOG_LEVEL=${SUPERVISOR_LOG_LEVEL:-debug}
       - SUPERVISOR_DOCKER_HOST=${SUPERVISOR_DOCKER_HOST:-unix:///var/run/docker.sock}
       - SUPERVISOR_DATA_DIR=${SUPERVISOR_DATA_DIR:-/data}
       - SUPERVISOR_BACKUP_INTERVAL_HOURS=${SUPERVISOR_BACKUP_INTERVAL_HOURS:-6}
@@ -43,8 +45,8 @@ services:
     init: true
     restart: unless-stopped
     environment:
-      - GITHUB_REPOSITORY_URL=${GITHUB_REPOSITORY_URL}
-      - RUNNER_TOKEN=${RUNNER_TOKEN}
+      - GITHUB_REPOSITORY_URL=${GITHUB_REPOSITORY_URL:-}
+      - RUNNER_TOKEN=${RUNNER_TOKEN:-}
       - RUNNER_NAME=${RUNNER_NAME:-runner-aio}
       - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64}
       - RUNNER_WORKDIR=${RUNNER_WORKDIR:-_work}
