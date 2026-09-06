@@ -4,7 +4,7 @@
 # Stage 1: Downloader
 # Download and verify actions-runner, act_runner, and forgejo-runner binaries
 # ------------------------------------------------------------------------------
-FROM ubuntu:22.04 AS downloader
+FROM ubuntu:24.04 AS downloader
 
 # Prevent interactive prompts during apt package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETARCH
-ARG GH_RUNNER_VERSION=2.322.0
+ARG GH_RUNNER_VERSION=2.337.0
 ARG ACT_RUNNER_VERSION=0.2.11
 ARG FORGEJO_RUNNER_VERSION=6.2.2
 
@@ -30,14 +30,14 @@ WORKDIR /build
 RUN set -ex; \
     if [ "${TARGETARCH}" = "amd64" ] || [ -z "${TARGETARCH}" ]; then \
         GH_ARCH="x64"; \
-        GH_SHA256="b13b784808359f31bc79b08a191f5f83757852957dd8fe3dbfcc38202ccf5768"; \
+        GH_SHA256="70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"; \
         GITEA_ARCH="amd64"; \
         GITEA_SHA256="7a5e833793286bbfd9b59ce682bd41fc3f1c096bae1bb2a09b66ab2f6dacf90c"; \
         FORGEJO_ARCH="amd64"; \
         FORGEJO_SHA256="b35e79d1bbe71df51eaef2e5b436572c77258bc5d271992fd786f6148294637f"; \
     elif [ "${TARGETARCH}" = "arm64" ]; then \
         GH_ARCH="arm64"; \
-        GH_SHA256="a96b0cec7b0237ca5e4210982368c6f7d8c2ab1e5f6b2604c1ccede9cedcb143"; \
+        GH_SHA256="9b1dc70626422526e3c94767cf024896beb15da5342a3f4819bf2feac13e0393"; \
         GITEA_ARCH="arm64"; \
         GITEA_SHA256="32207183f1fb6f28d0df1532fe326c2e4571a5fbd3d088f72f5e5593ae86bfc2"; \
         FORGEJO_ARCH="arm64"; \
@@ -63,7 +63,7 @@ RUN set -ex; \
 # ------------------------------------------------------------------------------
 # Stage 2: Final Runtime Image
 # ------------------------------------------------------------------------------
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 # Prevent interactive prompts during apt package configuration
 ENV DEBIAN_FRONTEND=noninteractive
