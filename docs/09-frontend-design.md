@@ -129,17 +129,17 @@ The authenticated layout (`_authenticated.tsx`) consists of a fixed sidebar navi
 
 ### 4.1 Page 1: 5-Step Onboarding Wizard (`/onboarding`)
 
-**Goal**: Seamless zero-config first boot initialization (OQ #15, docs/01 §2.1).
+**Goal**: Seamless zero-config first boot initialization (OQ #15, OQ #32, docs/01 §2.1). **Step 1 (Admin Setup) is strictly mandatory** to secure the daemon; all subsequent steps (2–5) are **optional** and can be skipped individually or bypassed entirely via a top-level **"Skip to Dashboard"** shortcut.
 
 ```text
 +---------------------------------------------------------------------------------------+
-|                                    RUNNERO SUPERVISOR                                  |
+|                                    RUNNERO SUPERVISOR           [ Skip to Dashboard ] |
 |                                Initial System Onboarding                               |
 |                                                                                       |
 |   (1) Admin Setup  -->  (2) Git Auth  -->  (3) Constraints  -->  (4) Initial Pool  -->  (5) Review
 +---------------------------------------------------------------------------------------+
 |                                                                                       |
-|   Step 1 of 5: Create Master Administrator                                            |
+|   Step 1 of 5: Create Master Administrator (Mandatory)                                 |
 |   Set the primary administrative credentials for your supervisor instance.             |
 |                                                                                       |
 |   +-------------------------------------------------------------------------------+   |
@@ -160,30 +160,44 @@ The authenticated layout (`_authenticated.tsx`) consists of a fixed sidebar navi
 ```
 
 #### Step Details:
-1. **Step 1: Admin Setup**
+1. **Step 1: Admin Setup (Mandatory)**
    - Calls `AuthService.SetupAdmin(username, password)`.
    - On success, automatically establishes session cookie.
-2. **Step 2: Git Provider Auth Profile**
+   - Unlocks the subsequent optional steps and exposes the top-right `[ Skip to Dashboard ]` action.
+2. **Step 2: Git Provider Auth Profile (Optional)**
    - Options: `GitHub App (Recommended)`, `GitHub PAT`, `Gitea PAT`, `Forgejo PAT`.
    - Inputs: Name, App ID, Installation ID, Private Key PEM upload, or Personal Access Token.
    - Action: `[ Test Connection ]` button verifies upstream credentials via `ValidateCredentials`.
-   - Calls `AuthProfileService.CreateAuthProfile`.
-3. **Step 3: Global Scaling Constraints**
+   - Skip Actions:
+     - `[ Skip Step -> ]`: Advances to Step 3 without persisting an auth profile.
+     - `[ Skip to Dashboard ]`: Invokes `OnboardingService.CompleteOnboarding` and navigates directly to `/`.
+   - Calls `AuthProfileService.CreateAuthProfile` if submitted.
+3. **Step 3: Global Scaling Constraints (Optional)**
    - Configures system-wide safeguards:
      - `total_allowed_runners`: Max concurrency across all pools (Default: `20`).
      - `total_idle_warm_pool`: Idle reserve ceiling (Default: `5`).
      - `shutdown_timeout_seconds`: Graceful termination deadline (Default: `300`).
      - `job_retention_days`: History pruning age (Default: `30`).
-   - Calls `OnboardingService.SetAppSetting` for each constraint.
-4. **Step 4: Initial Runner Pool Setup**
+   - Defaults are pre-seeded in SQLite; operators can click `[ Use Defaults & Next -> ]` or `[ Skip Step -> ]` to advance to Step 4 without changing values.
+   - Calls `OnboardingService.SetAppSetting` for customized constraints.
+4. **Step 4: Initial Runner Pool Setup (Optional)**
    - Inputs: Pool Name, Repository/Org URL, Scope (`repo`, `org`), Labels (comma-separated), Runner Image.
    - Resource Quotas: CPU Limit (e.g. `2.0`), Memory Limit (e.g. `4GB`).
    - Concurrency: `min_idle_runners` (Default: `1`), `max_concurrency` (Default: `5`).
    - Provider Enforcement: If provider is Gitea or Forgejo, `Allow Docker (dind/host)` toggle is locked to **Enabled** (`true`) per docs/05 §4.
-   - Calls `PoolService.CreatePool`.
-5. **Step 5: Review & Confirm Launch**
-   - Displays summary card of all settings.
-   - Action: `[ Confirm & Start Supervisor ]` -> redirects to `/` and triggers reconciler convergence.
+   - **Prerequisite Awareness**: If Step 2 was skipped, an informational banner indicates that a Git Provider Auth Profile must be connected before runner pools can be provisioned, providing a clear `[ Skip Pool Setup -> ]` action.
+   - Skip Actions: `[ Skip Step -> ]` advances to Step 5; `[ Skip to Dashboard ]` completes onboarding immediately.
+   - Calls `PoolService.CreatePool` if configured.
+5. **Step 5: Review & Confirm Launch (Optional)**
+   - Displays summary cards for each section:
+     - Configured items display their chosen parameters.
+     - Skipped items clearly indicate default state (e.g. *"Git Provider: Skipped — add anytime from Profiles"*, *"Initial Pool: None — add anytime from Pools page"*).
+   - Actions:
+     - `[ Complete Setup & Launch ]` (when pool is configured) or `[ Finish Setup & Go to Dashboard ]`:
+       1. Invokes `OnboardingService.CompleteOnboarding` RPC to set `onboarding_completed: "true"` and record audit log.
+       2. If a pool was defined, triggers reconciler loop for dynamic provisioning.
+       3. Navigates to `/` (Dashboard).
+   - Route guards on `_authenticated` layout honor `setup_complete: true`, directing the user into the main navigation shell. Zero-pool states in `/` and `/pools` display friendly empty-state cards guiding the user to connect a profile and create a pool.
 
 ---
 
