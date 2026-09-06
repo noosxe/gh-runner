@@ -38,7 +38,7 @@ const (
 
 // Default values for the supervisor environment contract (docs/open-questions.md #3).
 const (
-	DefaultPort                 = 8080
+	DefaultPort                 = 8090
 	DefaultLogLevel             = "info"
 	DefaultDataDir              = "/data"
 	DefaultDBFileName           = "supervisor.db"

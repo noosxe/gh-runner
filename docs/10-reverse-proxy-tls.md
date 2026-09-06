@@ -6,7 +6,7 @@ This document provides production deployment architectures, operational configur
 
 ## 1. Architectural Overview & Trust Boundary
 
-As resolved in [docs/open-questions.md](open-questions.md#question-25-tls-termination-for-web-ui), the supervisor daemon **listens on plain HTTP only** (`0.0.0.0:8080` by default). It does not contain an embedded ACME client or generate self-signed certificates.
+As resolved in [docs/open-questions.md](open-questions.md#question-25-tls-termination-for-web-ui), the supervisor daemon **listens on plain HTTP only** (`0.0.0.0:8090` by default). It does not contain an embedded ACME client or generate self-signed certificates.
 
 All TLS termination, public port binding (`80`/`443`), automated certificate renewal (via Let's Encrypt or ZeroSSL), and HTTP-to-HTTPS redirection are delegated to an external, hardened reverse proxy such as **Caddy** or **Traefik**.
 
@@ -21,7 +21,7 @@ graph LR
     end
 
     subgraph Internal Isolated Network [ghrs-net]
-        Supervisor[gh-runner Supervisor<br/>Plain HTTP :8080<br/>SUPERVISOR_SECURE_COOKIE=true]
+        Supervisor[gh-runner Supervisor<br/>Plain HTTP :8090<br/>SUPERVISOR_SECURE_COOKIE=true]
         DB[(SQLite DB)]
     end
 
@@ -76,7 +76,7 @@ Terminating TLS at the reverse proxy automatically enables **HTTP/2** (and **HTT
 The supervisor manages administrator authentication sessions using an `HttpOnly` cookie named `ghrs_session` that carries an encrypted and cryptographically signed JWT.
 
 ### Configuration Contract
-By default, the supervisor omits the `Secure` cookie attribute (`SUPERVISOR_SECURE_COOKIE=false`) to ensure local development environments operating over `http://localhost:8080` function without browser rejection.
+By default, the supervisor omits the `Secure` cookie attribute (`SUPERVISOR_SECURE_COOKIE=false`) to ensure local development environments operating over `http://localhost:8090` function without browser rejection.
 
 When deployed in production behind a TLS reverse proxy, operators **must** enable secure cookies:
 
@@ -131,7 +131,7 @@ Ready-to-use configuration files are provided in `deploy/reverse-proxy/caddy/`.
     }
 
     # Reverse proxy upstream to the gh-runner supervisor container
-    reverse_proxy supervisor:8080 {
+    reverse_proxy supervisor:8090 {
         # CRITICAL: Disable response buffering for ConnectRPC server-streaming RPCs
         # (StreamRunnerLogs, WatchDashboard, WatchPools, WatchRunners).
         # Without this, streaming events are delayed in 4KB/16KB buffers.
@@ -179,7 +179,7 @@ services:
       # Required: 32+ byte encryption key for database and derived JWT secret
       - SUPERVISOR_DB_ENCRYPTION_KEY=${SUPERVISOR_DB_ENCRYPTION_KEY}
       # Listen port inside container network
-      - SUPERVISOR_PORT=8080
+      - SUPERVISOR_PORT=8090
       # Enable Secure attribute on session cookies when behind TLS reverse proxy
       - SUPERVISOR_SECURE_COOKIE=true
       - SUPERVISOR_DATA_DIR=/data
@@ -189,9 +189,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - ghrs-net
-    # Port 8080 is exposed to internal network only, never published to host
+    # Port 8090 is exposed to internal network only, never published to host
     expose:
-      - "8080"
+      - "8090"
 
 volumes:
   caddy_data:
@@ -261,7 +261,7 @@ services:
     restart: unless-stopped
     environment:
       - SUPERVISOR_DB_ENCRYPTION_KEY=${SUPERVISOR_DB_ENCRYPTION_KEY}
-      - SUPERVISOR_PORT=8080
+      - SUPERVISOR_PORT=8090
       - SUPERVISOR_SECURE_COOKIE=true
       - SUPERVISOR_DATA_DIR=/data
       - SUPERVISOR_DOCKER_HOST=unix:///var/run/docker.sock
@@ -278,7 +278,7 @@ services:
       - "traefik.http.routers.supervisor.tls.certresolver=letsencrypt"
       - "traefik.http.routers.supervisor.middlewares=supervisor-headers"
       # Upstream service port
-      - "traefik.http.services.supervisor.loadbalancer.server.port=8080"
+      - "traefik.http.services.supervisor.loadbalancer.server.port=8090"
       # CRITICAL: Disable response buffering for ConnectRPC server streams
       # (StreamRunnerLogs, WatchDashboard, WatchPools, WatchRunners).
       # flushInterval=-1 ensures immediate chunk flushing.
@@ -339,7 +339,7 @@ server {
     add_header X-Frame-Options "DENY" always;
 
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:8090;
         proxy_http_version 1.1;
 
         # Standard header forwarding

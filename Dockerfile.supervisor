@@ -99,7 +99,7 @@ RUN chmod +x /etc/s6-overlay/s6-rc.d/supervisor/run /etc/s6-overlay/s6-rc.d/supe
 VOLUME ["/data"]
 
 # Default supervisor HTTP port
-EXPOSE 8080
+EXPOSE 8090
 
 # Configure s6-overlay environment
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
