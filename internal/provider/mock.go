@@ -16,6 +16,15 @@ type MockProvider struct {
 	GetRenovateTokenFn    func(ctx context.Context, targetURL string) (string, error)
 	DiscoverOrganizationsFn func(ctx context.Context) ([]DiscoveredTarget, error)
 	DiscoverRepositoriesFn  func(ctx context.Context) ([]DiscoveredTarget, error)
+	GetAppMetadataFn        func(ctx context.Context) (string, []AppInstallation, error)
+}
+
+// GetAppMetadata delegates to GetAppMetadataFn if set, otherwise returns empty.
+func (m *MockProvider) GetAppMetadata(ctx context.Context) (string, []AppInstallation, error) {
+	if m.GetAppMetadataFn != nil {
+		return m.GetAppMetadataFn(ctx)
+	}
+	return "", nil, nil
 }
 
 // DiscoverOrganizations delegates to DiscoverOrganizationsFn if set, otherwise returns nil.
@@ -85,8 +94,9 @@ func (m *MockProvider) GetRenovateToken(ctx context.Context, targetURL string) (
 var _ GitProvider = (*MockProvider)(nil)
 var _ RunnerDeregistrar = (*MockProvider)(nil)
 var _ RenovateTokenProvider = (*MockProvider)(nil)
+var _ AppMetadataProvider = (*MockProvider)(nil)
 
-// MockGitProvider is a testify/mock implementation of GitProvider, RunnerDeregistrar, and RenovateTokenProvider.
+// MockGitProvider is a testify/mock implementation of GitProvider, RunnerDeregistrar, RenovateTokenProvider, and AppMetadataProvider.
 type MockGitProvider struct {
 	mock.Mock
 }
@@ -142,6 +152,16 @@ func (m *MockGitProvider) DiscoverRepositories(ctx context.Context) ([]Discovere
 	return args.Get(0).([]DiscoveredTarget), args.Error(1)
 }
 
+func (m *MockGitProvider) GetAppMetadata(ctx context.Context) (string, []AppInstallation, error) {
+	args := m.Called(ctx)
+	installURL := args.String(0)
+	if args.Get(1) == nil {
+		return installURL, nil, args.Error(2)
+	}
+	return installURL, args.Get(1).([]AppInstallation), args.Error(2)
+}
+
 var _ GitProvider = (*MockGitProvider)(nil)
 var _ RunnerDeregistrar = (*MockGitProvider)(nil)
 var _ RenovateTokenProvider = (*MockGitProvider)(nil)
+var _ AppMetadataProvider = (*MockGitProvider)(nil)

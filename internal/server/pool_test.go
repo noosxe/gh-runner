@@ -654,32 +654,46 @@ func TestPoolServiceDiscoverTargets(t *testing.T) {
 		t.Fatalf("CreateEncryptedAuthProfile failed: %v", err)
 	}
 
-	poolSvc := server.NewPoolService(database, nil, nil, server.WithDiscoverer(func(ctx context.Context, p db.DecryptedAuthProfile, scope string) ([]provider.DiscoveredTarget, error) {
+	poolSvc := server.NewPoolService(database, nil, nil, server.WithDiscoverer(func(ctx context.Context, p db.DecryptedAuthProfile, scope string) (*server.DiscoveryResult, error) {
 		if scope == "org" {
-			return []provider.DiscoveredTarget{
-				{
-					Name:        "acme-org",
-					FullName:    "acme-org",
-					HTMLURL:     "https://github.com/acme-org",
-					Description: "Acme Corp Org",
-					AvatarURL:   "https://avatars.example.com/acme",
+			return &server.DiscoveryResult{
+				Targets: []provider.DiscoveredTarget{
+					{
+						Name:        "acme-org",
+						FullName:    "acme-org",
+						HTMLURL:     "https://github.com/acme-org",
+						Description: "Acme Corp Org",
+						AvatarURL:   "https://avatars.example.com/acme",
+					},
 				},
 			}, nil
 		}
-		return []provider.DiscoveredTarget{
-			{
-				Name:        "repo-alpha",
-				FullName:    "acme-org/repo-alpha",
-				HTMLURL:     "https://github.com/acme-org/repo-alpha",
-				Description: "First repo",
-				IsPrivate:   true,
+		return &server.DiscoveryResult{
+			InstallURL: "https://github.com/apps/test-app/installations/new",
+			Installations: []provider.AppInstallation{
+				{
+					ID:                  101,
+					AccountLogin:        "acme-org",
+					AccountType:         "Organization",
+					HTMLURL:             "https://github.com/organizations/acme-org/settings/installations/101",
+					RepositorySelection: "selected",
+				},
 			},
-			{
-				Name:        "repo-beta",
-				FullName:    "acme-org/repo-beta",
-				HTMLURL:     "https://github.com/acme-org/repo-beta",
-				Description: "Second repo",
-				IsPrivate:   false,
+			Targets: []provider.DiscoveredTarget{
+				{
+					Name:        "repo-alpha",
+					FullName:    "acme-org/repo-alpha",
+					HTMLURL:     "https://github.com/acme-org/repo-alpha",
+					Description: "First repo",
+					IsPrivate:   true,
+				},
+				{
+					Name:        "repo-beta",
+					FullName:    "acme-org/repo-beta",
+					HTMLURL:     "https://github.com/acme-org/repo-beta",
+					Description: "Second repo",
+					IsPrivate:   false,
+				},
 			},
 		}, nil
 	}))
@@ -753,6 +767,12 @@ func TestPoolServiceDiscoverTargets(t *testing.T) {
 	}
 	if repoRes.Msg.Targets[1].Name != "repo-beta" || repoRes.Msg.Targets[1].IsPrivate {
 		t.Errorf("unexpected repo target 1: %+v", repoRes.Msg.Targets[1])
+	}
+	if repoRes.Msg.InstallUrl != "https://github.com/apps/test-app/installations/new" {
+		t.Errorf("unexpected install_url: %s", repoRes.Msg.InstallUrl)
+	}
+	if len(repoRes.Msg.Installations) != 1 || repoRes.Msg.Installations[0].AccountLogin != "acme-org" {
+		t.Errorf("unexpected installations: %+v", repoRes.Msg.Installations)
 	}
 
 	// 4. Discover Organizations

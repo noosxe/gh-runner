@@ -48,6 +48,8 @@ type Client struct {
 
 	mu         sync.Mutex
 	tokenCache map[string]cachedToken
+	appSlug    string
+	appHTMLURL string
 }
 
 // ClientOption configures a GitHub Client.
@@ -328,6 +330,115 @@ func (c *Client) getInstallationTokenByID(ctx context.Context, installationID in
 		return "", err
 	}
 	return res.Token, nil
+}
+
+var _ provider.AppMetadataProvider = (*Client)(nil)
+
+// GetAppMetadata returns the app's install URL and active installations list.
+func (c *Client) GetAppMetadata(ctx context.Context) (string, []provider.AppInstallation, error) {
+	if c.authMethod != provider.AuthMethodGitHubApp {
+		return "", nil, nil
+	}
+
+	c.mu.Lock()
+	slug := c.appSlug
+	c.mu.Unlock()
+
+	jwt, err := GenerateAppJWT(c.appID, c.privateKey, time.Now())
+	if err != nil {
+		return "", nil, fmt.Errorf("generating app JWT: %w", err)
+	}
+
+	if slug == "" {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/app", nil)
+		if err != nil {
+			return "", nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+jwt)
+		c.setCommonHeaders(req)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return "", nil, fmt.Errorf("fetching app metadata: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode == http.StatusOK {
+			var appData struct {
+				Slug    string `json:"slug"`
+				HTMLURL string `json:"html_url"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&appData); err == nil {
+				slug = appData.Slug
+				c.mu.Lock()
+				c.appSlug = appData.Slug
+				c.appHTMLURL = appData.HTMLURL
+				c.mu.Unlock()
+			}
+		}
+	}
+
+	installURL := ""
+	if slug != "" {
+		webBase := "https://github.com"
+		if !strings.Contains(c.baseURL, "api.github.com") {
+			webBase = strings.TrimSuffix(c.baseURL, "/api/v3")
+		}
+		installURL = fmt.Sprintf("%s/apps/%s/installations/new", webBase, slug)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/app/installations?per_page=100", nil)
+	if err != nil {
+		return installURL, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	c.setCommonHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return installURL, nil, fmt.Errorf("listing app installations: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return installURL, nil, fmt.Errorf("listing app installations (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var rawInstallations []struct {
+		ID                  int64  `json:"id"`
+		HTMLURL             string `json:"html_url"`
+		RepositorySelection string `json:"repository_selection"`
+		Account             struct {
+			Login   string `json:"login"`
+			Type    string `json:"type"`
+			HTMLURL string `json:"html_url"`
+		} `json:"account"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rawInstallations); err != nil {
+		return installURL, nil, fmt.Errorf("decoding installations: %w", err)
+	}
+
+	installations := make([]provider.AppInstallation, 0, len(rawInstallations))
+	for _, inst := range rawInstallations {
+		htmlURL := inst.HTMLURL
+		if htmlURL == "" {
+			if inst.Account.Type == "Organization" {
+				htmlURL = fmt.Sprintf("https://github.com/organizations/%s/settings/installations/%d", inst.Account.Login, inst.ID)
+			} else {
+				htmlURL = fmt.Sprintf("https://github.com/settings/installations/%d", inst.ID)
+			}
+		}
+		installations = append(installations, provider.AppInstallation{
+			ID:                  inst.ID,
+			AccountLogin:        inst.Account.Login,
+			AccountType:         inst.Account.Type,
+			HTMLURL:             htmlURL,
+			RepositorySelection: inst.RepositorySelection,
+		})
+	}
+
+	return installURL, installations, nil
 }
 
 // DiscoverOrganizations queries organizations accessible to the configured credentials.

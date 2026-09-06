@@ -11,6 +11,7 @@ import (
 	"github.com/noosxe/gh-runner/internal/db"
 	supervisorv1 "github.com/noosxe/gh-runner/internal/pb/supervisor/v1"
 	"github.com/noosxe/gh-runner/internal/pb/supervisor/v1/supervisorv1connect"
+	"github.com/noosxe/gh-runner/internal/provider"
 )
 
 // AuthProfileDatabase defines the database queries required by AuthProfileService.
@@ -57,6 +58,31 @@ func toAuthProfileProto(p db.AuthProfile) *supervisorv1.AuthProfile {
 	}
 }
 
+func (s *AuthProfileService) populateAppMetadata(ctx context.Context, proto *supervisorv1.AuthProfile, p db.AuthProfile) {
+	if p.AuthMethod != "github_app" || len(s.encryptionKey) == 0 || !p.PrivateKeyEncrypted.Valid || !p.AppID.Valid {
+		return
+	}
+	privKey, err := db.Decrypt(s.encryptionKey, p.PrivateKeyEncrypted.String)
+	if err != nil {
+		return
+	}
+	decProfile := db.DecryptedAuthProfile{
+		AuthProfile: p,
+		PrivateKey:  privKey,
+	}
+	prov, err := provider.DefaultRegistry.Build(ctx, decProfile)
+	if err != nil {
+		return
+	}
+	if metaProv, ok := prov.(provider.AppMetadataProvider); ok {
+		installURL, insts, err := metaProv.GetAppMetadata(ctx)
+		if err == nil {
+			proto.InstallUrl = installURL
+			proto.InstallationsCount = int32(len(insts))
+		}
+	}
+}
+
 func validateCreateAuthProfileRequest(req *supervisorv1.CreateAuthProfileRequest) error {
 	if req == nil {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("request payload is required"))
@@ -97,7 +123,9 @@ func (s *AuthProfileService) ListAuthProfiles(ctx context.Context, _ *connect.Re
 		Profiles: make([]*supervisorv1.AuthProfile, 0, len(profiles)),
 	}
 	for _, p := range profiles {
-		resp.Profiles = append(resp.Profiles, toAuthProfileProto(p))
+		proto := toAuthProfileProto(p)
+		s.populateAppMetadata(ctx, proto, p)
+		resp.Profiles = append(resp.Profiles, proto)
 	}
 
 	return connect.NewResponse(resp), nil
@@ -160,8 +188,10 @@ func (s *AuthProfileService) CreateAuthProfile(ctx context.Context, req *connect
 		"auth_method": created.AuthMethod,
 	})
 
+	resProto := toAuthProfileProto(created)
+	s.populateAppMetadata(ctx, resProto, created)
 	return connect.NewResponse(&supervisorv1.CreateAuthProfileResponse{
-		Profile: toAuthProfileProto(created),
+		Profile: resProto,
 	}), nil
 }
 

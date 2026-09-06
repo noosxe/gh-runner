@@ -80,3 +80,18 @@ type RunnerDeregistrar interface {
 	// DeregisterRunner removes a registered runner from the Git provider via its API to prevent ghost runners.
 	DeregisterRunner(ctx context.Context, scope RegistrationScope, targetURL, runnerName string) error
 }
+
+// AppInstallation represents an installation of a Git App (e.g. GitHub App) on an account.
+type AppInstallation struct {
+	ID                  int64  `json:"id"`
+	AccountLogin        string `json:"account_login"`
+	AccountType         string `json:"account_type"`
+	HTMLURL             string `json:"html_url"`
+	RepositorySelection string `json:"repository_selection"`
+}
+
+// AppMetadataProvider is optionally implemented by GitProviders that support native App installation deep links and installations.
+type AppMetadataProvider interface {
+	// GetAppMetadata returns the app's install URL and existing installations list.
+	GetAppMetadata(ctx context.Context) (installURL string, installations []AppInstallation, err error)
+}

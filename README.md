@@ -27,6 +27,7 @@ A lightweight, secure, and self-contained self-hosted runner and orchestrator st
 - **Modular Moby Engine SDK (M16):** Decoupled container orchestration engine utilizing `github.com/moby/moby/client` and `github.com/moby/moby/api`, eliminating monolithic Docker daemon transitive dependencies, removing legacy `replace` directives, and resolving upstream daemon CVE alerts.
 - **Playwright End-to-End (E2E) Testing Suite (M17):** Hermetic, containerized Playwright test harness testing all human-usable web supervisor flows (authentication, onboarding wizard, pools management, streaming logs, Renovate, and maintenance) with local mock Git provider and Docker engine servers. Manual/local trigger only via `make test-e2e`.
 - **Multi-Target Runner Pools & Upstream Discovery Wizard (M18):** 4-step guided creation wizard with automatic repository and organization target discovery across GitHub (App & PAT), Gitea, and Forgejo profiles. Enables a single runner pool to dynamically serve multiple repositories or organizations under unified concurrency quotas and round-robin warm standby provisioning, with strict scope homogeneity enforcement.
+- **GitHub App Installation & Access Scope Management Flow (M19):** Seamless deep-linking to GitHub App installation and configuration pages (`/installations/new`), guided setup prompts in the pool creation wizard and auth profiles, live repository and organization scope adjustments via "Manage Access in GitHub", installation status badges ("Installed on N accounts" vs "Not Installed"), and automatic discovery refetching on window focus when returning to the supervisor dashboard.
 - **Comprehensive Automated Test Suites:** Extensive test coverage across Go unit, race detection (`go test -race`), and testify test suites (`mockery`-backed Docker and GitProvider clients), runner script test harnesses, and 20+ frontend Vitest test suites.
 
 ---
@@ -142,6 +143,9 @@ Click **Create GitHub App**.
    - **GitHub App ID:** Numeric App ID copied from Step 4.
    - **Private Key (.pem):** Paste the full contents of the downloaded `.pem` file (including `-----BEGIN RSA PRIVATE KEY-----` and `-----END RSA PRIVATE KEY-----`).
 4. Click **Save Profile**.
+
+> [!TIP]
+> **Guided Installation & Scope Management:** If you haven't installed the app yet or need to grant access to additional repositories, `gh-runner` automatically detects this and displays a direct **Install GitHub App on Your Account ↗** button. In the Pool Creation Wizard, you can click **Manage Access in GitHub ↗** to adjust repository permissions at any time — returning to `gh-runner` automatically refreshes the available target repositories on window focus.
 
 ---
 
@@ -322,7 +326,6 @@ For comprehensive pipeline architecture, gatekeeper filtering rules, and cross-s
 
 ## 🗺️ Roadmap & Future Enhancements
 
-- **GitHub App Installation & Access Scope Management Flow:** *[Design Phase]* Deep-linking to GitHub's App installation and configuration pages (`/installations/new`), guided setup prompts in pool wizard and auth profiles, live repository/organization scope adjustments, and auto-refresh on window focus.
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.

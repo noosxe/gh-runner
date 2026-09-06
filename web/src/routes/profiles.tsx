@@ -4,7 +4,16 @@ import {
   useCreateAuthProfile,
   useDeleteAuthProfile,
 } from "../lib/api/query-hooks";
-import { KeyRound, ShieldCheck, Plus, Trash2, X, AlertCircle } from "lucide-react";
+import {
+  KeyRound,
+  ShieldCheck,
+  Plus,
+  Trash2,
+  X,
+  AlertCircle,
+  ExternalLink,
+  CheckCircle2,
+} from "lucide-react";
 
 export function ProfilesPage() {
   const { data: profiles, isLoading } = useAuthProfiles();
@@ -154,13 +163,51 @@ export function ProfilesPage() {
                     {prof.authMethod}
                   </span>
                 </div>
-                <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                  <ShieldCheck className="h-4 w-4 text-emerald-500" />
-                  <span>Encrypted AES-256 (Write-Only)</span>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                    <span>Encrypted AES-256 (Write-Only)</span>
+                  </div>
+
+                  {prof.authMethod === "github_app" &&
+                    (prof.installationsCount > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
+                        <CheckCircle2 className="h-3 w-3" />
+                        <span>
+                          Installed on {prof.installationsCount}{" "}
+                          {prof.installationsCount === 1 ? "account" : "accounts"}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
+                        <AlertCircle className="h-3 w-3" />
+                        <span>Not Installed</span>
+                      </span>
+                    ))}
                 </div>
               </div>
 
-              <div className="mt-5 flex justify-end border-t border-slate-100 pt-3 dark:border-slate-800">
+              <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-800">
+                <div>
+                  {prof.authMethod === "github_app" && prof.installUrl && (
+                    <a
+                      href={prof.installUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`inline-flex items-center gap-1 text-xs font-semibold ${
+                        prof.installationsCount === 0
+                          ? "text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                          : "text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                      }`}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span>
+                        {prof.installationsCount === 0 ? "Install App" : "Configure Access"}
+                      </span>
+                    </a>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   onClick={() => handleDelete(prof.id, prof.name)}

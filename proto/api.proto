@@ -195,8 +195,18 @@ message DiscoveredTarget {
   string avatar_url = 6;
 }
 
+message AppInstallation {
+  int64 id = 1;
+  string account_login = 2;
+  string account_type = 3;  // "User" or "Organization"
+  string html_url = 4;      // Direct configuration URL on GitHub
+  string repository_selection = 5; // "all" or "selected"
+}
+
 message DiscoverTargetsResponse {
   repeated DiscoveredTarget targets = 1;
+  string install_url = 2;
+  repeated AppInstallation installations = 3;
 }
 
 // ----------------------------------------
@@ -216,6 +226,8 @@ message AuthProfile {
   int64 app_id = 4;               // GitHub App only
   bool has_private_key = 5;       // Read-only indicator (never exposes raw key)
   bool has_token = 6;             // Read-only indicator (never exposes raw token)
+  string install_url = 7;
+  int32 installations_count = 8;
 }
 
 message ListAuthProfilesRequest {}

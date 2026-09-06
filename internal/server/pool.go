@@ -62,7 +62,14 @@ type RunnerManager interface {
 }
 
 // TargetDiscovererFunc queries available repositories or organizations using a decrypted profile.
-type TargetDiscovererFunc func(ctx context.Context, profile db.DecryptedAuthProfile, scope string) ([]provider.DiscoveredTarget, error)
+// DiscoveryResult encapsulates discovered targets along with optional app installation metadata.
+type DiscoveryResult struct {
+	Targets       []provider.DiscoveredTarget
+	InstallURL    string
+	Installations []provider.AppInstallation
+}
+
+type TargetDiscovererFunc func(ctx context.Context, profile db.DecryptedAuthProfile, scope string) (*DiscoveryResult, error)
 
 // PoolServiceOption configures a PoolService instance.
 type PoolServiceOption func(*PoolService)
@@ -662,15 +669,34 @@ func (s *PoolService) getRunnerInstances(p db.RunnerPool) []*supervisorv1.Runner
 	return res
 }
 
-func defaultDiscover(ctx context.Context, profile db.DecryptedAuthProfile, scope string) ([]provider.DiscoveredTarget, error) {
+func defaultDiscover(ctx context.Context, profile db.DecryptedAuthProfile, scope string) (*DiscoveryResult, error) {
 	prov, err := provider.DefaultRegistry.Build(ctx, profile)
 	if err != nil {
 		return nil, fmt.Errorf("building provider client: %w", err)
 	}
+	var targets []provider.DiscoveredTarget
 	if scope == "org" {
-		return prov.DiscoverOrganizations(ctx)
+		targets, err = prov.DiscoverOrganizations(ctx)
+	} else {
+		targets, err = prov.DiscoverRepositories(ctx)
 	}
-	return prov.DiscoverRepositories(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &DiscoveryResult{
+		Targets: targets,
+	}
+
+	if metaProv, ok := prov.(provider.AppMetadataProvider); ok {
+		installURL, insts, err := metaProv.GetAppMetadata(ctx)
+		if err == nil {
+			result.InstallURL = installURL
+			result.Installations = insts
+		}
+	}
+
+	return result, nil
 }
 
 // DiscoverTargets queries accessible repositories or organizations using an auth profile.
@@ -702,13 +728,13 @@ func (s *PoolService) DiscoverTargets(ctx context.Context, req *connect.Request[
 		discoverFn = defaultDiscover
 	}
 
-	discovered, err := discoverFn(ctx, *profile, scope)
+	result, err := discoverFn(ctx, *profile, scope)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("discovering %s targets: %w", scope, err))
 	}
 
-	protoTargets := make([]*supervisorv1.DiscoveredTarget, 0, len(discovered))
-	for _, t := range discovered {
+	protoTargets := make([]*supervisorv1.DiscoveredTarget, 0, len(result.Targets))
+	for _, t := range result.Targets {
 		protoTargets = append(protoTargets, &supervisorv1.DiscoveredTarget{
 			Name:        t.Name,
 			FullName:    t.FullName,
@@ -719,7 +745,20 @@ func (s *PoolService) DiscoverTargets(ctx context.Context, req *connect.Request[
 		})
 	}
 
+	protoInstallations := make([]*supervisorv1.AppInstallation, 0, len(result.Installations))
+	for _, inst := range result.Installations {
+		protoInstallations = append(protoInstallations, &supervisorv1.AppInstallation{
+			Id:                  inst.ID,
+			AccountLogin:        inst.AccountLogin,
+			AccountType:         inst.AccountType,
+			HtmlUrl:             inst.HTMLURL,
+			RepositorySelection: inst.RepositorySelection,
+		})
+	}
+
 	return connect.NewResponse(&supervisorv1.DiscoverTargetsResponse{
-		Targets: protoTargets,
+		Targets:       protoTargets,
+		InstallUrl:    result.InstallURL,
+		Installations: protoInstallations,
 	}), nil
 }
