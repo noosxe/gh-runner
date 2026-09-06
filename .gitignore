@@ -29,5 +29,7 @@ bin/
 node_modules/
 .pnpm-store/
 *.tsbuildinfo
+/web/dist/
+
 
 

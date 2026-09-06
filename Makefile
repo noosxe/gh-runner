@@ -29,7 +29,7 @@ build-web:
 	cd web && pnpm run build
 
 ## build: compile all packages and produce the supervisor binary
-build:
+build: build-web
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/$(BINARY) ./cmd/$(BINARY)
 
 ## build-image-runner: build local runner-aio container image
@@ -41,11 +41,11 @@ build-image-supervisor:
 	docker build -f Dockerfile.supervisor -t gh-runner-supervisor:local .
 
 ## test: run the Go test suite
-test:
+test: build-web
 	go test $(PKG)
 
 ## test-race: run the Go test suite with data race detection (requires CGO)
-test-race:
+test-race: build-web
 	CGO_ENABLED=1 go test -race $(PKG)
 
 ## test-web: run frontend Vitest suite
@@ -65,7 +65,7 @@ test-scripts:
 	bash tests/unit/entrypoint_test.sh
 
 ## lint: static analysis via golangci-lint
-lint:
+lint: build-web
 	golangci-lint run
 
 ## fmt: format all Go sources in place
@@ -73,7 +73,7 @@ fmt:
 	gofmt -w .
 
 ## vet: lightweight static checks
-vet:
+vet: build-web
 	go vet $(PKG)
 
 ## tidy: prune and re-pin module dependencies
@@ -82,4 +82,5 @@ tidy:
 
 ## clean: remove build artifacts
 clean:
-	rm -rf bin
+	rm -rf bin web/dist
+
