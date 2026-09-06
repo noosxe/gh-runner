@@ -35,7 +35,7 @@ jobs:
       go: ${{ steps.filter.outputs.go }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Full history so paths-filter can diff against the previous push
           fetch-depth: 0
@@ -76,7 +76,7 @@ jobs:
       CGO_ENABLED: "0"
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v6
