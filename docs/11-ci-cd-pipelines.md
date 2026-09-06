@@ -176,3 +176,136 @@ When implementing or updating workflow path filters:
    - `shellcheck src/*.sh`, `bash tests/unit/entrypoint_test.sh` (matches `make test-scripts`).
 3. **Status Check Monitoring**:
    - Pull requests monitored via `gh pr checks <PR_NUMBER> --watch` report green immediately for skipped workflows without hanging.
+
+---
+
+## 7. Automated Dependency Maintenance & Dependabot Policy
+
+To maintain long-term repository health, minimize security vulnerabilities, and defend against supply-chain attacks, automated dependency updates are managed via GitHub Dependabot (`.github/dependabot.yml`).
+
+### Ecosystem Scope & Directory Mapping
+
+The repository leverages four distinct package ecosystems:
+
+| Ecosystem | Path / Directory | Manifests Monitored | Update Scope |
+| :--- | :--- | :--- | :--- |
+| `github-actions` | `/` | `.github/workflows/*.yml` | CI/CD actions (`actions/checkout`, `setup-go`, `setup-node`, `setup-buildx`, `hadolint`, etc.) |
+| `gomod` | `/` | `go.mod`, `go.sum` | Go runtime dependencies (Echo v5, ConnectRPC, SQLite, Koanf, Testify, etc.) |
+| `npm` | `/web` | `web/package.json`, `web/pnpm-lock.yaml` | Frontend UI libraries (React 19, TypeScript, TanStack Router/Query, TailwindCSS, Vitest, Oxlint) |
+| `docker` | `/` | `Dockerfile` | Container base images (`ubuntu:22.04`) |
+
+### Update Policies & Cadence
+
+1. **Weekly Execution Cadence**:
+   - All ecosystems execute on a synchronized **weekly** schedule on **Mondays at 04:00 UTC**.
+   - Scheduling updates at the start of the week provides predictable review windows and aligns dependency integration with engineering sprints.
+
+2. **Frontend Supply-Chain Defense & 1-Day Cool-Off (`cooldown`)**:
+   - **Threat Model**: The JavaScript/npm ecosystem experiences frequent supply-chain compromises, including account takeovers (ATO), malicious zero-day releases, and typo-squatted malicious payloads designed to steal CI credentials or browser sessions.
+   - **Cool-Off Window**: The `npm` ecosystem configures a mandatory **1-day cool-off period** (`cooldown.default-days: 1`). Dependabot will not propose updates for newly published npm packages until at least 24 hours have elapsed since publication.
+   - **Community Invalidation**: This 24-hour buffer gives the npm security team, vulnerability registries, and the open-source community sufficient time to detect and unpublish malicious releases before they reach our codebase.
+   - **Emergency Security Updates**: The cool-off delay applies strictly to routine version upgrades. Dependabot security updates addressing published CVEs bypass the cooldown and trigger immediately.
+
+3. **PR Grouping & Noise Control**:
+   - Minor and patch updates within `gomod` and `npm` are grouped into consolidated PRs using `groups` (`minor-and-patch`), reducing PR volume.
+   - Major version bumps remain un-grouped in dedicated single-dependency PRs to ensure isolated review and prevent breaking API regressions.
+   - Open pull request limit is capped at 10 per ecosystem (`open-pull-requests-limit: 10`).
+
+4. **Commit & PR Conventions**:
+   - Commit messages adhere to repository standards using `prefix: "ci"` and `include: "scope"`:
+     - `ci(github-actions): bump ...`
+     - `ci(gomod): bump ...`
+     - `ci(npm): bump ...`
+     - `ci(docker): bump ...`
+   - All Dependabot PRs are automatically tagged with the labels `["dependencies", "ci"]`.
+
+5. **Gatekeeper CI Synergy**:
+   - Dependabot PRs integrate cleanly with the Gatekeeper architecture (`dorny/paths-filter@v3`):
+     - An `npm` PR modifying `web/pnpm-lock.yaml` triggers only `web.yml` (Oxlint, Oxfmt, Vitest, Vite build), skipping Go and container build pipelines.
+     - A `gomod` PR modifying `go.mod` triggers only `go.yml` (cross-platform AMD64 & ARM64 Go tests + race detector).
+     - A `docker` PR triggers `lint.yml` (`hadolint`) and `build.yml` (runner multi-arch build).
+     - A `github-actions` PR triggers the respective workflow files for self-validation.
+   - This ensures rapid, cost-effective CI runs (~1–2 minutes) without blocking runner resources.
+
+### Target `.github/dependabot.yml` Specification
+
+```yaml
+version: 2
+updates:
+  # GitHub Actions workflow updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "ci"
+    open-pull-requests-limit: 10
+
+  # Go modules (Root module)
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "ci"
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Frontend Web UI (pnpm / npm ecosystem)
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Etc/UTC"
+    # Supply-chain defense: 1-day cool-off protects against 0-day malicious npm releases
+    cooldown:
+      default-days: 1
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "ci"
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Container base images (Root Dockerfile)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "ci"
+    open-pull-requests-limit: 10
+```

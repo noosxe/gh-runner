@@ -169,3 +169,12 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 > - Downstream test, lint, and build jobs specify `needs: changes` and evaluate `if: ${{ always() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || needs.changes.outputs.<subsystem> == 'true') }}`.
 > - Monitored path patterns are strictly mapped to subsystem boundaries: `cmd/**`, `internal/**`, `proto/**` for Go CI; `web/**`, `proto/**` for Web CI; `src/**`, `tests/**`, `Dockerfile*` for Lint CI.
 > - Pull requests always trigger the gatekeeper jobs and cleanly report green without hanging status checks, while release tags (`v*`) and manual dispatches run downstream builds unconditionally. Comprehensive design documented in [docs/11-ci-cd-pipelines.md](11-ci-cd-pipelines.md).
+
+## 34. Dependabot Ecosystem Configuration & Supply Chain Cool-Off Policy
+- How should Dependabot be configured across the repository's diverse ecosystems (`github-actions`, Go modules, web frontend npm/pnpm, and Dockerfiles)? What update frequencies, pull request groupings, and supply chain safeguards should be enforced?
+> **✅ Resolved**: Configure `.github/dependabot.yml` targeting four ecosystems on a synchronized weekly schedule (Mondays 04:00 UTC):
+> 1. `github-actions` (dir: `/`): Weekly updates for GitHub Actions with `ci(github-actions)` commit prefix.
+> 2. `gomod` (dir: `/`): Weekly updates for Go modules with `ci(gomod)` commit prefix and grouped minor/patch PRs.
+> 3. `npm` (dir: `/web`): Weekly updates for frontend packages with `ci(npm)` commit prefix, grouped minor/patch PRs, and an enforced **1-day supply chain cool-off** (`cooldown.default-days: 1`) to protect against zero-day npm registry compromises.
+> 4. `docker` (dir: `/`): Weekly updates for Docker base images with `ci(docker)` commit prefix.
+> All Dependabot PRs automatically integrate with our `dorny/paths-filter@v3` gatekeeper architecture, running only relevant test and build suites. See detailed design in `docs/11-ci-cd-pipelines.md` Section 7.
