@@ -318,7 +318,7 @@ Automated GitHub Actions workflows ensure continuous verification and multi-arch
 - **Web CI (`web.yml`):** Automated static analysis (`oxlint`), code formatting check (`oxfmt`), Vitest unit test suite execution, and production Vite compilation for frontend changes.
 - **Lint CI (`lint.yml`):** Runs `shellcheck` across all runner lifecycle scripts and `hadolint` across both `Dockerfile` and `Dockerfile.supervisor`.
 - **Runner Multi-Arch Release (`build.yml`):** Native AMD64 and ARM64 parallel matrix build creating and publishing multi-arch manifests for `ghcr.io/<owner>/runner-aio` upon git tag release (`v*`).
-- **Supervisor Multi-Arch Release (`supervisor-build.yml`):** Native multi-stage AMD64 and ARM64 build compiling the supervisor daemon and embedded UI into `ghcr.io/<owner>/gh-runner-supervisor` upon git tag release (`v*`).
+- **Supervisor Multi-Arch Release (`supervisor-build.yml`):** Native multi-stage AMD64 and ARM64 build compiling the supervisor daemon and embedded UI into `ghcr.io/<owner>/runnero-supervisor` upon git tag release (`v*`).
 
 For comprehensive pipeline architecture, gatekeeper filtering rules, and cross-subsystem trigger mapping, consult **[docs/11-ci-cd-pipelines.md](docs/11-ci-cd-pipelines.md)**.
 

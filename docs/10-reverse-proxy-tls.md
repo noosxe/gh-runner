@@ -172,7 +172,7 @@ services:
       - supervisor
 
   supervisor:
-    image: ghcr.io/noosxe/gh-runner-supervisor:latest
+    image: ghcr.io/noosxe/runnero-supervisor:latest
     container_name: ghrs-supervisor
     restart: unless-stopped
     environment:
@@ -256,7 +256,7 @@ services:
       - ghrs-net
 
   supervisor:
-    image: ghcr.io/noosxe/gh-runner-supervisor:latest
+    image: ghcr.io/noosxe/runnero-supervisor:latest
     container_name: ghrs-supervisor
     restart: unless-stopped
     environment:
