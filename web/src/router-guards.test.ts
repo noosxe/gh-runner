@@ -127,6 +127,23 @@ describe("Route Guards & Redirect Matrix Logic", () => {
       await expect(loginRoute.options.beforeLoad?.({} as any)).resolves.toBeUndefined();
     });
 
+    it("Admin created but onboarding incomplete and unauthenticated: allows /login without redirection", async () => {
+      vi.spyOn(onboardingClient, "getOnboardingStatus").mockResolvedValue({
+        setupComplete: false,
+        adminCreated: true,
+        authProfileExists: false,
+        poolExists: false,
+        onboardingCompleted: false,
+      } as any);
+      vi.spyOn(authClient, "getSession").mockRejectedValue(new Error("unauthenticated"));
+
+      // loginRoute beforeLoad should succeed, allowing operator to authenticate
+      await expect(loginRoute.options.beforeLoad?.({} as any)).resolves.toBeUndefined();
+
+      // onboardingRoute beforeLoad should also succeed
+      await expect(onboardingRoute.options.beforeLoad?.({} as any)).resolves.toBeUndefined();
+    });
+
     it("Initialized and authenticated: redirects /login and /onboarding to /", async () => {
       vi.spyOn(onboardingClient, "getOnboardingStatus").mockResolvedValue({
         setupComplete: true,
