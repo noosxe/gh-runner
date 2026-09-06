@@ -162,6 +162,9 @@ func TestAuthEngineFullLifecycleAndRevocation(t *testing.T) {
 	if getRes.Msg.Username != "admin" || !getRes.Msg.IsAdmin {
 		t.Errorf("unexpected GetSession response: %+v", getRes.Msg)
 	}
+	if getRes.Msg.HostArch != server.HostArch() || getRes.Msg.HostOs != server.HostOS() {
+		t.Errorf("expected host arch/os %s/%s, got %s/%s", server.HostArch(), server.HostOS(), getRes.Msg.HostArch, getRes.Msg.HostOs)
+	}
 
 	// 8. Revoked session: delete session from database, then GetSession must fail
 	if err := database.DeleteSessionByTokenHash(ctx, tokenHash); err != nil {

@@ -261,6 +261,8 @@ type GetSessionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
 	IsAdmin       bool                   `protobuf:"varint,2,opt,name=is_admin,json=isAdmin,proto3" json:"is_admin,omitempty"`
+	HostArch      string                 `protobuf:"bytes,3,opt,name=host_arch,json=hostArch,proto3" json:"host_arch,omitempty"`
+	HostOs        string                 `protobuf:"bytes,4,opt,name=host_os,json=hostOs,proto3" json:"host_os,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -307,6 +309,20 @@ func (x *GetSessionResponse) GetIsAdmin() bool {
 		return x.IsAdmin
 	}
 	return false
+}
+
+func (x *GetSessionResponse) GetHostArch() string {
+	if x != nil {
+		return x.HostArch
+	}
+	return ""
+}
+
+func (x *GetSessionResponse) GetHostOs() string {
+	if x != nil {
+		return x.HostOs
+	}
+	return ""
 }
 
 type Pool struct {
@@ -1795,6 +1811,8 @@ type GetOnboardingStatusResponse struct {
 	PoolExists          bool                   `protobuf:"varint,3,opt,name=pool_exists,json=poolExists,proto3" json:"pool_exists,omitempty"`
 	SetupComplete       bool                   `protobuf:"varint,4,opt,name=setup_complete,json=setupComplete,proto3" json:"setup_complete,omitempty"`                   // true when admin_created AND (onboarding_completed OR pool_exists)
 	OnboardingCompleted bool                   `protobuf:"varint,5,opt,name=onboarding_completed,json=onboardingCompleted,proto3" json:"onboarding_completed,omitempty"` // true if CompleteOnboarding was invoked
+	HostArch            string                 `protobuf:"bytes,6,opt,name=host_arch,json=hostArch,proto3" json:"host_arch,omitempty"`
+	HostOs              string                 `protobuf:"bytes,7,opt,name=host_os,json=hostOs,proto3" json:"host_os,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1862,6 +1880,20 @@ func (x *GetOnboardingStatusResponse) GetOnboardingCompleted() bool {
 		return x.OnboardingCompleted
 	}
 	return false
+}
+
+func (x *GetOnboardingStatusResponse) GetHostArch() string {
+	if x != nil {
+		return x.HostArch
+	}
+	return ""
+}
+
+func (x *GetOnboardingStatusResponse) GetHostOs() string {
+	if x != nil {
+		return x.HostOs
+	}
+	return ""
 }
 
 type CompleteOnboardingRequest struct {
@@ -2659,6 +2691,8 @@ type GetSystemStatsResponse struct {
 	AverageRuntimeSeconds   float64                `protobuf:"fixed64,7,opt,name=average_runtime_seconds,json=averageRuntimeSeconds,proto3" json:"average_runtime_seconds,omitempty"`
 	SuccessRatePercent      float64                `protobuf:"fixed64,8,opt,name=success_rate_percent,json=successRatePercent,proto3" json:"success_rate_percent,omitempty"`
 	QueueLatencyTrend       []*LatencyBucket       `protobuf:"bytes,9,rep,name=queue_latency_trend,json=queueLatencyTrend,proto3" json:"queue_latency_trend,omitempty"`
+	HostArch                string                 `protobuf:"bytes,10,opt,name=host_arch,json=hostArch,proto3" json:"host_arch,omitempty"`
+	HostOs                  string                 `protobuf:"bytes,11,opt,name=host_os,json=hostOs,proto3" json:"host_os,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -2754,6 +2788,20 @@ func (x *GetSystemStatsResponse) GetQueueLatencyTrend() []*LatencyBucket {
 		return x.QueueLatencyTrend
 	}
 	return nil
+}
+
+func (x *GetSystemStatsResponse) GetHostArch() string {
+	if x != nil {
+		return x.HostArch
+	}
+	return ""
+}
+
+func (x *GetSystemStatsResponse) GetHostOs() string {
+	if x != nil {
+		return x.HostOs
+	}
+	return ""
 }
 
 type WatchDashboardRequest struct {
@@ -3908,10 +3956,12 @@ const file_api_proto_rawDesc = "" +
 	"\rLoginResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\"\x13\n" +
-	"\x11GetSessionRequest\"K\n" +
+	"\x11GetSessionRequest\"\x81\x01\n" +
 	"\x12GetSessionResponse\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x19\n" +
-	"\bis_admin\x18\x02 \x01(\bR\aisAdmin\"\xb9\x05\n" +
+	"\bis_admin\x18\x02 \x01(\bR\aisAdmin\x12\x1b\n" +
+	"\thost_arch\x18\x03 \x01(\tR\bhostArch\x12\x17\n" +
+	"\ahost_os\x18\x04 \x01(\tR\x06hostOs\"\xb9\x05\n" +
 	"\x04Pool\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
@@ -4009,14 +4059,16 @@ const file_api_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\"5\n" +
 	"\x19DeleteAuthProfileResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x1c\n" +
-	"\x1aGetOnboardingStatusRequest\"\xed\x01\n" +
+	"\x1aGetOnboardingStatusRequest\"\xa3\x02\n" +
 	"\x1bGetOnboardingStatusResponse\x12#\n" +
 	"\radmin_created\x18\x01 \x01(\bR\fadminCreated\x12.\n" +
 	"\x13auth_profile_exists\x18\x02 \x01(\bR\x11authProfileExists\x12\x1f\n" +
 	"\vpool_exists\x18\x03 \x01(\bR\n" +
 	"poolExists\x12%\n" +
 	"\x0esetup_complete\x18\x04 \x01(\bR\rsetupComplete\x121\n" +
-	"\x14onboarding_completed\x18\x05 \x01(\bR\x13onboardingCompleted\"\x1b\n" +
+	"\x14onboarding_completed\x18\x05 \x01(\bR\x13onboardingCompleted\x12\x1b\n" +
+	"\thost_arch\x18\x06 \x01(\tR\bhostArch\x12\x17\n" +
+	"\ahost_os\x18\a \x01(\tR\x06hostOs\"\x1b\n" +
 	"\x19CompleteOnboardingRequest\"6\n" +
 	"\x1aCompleteOnboardingResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x17\n" +
@@ -4072,7 +4124,7 @@ const file_api_proto_rawDesc = "" +
 	"\vfailed_jobs\x18\x06 \x01(\x05R\n" +
 	"failedJobs\"@\n" +
 	"\x15GetSystemStatsRequest\x12'\n" +
-	"\x0ftimeframe_hours\x18\x01 \x01(\x05R\x0etimeframeHours\"\xeb\x03\n" +
+	"\x0ftimeframe_hours\x18\x01 \x01(\x05R\x0etimeframeHours\"\xa1\x04\n" +
 	"\x16GetSystemStatsResponse\x120\n" +
 	"\x14total_active_runners\x18\x01 \x01(\x05R\x12totalActiveRunners\x12,\n" +
 	"\x12total_idle_runners\x18\x02 \x01(\x05R\x10totalIdleRunners\x12;\n" +
@@ -4082,7 +4134,10 @@ const file_api_proto_rawDesc = "" +
 	"\x0ffailed_jobs_24h\x18\x06 \x01(\x05R\rfailedJobs24h\x126\n" +
 	"\x17average_runtime_seconds\x18\a \x01(\x01R\x15averageRuntimeSeconds\x120\n" +
 	"\x14success_rate_percent\x18\b \x01(\x01R\x12successRatePercent\x12L\n" +
-	"\x13queue_latency_trend\x18\t \x03(\v2\x1c.supervisor.v1.LatencyBucketR\x11queueLatencyTrend\"8\n" +
+	"\x13queue_latency_trend\x18\t \x03(\v2\x1c.supervisor.v1.LatencyBucketR\x11queueLatencyTrend\x12\x1b\n" +
+	"\thost_arch\x18\n" +
+	" \x01(\tR\bhostArch\x12\x17\n" +
+	"\ahost_os\x18\v \x01(\tR\x06hostOs\"8\n" +
 	"\x15WatchDashboardRequest\x12\x1f\n" +
 	"\vinterval_ms\x18\x01 \x01(\x05R\n" +
 	"intervalMs\"\xbb\x01\n" +

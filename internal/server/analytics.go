@@ -300,6 +300,8 @@ func (s *AnalyticsService) GetSystemStats(ctx context.Context, req *connect.Requ
 		AverageRuntimeSeconds:   avgRuntime,
 		SuccessRatePercent:      successRate,
 		QueueLatencyTrend:       trend,
+		HostArch:                HostArch(),
+		HostOs:                  HostOS(),
 	}), nil
 }
 

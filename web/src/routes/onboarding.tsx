@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { getSuggestedRunnerLabels } from "../lib/utils/labels";
 import {
   useOnboardingStatus,
   useSession,
@@ -81,7 +82,13 @@ export function OnboardingPage() {
   const [poolName, setPoolName] = useState("default-pool");
   const [repositoryUrl, setRepositoryUrl] = useState("https://github.com/my-org/my-repo");
   const [scope, setScope] = useState<"repo" | "org">("repo");
-  const [labels, setLabels] = useState("self-hosted,linux,arm64");
+  const suggestedLabels = getSuggestedRunnerLabels(
+    status?.hostOs || session?.hostOs,
+    status?.hostArch || session?.hostArch,
+  );
+  const [customLabels, setCustomLabels] = useState<string | null>(null);
+  const labels = customLabels ?? suggestedLabels;
+
   const [runnerImage, setRunnerImage] = useState("ghcr.io/noosxe/gh-runner:latest");
   const [minIdleRunners, setMinIdleRunners] = useState(1);
   const [maxConcurrency, setMaxConcurrency] = useState(5);
@@ -298,7 +305,8 @@ export function OnboardingPage() {
 
     try {
       if (hasPoolToLaunch) {
-        const parsedLabels = labels
+        const effectiveLabels = labels.trim() || suggestedLabels;
+        const parsedLabels = effectiveLabels
           .split(",")
           .map((l) => l.trim())
           .filter(Boolean);
@@ -312,7 +320,13 @@ export function OnboardingPage() {
             repositoryUrl: repositoryUrl.trim(),
             minIdleRunners,
             maxConcurrency,
-            labels: parsedLabels.length > 0 ? parsedLabels : ["self-hosted", "linux", "arm64"],
+            labels:
+              parsedLabels.length > 0
+                ? parsedLabels
+                : suggestedLabels
+                    .split(",")
+                    .map((l) => l.trim())
+                    .filter(Boolean),
             runnerImage: runnerImage.trim() || "ghcr.io/noosxe/gh-runner:latest",
             allowDocker: effectiveAllowDocker,
             renovate: renovateEnabled
@@ -1134,7 +1148,7 @@ export function OnboardingPage() {
                     id="runner-labels"
                     type="text"
                     value={labels}
-                    onChange={(e) => setLabels(e.target.value)}
+                    onChange={(e) => setCustomLabels(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                     required
                   />
