@@ -149,3 +149,11 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 ## 30. Real-time Dashboard Refresh Strategy
 - The dashboard displays live pool states, active runner counts, CPU/memory stats, and streaming logs. No doc specifies the data refresh mechanism: polling with TanStack Query `refetchInterval`? WebSocket/SSE push? ConnectRPC server streaming? What's the acceptable latency for pool state updates?
 > **✅ Resolved**: All real-time dashboard data (pool states, runner counts, resource usage) delivered via ConnectRPC server streaming — same pattern as `StreamRunnerLogs`. Near-realtime latency: server pushes updates as they occur. Consistent streaming pattern across the entire frontend for logs, dashboard state, and status updates.
+
+## 32. Optional Onboarding Steps & Flexible First-Run Setup
+- The initial 5-step onboarding flow strictly required configuring a Git Provider Auth Profile and an Initial Runner Pool before the dashboard could be unlocked. In many real-world scenarios, operators want to initialize administrative credentials first, explore the web interface, or configure Git providers and runner pools later. How should optional onboarding steps and the skip flow be handled across backend state, route guards, and UI?
+> **✅ Resolved**: Step 1 (Admin Setup) is the only mandatory onboarding step required to enforce security and establish authenticated sessions. Steps 2 through 5 are optional:
+> - Operators can skip individual steps or invoke a top-level `[ Skip to Dashboard ]` action at any point after Step 1.
+> - An explicit `CompleteOnboarding` RPC marks `onboarding_completed = "true"` in `app_settings` and logs an `onboarding.complete` audit event.
+> - `GetOnboardingStatus` evaluates `setup_complete` to `true` whenever `admin_created` is true AND either (`onboarding_completed` is true OR `pool_exists` is true).
+> - Route guards allow immediate access to the authenticated app shell once `setup_complete` is true, with the Dashboard and Pools pages presenting clear empty-state guides when zero pools are provisioned.

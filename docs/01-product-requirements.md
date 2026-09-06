@@ -24,27 +24,32 @@ Key capabilities:
 ## 2. Functional Requirements
 
 ### 2.1 Interactive Onboarding & Setup Flow
-For new installations or initial configurations, the supervisor serves a guided, multi-step onboarding setup flow:
+For new installations or initial configurations, the supervisor serves a guided, multi-step onboarding setup flow. **Only Step 1 (Admin Setup) is mandatory** to establish authentication and secure the instance; all subsequent steps are **optional**, allowing operators to skip directly to the Web Dashboard at any point:
 
-- **Step 1: Local Admin Setup (First Launch Only)**:
-  - The UI prompts the user to create a local administrator account (username/password). These credentials are securely hashed and stored in the local SQLite database.
-- **Step 2: Connect Git Providers & Choose Repositories**:
-  - The admin links their GitHub App, Gitea PAT, or Forgejo PAT.
-  - The UI lists all available Organizations and Repositories.
-  - The user checks the specific repositories or organizations they want to onboard for dynamic runner pooling.
-- **Step 3: Choose Global Scaling Constraints**:
-  - Configures global runner thresholds, including:
-    - **Total Allowed Runners**: Absolute maximum number of runner containers executing concurrently across all pools to prevent resource exhaustion.
-    - **Total Idle Warm Pool**: The global default count of idle runner containers kept running in a warm state to pick up queued jobs instantly.
-- **Step 4: Define Custom Per-Repo / Per-Org Constraints (Optional)**:
-  - Users can optionally override global settings on a granular level:
-    - Specific pool sizes (`min_idle_runners`, `max_concurrency`) per repository.
-    - Custom runner labels.
-    - CPU and Memory hard limits per repository pool.
-    - Enable Managed Renovate Bot for the repository and configure its cron schedule.
-- **Step 5: Review & Confirmation**:
-  - Summarizes the planned configuration pools, expected system footprints, and credential setups.
-  - Upon user confirmation, the supervisor starts the control loops and dynamic pool provisioning instantly.
+- **Step 1: Local Admin Setup (First Launch Only — Mandatory)**:
+  - The UI prompts the user to create a master local administrator account (username/password). These credentials are securely hashed with bcrypt and stored in the local SQLite database. Once submitted, an authenticated administrative session is automatically established.
+- **Step 2: Connect Git Providers & Choose Repositories (Optional)**:
+  - The admin can optionally link their GitHub App, GitHub PAT, Gitea PAT, or Forgejo PAT.
+  - The UI provides validation feedback and lists available organizations/repositories.
+  - Operators may choose to skip this step and configure auth profiles later from the **Profiles** tab.
+- **Step 3: Choose Global Scaling Constraints (Optional)**:
+  - Configures global runner thresholds:
+    - **Total Allowed Runners**: Absolute maximum number of runner containers executing concurrently across all pools (Default: `20`).
+    - **Total Idle Warm Pool**: The global default count of idle runner containers kept warm (Default: `5`).
+    - **Shutdown Timeout & Data Retention**: Graceful termination window (Default: `300s`) and metrics retention (Default: `30 days`).
+  - If skipped, pre-seeded system defaults are automatically utilized. Settings can be edited later via the **Settings** page.
+- **Step 4: Define Initial Runner Pool (Optional)**:
+  - Users can optionally define their initial runner pool:
+    - Target repository/org URL and scope (`repo` or `org`).
+    - Specific pool sizes (`min_idle_runners`, `max_concurrency`).
+    - Custom runner labels, CPU/memory limits, and Managed Renovate Bot options.
+    - If Step 2 was skipped, pool creation is deferred with a reminder that pools require an auth profile.
+  - Operators may skip this step and create pools anytime via the **Pools** page.
+- **Step 5: Review & Confirmation (Optional)**:
+  - Summarizes configured pools, credentials, and constraints (or explicitly notes skipped components).
+  - Actions:
+    - `[ Complete Setup & Launch ]` (if a pool is configured): Starts control loops and dynamic pool provisioning instantly, marking onboarding completed.
+    - `[ Skip to Dashboard ]` (available on Steps 2–5): Immediately marks onboarding complete via `CompleteOnboarding`, directing the operator to the persistent Web Dashboard.
 
 ### 2.2 Embedded Administration & Web Dashboard
 Following configuration, users are redirected to their persistent Web Dashboard containing advanced monitoring:

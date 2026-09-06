@@ -166,8 +166,7 @@ Automated GitHub Actions workflows ensure continuous verification and multi-arch
 
 ## 🗺️ Roadmap & Future Enhancements
 
-The core supervisor daemon, web control interface, multi-provider engine, and test suites are complete. Active research is focused on post-MVP enhancements:
-
+- **Flexible Web UI Onboarding & Optional Setup Flow:** *[Design Phase]* Making all onboarding steps after administrator credential creation optional, allowing operators to skip Git provider and pool setup and navigate directly to the dashboard on first boot.
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.
