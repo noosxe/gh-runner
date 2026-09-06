@@ -9,14 +9,24 @@ const mockCreatePool = vi.fn();
 const mockCompleteOnboarding = vi.fn();
 const mockNavigate = vi.fn();
 
-let mockOnboardingStatus = {
+let mockOnboardingStatus: {
+  adminCreated: boolean;
+  authProfileExists: boolean;
+  poolExists: boolean;
+  setupComplete: boolean;
+  hostArch?: string;
+  hostOs?: string;
+} = {
   adminCreated: false,
   authProfileExists: false,
   poolExists: false,
   setupComplete: false,
+  hostArch: "arm64",
+  hostOs: "linux",
 };
 
-let mockSession: { username: string; isAdmin: boolean } | null = null;
+let mockSession: { username: string; isAdmin: boolean; hostArch?: string; hostOs?: string } | null =
+  null;
 const mockLogin = vi.fn();
 
 vi.mock("@tanstack/react-router", () => ({
@@ -67,7 +77,26 @@ describe("OnboardingPage (Full 5 Steps)", () => {
       authProfileExists: false,
       poolExists: false,
       setupComplete: false,
+      hostArch: "arm64",
+      hostOs: "linux",
     };
+  });
+
+  it("suggests amd64 runner labels when status hostArch is amd64", () => {
+    mockOnboardingStatus = {
+      adminCreated: true,
+      authProfileExists: true,
+      poolExists: false,
+      setupComplete: false,
+      hostArch: "amd64",
+      hostOs: "linux",
+    };
+    mockSession = { username: "admin", isAdmin: true, hostArch: "amd64", hostOs: "linux" };
+
+    render(<OnboardingPage />);
+
+    const labelsInput = screen.getByLabelText("Runner Labels") as HTMLInputElement;
+    expect(labelsInput.value).toBe("self-hosted,linux,amd64");
   });
 
   it("renders Step 1 for uninitialized supervisor", () => {

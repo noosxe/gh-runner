@@ -1,5 +1,6 @@
 import { useState, useMemo, type FormEvent } from "react";
-import { usePools, useAuthProfiles, useCreatePool } from "../lib/api/query-hooks";
+import { usePools, useAuthProfiles, useCreatePool, useSession } from "../lib/api/query-hooks";
+import { getSuggestedRunnerLabels } from "../lib/utils/labels";
 import { useWatchPools } from "../lib/api/streaming-hooks";
 import { Link } from "@tanstack/react-router";
 import {
@@ -19,9 +20,11 @@ import {
 export function PoolsPage() {
   const { data: pools, isLoading } = usePools();
   const { data: authProfiles, isLoading: authProfilesLoading } = useAuthProfiles();
+  const { data: session } = useSession();
   const { isConnected } = useWatchPools();
   const createPoolMutation = useCreatePool();
   const hasAuthProfiles = Boolean(authProfiles && authProfiles.length > 0);
+  const suggestedLabels = getSuggestedRunnerLabels(session?.hostOs, session?.hostArch);
 
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
@@ -37,7 +40,8 @@ export function PoolsPage() {
   const [scope, setScope] = useState<"repo" | "org">("repo");
   const [minIdleRunners, setMinIdleRunners] = useState(1);
   const [maxConcurrency, setMaxConcurrency] = useState(5);
-  const [labels, setLabels] = useState("self-hosted,linux,arm64");
+  const [customLabels, setCustomLabels] = useState<string | null>(null);
+  const labels = customLabels ?? suggestedLabels;
   const [runnerImage, setRunnerImage] = useState("ghcr.io/noosxe/gh-runner:latest");
   const [allowDocker, setAllowDocker] = useState(true);
   const [cpuLimit, setCpuLimit] = useState("2.0");
@@ -88,7 +92,7 @@ export function PoolsPage() {
     setScope("repo");
     setMinIdleRunners(1);
     setMaxConcurrency(5);
-    setLabels("self-hosted,linux,arm64");
+    setCustomLabels(null);
     setRunnerImage("ghcr.io/noosxe/gh-runner:latest");
     setAllowDocker(true);
     setCpuLimit("2.0");
@@ -129,7 +133,8 @@ export function PoolsPage() {
       return;
     }
 
-    const parsedLabels = labels
+    const effectiveLabels = labels.trim() || suggestedLabels;
+    const parsedLabels = effectiveLabels
       .split(",")
       .map((l) => l.trim())
       .filter(Boolean);
@@ -144,7 +149,13 @@ export function PoolsPage() {
           repositoryUrl: repositoryUrl.trim(),
           minIdleRunners,
           maxConcurrency,
-          labels: parsedLabels.length > 0 ? parsedLabels : ["self-hosted", "linux", "arm64"],
+          labels:
+            parsedLabels.length > 0
+              ? parsedLabels
+              : suggestedLabels
+                  .split(",")
+                  .map((l) => l.trim())
+                  .filter(Boolean),
           runnerImage: runnerImage.trim() || "ghcr.io/noosxe/gh-runner:latest",
           allowDocker,
           renovate: renovateEnabled
@@ -601,7 +612,7 @@ export function PoolsPage() {
                     id="modal-labels"
                     type="text"
                     value={labels}
-                    onChange={(e) => setLabels(e.target.value)}
+                    onChange={(e) => setCustomLabels(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                   />
                 </div>

@@ -39,6 +39,7 @@ let mockIsLoading = false;
 let mockIsConnected = true;
 let mockPoolsData: any = mockPools;
 let mockAuthProfilesData: any = [{ id: 1n, name: "prod-profile" }];
+let mockSessionData: any = { username: "admin", isAdmin: true, hostArch: "amd64", hostOs: "linux" };
 
 vi.mock("../lib/api/query-hooks", () => ({
   usePools: () => ({
@@ -47,6 +48,10 @@ vi.mock("../lib/api/query-hooks", () => ({
   }),
   useAuthProfiles: () => ({
     data: mockAuthProfilesData,
+    isLoading: false,
+  }),
+  useSession: () => ({
+    data: mockSessionData,
     isLoading: false,
   }),
   useCreatePool: () => ({
@@ -143,5 +148,19 @@ describe("PoolsPage", () => {
     expect(screen.getByText("No runner pools configured")).toBeInTheDocument();
     expect(screen.getByText(/Git authentication profile is ready/i)).toBeInTheDocument();
     expect(screen.getAllByText("+ Add Runner Pool").length).toBeGreaterThan(0);
+  });
+
+  it("suggests amd64 runner labels when supervisor hostArch is amd64", () => {
+    mockPoolsData = mockPools;
+    mockAuthProfilesData = [{ id: 1n, name: "prod-profile" }];
+    mockSessionData = { username: "admin", isAdmin: true, hostArch: "amd64", hostOs: "linux" };
+
+    render(<PoolsPage />);
+
+    const addButtons = screen.getAllByText("+ Add Runner Pool");
+    fireEvent.click(addButtons[0]);
+
+    const labelsInput = screen.getByLabelText("Runner Labels") as HTMLInputElement;
+    expect(labelsInput.value).toBe("self-hosted,linux,amd64");
   });
 });

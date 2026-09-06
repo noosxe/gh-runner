@@ -40,6 +40,9 @@ func TestOnboardingStatusLifecycle(t *testing.T) {
 	if statusRes.Msg.AdminCreated || statusRes.Msg.AuthProfileExists || statusRes.Msg.PoolExists || statusRes.Msg.SetupComplete {
 		t.Fatalf("expected all false, got: %+v", statusRes.Msg)
 	}
+	if statusRes.Msg.HostArch != server.HostArch() || statusRes.Msg.HostOs != server.HostOS() {
+		t.Fatalf("expected host arch/os %s/%s, got %s/%s", server.HostArch(), server.HostOS(), statusRes.Msg.HostArch, statusRes.Msg.HostOs)
+	}
 
 	// 2. Create admin
 	authClient := supervisorv1connect.NewAuthServiceClient(ts.Client(), ts.URL)

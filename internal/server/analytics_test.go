@@ -268,6 +268,9 @@ func TestAnalyticsJobHistoryAndStats(t *testing.T) {
 	if resMsg.AverageRuntimeSeconds <= 0 {
 		t.Errorf("average_runtime_seconds = %f, want > 0", resMsg.AverageRuntimeSeconds)
 	}
+	if resMsg.HostArch != server.HostArch() || resMsg.HostOs != server.HostOS() {
+		t.Errorf("expected host arch/os %s/%s, got %s/%s", server.HostArch(), server.HostOS(), resMsg.HostArch, resMsg.HostOs)
+	}
 }
 
 func TestAnalyticsServiceWatchDashboard(t *testing.T) {

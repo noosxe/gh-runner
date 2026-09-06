@@ -384,5 +384,7 @@ func (s *AuthService) GetSession(ctx context.Context, req *connect.Request[super
 	return connect.NewResponse(&supervisorv1.GetSessionResponse{
 		Username: claims.Username,
 		IsAdmin:  true,
+		HostArch: HostArch(),
+		HostOs:   HostOS(),
 	}), nil
 }

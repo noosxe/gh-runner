@@ -69,6 +69,8 @@ func (s *OnboardingService) GetOnboardingStatus(ctx context.Context, _ *connect.
 		PoolExists:          poolExists,
 		SetupComplete:       setupComplete,
 		OnboardingCompleted: onboardingCompleted,
+		HostArch:            HostArch(),
+		HostOs:              HostOS(),
 	}), nil
 }
 
