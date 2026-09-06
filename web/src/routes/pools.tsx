@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { usePools, useAuthProfiles } from "../lib/api/query-hooks";
+import { useState, useMemo, type FormEvent } from "react";
+import { usePools, useAuthProfiles, useCreatePool } from "../lib/api/query-hooks";
 import { useWatchPools } from "../lib/api/streaming-hooks";
 import { Link } from "@tanstack/react-router";
 import {
@@ -9,20 +9,60 @@ import {
   HardDrive,
   Shield,
   Activity,
-  Layers,
   ArrowUpRight,
   Info,
+  Plus,
+  X,
+  AlertCircle,
 } from "lucide-react";
 
 export function PoolsPage() {
   const { data: pools, isLoading } = usePools();
   const { data: authProfiles, isLoading: authProfilesLoading } = useAuthProfiles();
   const { isConnected } = useWatchPools();
+  const createPoolMutation = useCreatePool();
   const hasAuthProfiles = Boolean(authProfiles && authProfiles.length > 0);
 
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState("all");
   const [scopeFilter, setScopeFilter] = useState("all");
+
+  // Create Pool Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [poolName, setPoolName] = useState("");
+  const [authProfileId, setAuthProfileId] = useState<string>("");
+  const [repositoryUrl, setRepositoryUrl] = useState("");
+  const [scope, setScope] = useState<"repo" | "org">("repo");
+  const [minIdleRunners, setMinIdleRunners] = useState(1);
+  const [maxConcurrency, setMaxConcurrency] = useState(5);
+  const [labels, setLabels] = useState("self-hosted,linux,arm64");
+  const [runnerImage, setRunnerImage] = useState("ghcr.io/noosxe/gh-runner:latest");
+  const [allowDocker, setAllowDocker] = useState(true);
+  const [cpuLimit, setCpuLimit] = useState("2.0");
+  const [memoryLimit, setMemoryLimit] = useState("4GB");
+
+  // Renovate State
+  const [renovateEnabled, setRenovateEnabled] = useState(false);
+  const [renovateCron, setRenovateCron] = useState("0 2 * * *");
+  const [renovateImage, setRenovateImage] = useState("renovate/renovate:latest");
+
+  const selectedAuthProfile = useMemo(() => {
+    if (!authProfiles || authProfiles.length === 0) return null;
+    if (authProfileId) {
+      return authProfiles.find((p) => p.id.toString() === authProfileId) ?? authProfiles[0];
+    }
+    return authProfiles[0];
+  }, [authProfiles, authProfileId]);
+
+  const deducedProvider = useMemo(() => {
+    const m = selectedAuthProfile?.authMethod;
+    if (!m) return "github";
+    if (m.startsWith("gitea")) return "gitea";
+    if (m.startsWith("forgejo")) return "forgejo";
+    return "github";
+  }, [selectedAuthProfile]);
 
   const filteredPools = useMemo(() => {
     if (!pools) return [];
@@ -41,6 +81,96 @@ export function PoolsPage() {
       return matchesSearch && matchesProvider && matchesScope;
     });
   }, [pools, search, providerFilter, scopeFilter]);
+
+  const handleOpenModal = () => {
+    setPoolName("");
+    setRepositoryUrl("");
+    setScope("repo");
+    setMinIdleRunners(1);
+    setMaxConcurrency(5);
+    setLabels("self-hosted,linux,arm64");
+    setRunnerImage("ghcr.io/noosxe/gh-runner:latest");
+    setAllowDocker(true);
+    setCpuLimit("2.0");
+    setMemoryLimit("4GB");
+    setRenovateEnabled(false);
+    setRenovateCron("0 2 * * *");
+    setRenovateImage("renovate/renovate:latest");
+    if (authProfiles && authProfiles.length > 0) {
+      setAuthProfileId(authProfiles[0].id.toString());
+    }
+    setError(null);
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setError(null);
+  };
+
+  const handleCreatePool = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!poolName.trim()) {
+      setError("Pool name is required");
+      return;
+    }
+    if (!repositoryUrl.trim()) {
+      setError("Repository or Organization URL is required");
+      return;
+    }
+    if (minIdleRunners > maxConcurrency) {
+      setError("Min idle runners cannot exceed max concurrency");
+      return;
+    }
+    if (!selectedAuthProfile) {
+      setError("An authentication profile is required to create a runner pool");
+      return;
+    }
+
+    const parsedLabels = labels
+      .split(",")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    try {
+      await createPoolMutation.mutateAsync({
+        pool: {
+          $typeName: "supervisor.v1.Pool",
+          id: 0n,
+          name: poolName.trim(),
+          provider: deducedProvider,
+          repositoryUrl: repositoryUrl.trim(),
+          minIdleRunners,
+          maxConcurrency,
+          labels: parsedLabels.length > 0 ? parsedLabels : ["self-hosted", "linux", "arm64"],
+          runnerImage: runnerImage.trim() || "ghcr.io/noosxe/gh-runner:latest",
+          allowDocker,
+          renovate: renovateEnabled
+            ? {
+                $typeName: "supervisor.v1.RenovateConfig",
+                enabled: true,
+                cronSchedule: renovateCron.trim() || "0 2 * * *",
+                image: renovateImage.trim() || "renovate/renovate:latest",
+              }
+            : undefined,
+          activeRunners: 0,
+          idleRunners: 0,
+          authProfileId: selectedAuthProfile.id,
+          scope,
+          cpuLimit: cpuLimit.trim() || "2.0",
+          memoryLimit: memoryLimit.trim() || "4GB",
+          maxRunnerLifetimeSeconds: 7200,
+          imageUpdateAvailable: false,
+          latestImage: "",
+        },
+      });
+      handleCloseModal();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create runner pool");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -73,12 +203,24 @@ export function PoolsPage() {
           </p>
         </div>
 
-        <Link
-          to="/onboarding"
-          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-blue-500 transition-colors"
-        >
-          + Add Runner Pool
-        </Link>
+        {hasAuthProfiles ? (
+          <button
+            type="button"
+            onClick={handleOpenModal}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-blue-500 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            <span>+ Add Runner Pool</span>
+          </button>
+        ) : (
+          <Link
+            to="/profiles"
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-blue-500 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            <span>+ Add Runner Pool</span>
+          </Link>
+        )}
       </div>
 
       {/* Missing Auth Profile Warning Banner */}
@@ -95,7 +237,7 @@ export function PoolsPage() {
             </p>
           </div>
           <Link
-            to="/onboarding"
+            to="/profiles"
             className="shrink-0 rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
           >
             Configure Profile &rarr;
@@ -156,17 +298,29 @@ export function PoolsPage() {
             {pools?.length === 0
               ? hasAuthProfiles
                 ? "Git authentication profile is ready. Create your first runner pool to start processing CI workflows."
-                : "No Git authentication profiles are configured yet. Connect a Git profile in the setup wizard before creating your first pool."
+                : "No Git authentication profiles are configured yet. Connect a Git profile before creating your first pool."
               : "Try adjusting your search terms or filter criteria."}
           </p>
           {pools?.length === 0 && (
             <div className="mt-4 flex items-center justify-center gap-3">
-              <Link
-                to="/onboarding"
-                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-blue-500"
-              >
-                <span>{hasAuthProfiles ? "+ Add Runner Pool" : "Launch Setup Wizard"}</span>
-              </Link>
+              {hasAuthProfiles ? (
+                <button
+                  type="button"
+                  onClick={handleOpenModal}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-blue-500"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>+ Add Runner Pool</span>
+                </button>
+              ) : (
+                <Link
+                  to="/profiles"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-blue-500"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Configure Git Profile</span>
+                </Link>
+              )}
             </div>
           )}
         </div>
@@ -250,46 +404,271 @@ export function PoolsPage() {
                     </div>
                   </div>
 
-                  {/* Quotas & Badges Strip */}
-                  <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  {/* Badges / Specs Strip */}
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                       <Cpu className="h-3 w-3 text-slate-400" />
-                      <span>{p.cpuLimit || "Unlimited"} CPU</span>
+                      {p.cpuLimit || "2"} CPU
                     </span>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                       <HardDrive className="h-3 w-3 text-slate-400" />
-                      <span>{p.memoryLimit || "Unlimited"} Mem</span>
+                      {p.memoryLimit || "4G"} Mem
                     </span>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                      <Shield className="h-3 w-3 text-slate-400" />
-                      <span>{p.allowDocker ? "Docker Enabled" : "Rootless"}</span>
-                    </span>
-                    {p.runnerImage && (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 dark:bg-slate-800 text-slate-700 dark:text-slate-300 truncate max-w-[200px]">
-                        <Layers className="h-3 w-3 text-slate-400 shrink-0" />
-                        <span className="truncate">{p.runnerImage}</span>
+                    {p.allowDocker && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900">
+                        <Shield className="h-3 w-3" />
+                        Docker Enabled
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* Footer Action */}
+                {/* Footer Link */}
                 <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
-                  <span className="text-xs text-slate-400 font-mono">
-                    Lifetime:{" "}
-                    {p.maxRunnerLifetimeSeconds ? `${p.maxRunnerLifetimeSeconds}s` : "Default (2h)"}
+                  <span className="text-xs text-slate-400">
+                    Image:{" "}
+                    <span className="font-mono text-slate-600 dark:text-slate-300">
+                      {p.runnerImage ? p.runnerImage.split("/").pop() : "gh-runner:latest"}
+                    </span>
                   </span>
+
                   <Link
                     to="/pools/$poolId"
                     params={{ poolId: p.id.toString() }}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
                   >
-                    View Active Containers <ArrowUpRight className="h-3.5 w-3.5" />
+                    <span>View Pool Details</span>
+                    <ArrowUpRight className="h-3.5 w-3.5" />
                   </Link>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Create Pool Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900 text-xs my-8">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Server className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Add Runner Pool
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseModal}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {error && (
+              <div className="mt-3 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCreatePool} className="mt-4 space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="modal-pool-name"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Pool Name
+                  </label>
+                  <input
+                    id="modal-pool-name"
+                    type="text"
+                    placeholder="e.g. arm64-ci-pool"
+                    value={poolName}
+                    onChange={(e) => setPoolName(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="modal-auth-profile"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Git Auth Profile
+                  </label>
+                  <select
+                    id="modal-auth-profile"
+                    value={authProfileId}
+                    onChange={(e) => setAuthProfileId(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  >
+                    {authProfiles?.map((prof) => (
+                      <option key={prof.id.toString()} value={prof.id.toString()}>
+                        {prof.name} ({prof.authMethod})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label
+                    htmlFor="modal-repo-url"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Repository / Organization URL
+                  </label>
+                  <input
+                    id="modal-repo-url"
+                    type="url"
+                    placeholder="https://github.com/my-org/my-repo"
+                    value={repositoryUrl}
+                    onChange={(e) => setRepositoryUrl(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="modal-scope"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Pool Scope
+                  </label>
+                  <select
+                    id="modal-scope"
+                    value={scope}
+                    onChange={(e) => setScope(e.target.value as "repo" | "org")}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  >
+                    <option value="repo">Repository Level (Single Repo)</option>
+                    <option value="org">Organization Level (Org-wide)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="modal-min-idle"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Min Idle Runners
+                  </label>
+                  <input
+                    id="modal-min-idle"
+                    type="number"
+                    min={0}
+                    max={20}
+                    value={minIdleRunners}
+                    onChange={(e) => setMinIdleRunners(Number(e.target.value))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="modal-max-concurrency"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Max Concurrency
+                  </label>
+                  <input
+                    id="modal-max-concurrency"
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={maxConcurrency}
+                    onChange={(e) => setMaxConcurrency(Number(e.target.value))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="modal-labels"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Runner Labels
+                  </label>
+                  <input
+                    id="modal-labels"
+                    type="text"
+                    value={labels}
+                    onChange={(e) => setLabels(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="modal-cpu"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    CPU Limit
+                  </label>
+                  <input
+                    id="modal-cpu"
+                    type="text"
+                    value={cpuLimit}
+                    onChange={(e) => setCpuLimit(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="modal-mem"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Memory Limit
+                  </label>
+                  <input
+                    id="modal-mem"
+                    type="text"
+                    value={memoryLimit}
+                    onChange={(e) => setMemoryLimit(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={allowDocker}
+                    onChange={(e) => setAllowDocker(e.target.checked)}
+                    className="h-4 w-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Enable Docker-in-Docker socket access</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createPoolMutation.isPending}
+                  className="rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white shadow-xs hover:bg-blue-500 disabled:opacity-50"
+                >
+                  {createPoolMutation.isPending ? "Creating Pool..." : "Create Pool"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
