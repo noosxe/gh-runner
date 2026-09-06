@@ -309,8 +309,8 @@ updates:
       - "ci"
     open-pull-requests-limit: 10
     ignore:
-      # Pin to modern LTS (24.04); avoid bleeding-edge Ubuntu 26+ until ecosystem maturity
+      # Pin strictly to Ubuntu 24.04 LTS; ignore all versions > 24.04 (interim non-LTS releases and future major releases)
       - dependency-name: "ubuntu"
         versions:
-          - ">= 26.00"
+          - "> 24.04"
 ```
