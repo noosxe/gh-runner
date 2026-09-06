@@ -88,8 +88,15 @@ func parsePoolLabels(raw string) []string {
 // MatchPoolForEvent finds the most specific matching runner pool for a webhook event.
 // Pools are evaluated based on provider, label compatibility, and URL scope hierarchy (repo > org > global).
 func MatchPoolForEvent(pools []db.RunnerPool, providerName string, event *webhook.WorkflowJobEvent) *db.RunnerPool {
+	p, _ := MatchPoolForEventWithTargets(pools, nil, providerName, event)
+	return p
+}
+
+// MatchPoolForEventWithTargets finds the most specific matching runner pool and target URL for a webhook event.
+// poolTargets optionally maps pool ID to configured targets from pool_targets table.
+func MatchPoolForEventWithTargets(pools []db.RunnerPool, poolTargets map[int64][]string, providerName string, event *webhook.WorkflowJobEvent) (*db.RunnerPool, string) {
 	if event == nil || len(pools) == 0 {
-		return nil
+		return nil, ""
 	}
 
 	pName := strings.ToLower(strings.TrimSpace(providerName))
@@ -108,6 +115,7 @@ func MatchPoolForEvent(pools []db.RunnerPool, providerName string, event *webhoo
 	fullNameLower := strings.ToLower(strings.TrimSpace(event.Repository.FullName))
 
 	var bestPool *db.RunnerPool
+	bestTargetURL := ""
 	bestScore := -1
 
 	for i := range pools {
@@ -120,76 +128,88 @@ func MatchPoolForEvent(pools []db.RunnerPool, providerName string, event *webhoo
 			continue
 		}
 
-		poolURL := NormalizeRepositoryURL(p.RepositoryUrl)
 		scope := strings.ToLower(strings.TrimSpace(p.Scope))
 		if scope == "" {
 			scope = "repo"
 		}
 
-		score := -1
-		switch scope {
-		case "repo":
-			matched := false
-			for _, cURL := range candidateURLs {
-				if poolURL == cURL {
-					matched = true
-					break
-				}
-			}
-			if !matched && fullNameLower != "" && strings.HasSuffix(poolURL, "/"+fullNameLower) {
-				matched = true
-			}
-			if matched {
-				score = 300
-			}
+		targets := poolTargets[p.ID]
+		if len(targets) == 0 && p.RepositoryUrl != "" {
+			targets = []string{p.RepositoryUrl}
+		}
 
-		case "org":
-			// poolURL represents an organization, e.g. https://github.com/my-org
-			matched := false
-			for _, cURL := range candidateURLs {
-				if strings.HasPrefix(cURL, poolURL+"/") {
-					matched = true
-					break
-				}
-			}
-			if !matched && fullNameLower != "" {
-				orgPart := fullNameLower
-				if slashIdx := strings.Index(fullNameLower, "/"); slashIdx != -1 {
-					orgPart = fullNameLower[:slashIdx]
-				}
-				if strings.HasSuffix(poolURL, "/"+orgPart) {
-					matched = true
-				}
-			}
-			if matched {
-				score = 200
-			}
-
-		case "global":
-			// poolURL is the instance root, e.g. https://github.com or https://gitea.example.com
-			matched := false
-			if poolParsed, err := url.Parse(poolURL); err == nil && poolParsed.Host != "" {
+		for _, rawTarget := range targets {
+			targetURL := NormalizeRepositoryURL(rawTarget)
+			score := -1
+			switch scope {
+			case "repo":
+				matched := false
 				for _, cURL := range candidateURLs {
-					if cParsed, err := url.Parse(cURL); err == nil && cParsed.Host != "" {
-						if strings.EqualFold(poolParsed.Host, cParsed.Host) {
-							matched = true
-							break
+					if targetURL == cURL {
+						matched = true
+						break
+					}
+				}
+				if !matched && fullNameLower != "" && strings.HasSuffix(targetURL, "/"+fullNameLower) {
+					matched = true
+				}
+				if matched {
+					score = 300
+				}
+
+			case "org":
+				// targetURL represents an organization, e.g. https://github.com/my-org
+				matched := false
+				for _, cURL := range candidateURLs {
+					if strings.HasPrefix(cURL, targetURL+"/") {
+						matched = true
+						break
+					}
+				}
+				if !matched && fullNameLower != "" {
+					orgPart := fullNameLower
+					if slashIdx := strings.Index(fullNameLower, "/"); slashIdx != -1 {
+						orgPart = fullNameLower[:slashIdx]
+					}
+					if strings.HasSuffix(targetURL, "/"+orgPart) {
+						matched = true
+					}
+				}
+				if matched {
+					score = 200
+				}
+
+			case "global":
+				// targetURL is the instance root, e.g. https://github.com or https://gitea.example.com
+				matched := false
+				if poolParsed, err := url.Parse(targetURL); err == nil && poolParsed.Host != "" {
+					for _, cURL := range candidateURLs {
+						if cParsed, err := url.Parse(cURL); err == nil && cParsed.Host != "" {
+							if strings.EqualFold(poolParsed.Host, cParsed.Host) {
+								matched = true
+								break
+							}
 						}
 					}
 				}
+				if matched {
+					score = 100
+				}
 			}
-			if matched {
-				score = 100
-			}
-		}
 
-		if score > bestScore {
-			bestScore = score
-			bestPool = p
+			if score > bestScore {
+				bestScore = score
+				bestPool = p
+				bestTargetURL = rawTarget
+			}
 		}
 	}
 
-	return bestPool
+	if bestPool != nil && bestTargetURL == "" {
+		bestTargetURL = bestPool.RepositoryUrl
+	}
+
+	return bestPool, bestTargetURL
 }
 
 // HandleWorkflowJob implements webhook.EventHandler.
@@ -222,7 +242,12 @@ func (c *PoolController) HandleWorkflowJob(ctx context.Context, providerName str
 			return fmt.Errorf("loading pools for webhook event: %w", err)
 		}
 
-		targetPool := MatchPoolForEvent(pools, providerName, event)
+		poolTargetsMap := make(map[int64][]string, len(pools))
+		for _, p := range pools {
+			poolTargetsMap[p.ID] = c.loadPoolTargets(ctx, p)
+		}
+
+		targetPool, matchedTargetURL := MatchPoolForEventWithTargets(pools, poolTargetsMap, providerName, event)
 		if targetPool == nil {
 			c.logger.Info("no matching pool found for queued webhook event",
 				"provider", providerName,
@@ -260,7 +285,7 @@ func (c *PoolController) HandleWorkflowJob(ctx context.Context, providerName str
 				"global_max", c.globalMaxRunners,
 				"job_id", event.WorkflowJob.ID,
 			)
-			c.enqueueRequest(targetPool.Name)
+			c.enqueueRequest(targetPool.Name, matchedTargetURL)
 			return nil
 		}
 
@@ -289,14 +314,15 @@ func (c *PoolController) HandleWorkflowJob(ctx context.Context, providerName str
 				"global_active", c.TotalActiveRunners(),
 				"global_max", c.globalMaxRunners,
 			)
-			c.enqueueRequest(targetPool.Name)
+			c.enqueueRequest(targetPool.Name, matchedTargetURL)
 			return nil
 		}
 
-		if err := c.spawnSingleRunner(ctx, *targetPool, nil, true); err != nil {
+		if err := c.spawnSingleRunner(ctx, *targetPool, nil, true, matchedTargetURL); err != nil {
 			c.logger.Error("failed spawning runner for queued webhook event",
 				"pool", targetPool.Name,
 				"job_id", event.WorkflowJob.ID,
+				"target", matchedTargetURL,
 				"err", err,
 			)
 			return fmt.Errorf("spawning runner for pool %q on queued event: %w", targetPool.Name, err)

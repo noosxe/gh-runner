@@ -509,7 +509,65 @@ func TestQueriesRoundTrip(t *testing.T) {
 		}
 	})
 
-	// 10. Transactions via WithTx
+	// 10. pool_targets
+	t.Run("pool_targets", func(t *testing.T) {
+		pools, err := database.ListRunnerPools(ctx)
+		if err != nil || len(pools) == 0 {
+			t.Fatalf("ListRunnerPools failed: %v", err)
+		}
+		poolID := pools[0].ID
+
+		// Targets backfilled or added
+		initialTargets, err := database.ListPoolTargetsByPoolId(ctx, poolID)
+		if err != nil {
+			t.Fatalf("ListPoolTargetsByPoolId failed: %v", err)
+		}
+
+		target2, err := database.AddPoolTarget(ctx, AddPoolTargetParams{
+			PoolID:    poolID,
+			TargetUrl: "https://github.com/another/repo",
+		})
+		if err != nil {
+			t.Fatalf("AddPoolTarget failed: %v", err)
+		}
+		if target2.TargetUrl != "https://github.com/another/repo" || target2.PoolID != poolID {
+			t.Fatalf("unexpected target created: %+v", target2)
+		}
+
+		// Verify duplicate rejection
+		_, err = database.AddPoolTarget(ctx, AddPoolTargetParams{
+			PoolID:    poolID,
+			TargetUrl: "https://github.com/another/repo",
+		})
+		if err == nil {
+			t.Fatal("expected error on duplicate pool target, got nil")
+		}
+
+		allTargets, err := database.ListPoolTargetsByPoolId(ctx, poolID)
+		if err != nil || len(allTargets) != len(initialTargets)+1 {
+			t.Fatalf("unexpected target count: %d (initial: %d)", len(allTargets), len(initialTargets))
+		}
+
+		foundPool, err := database.GetPoolByTargetUrl(ctx, "https://github.com/another/repo")
+		if err != nil || foundPool.ID != poolID {
+			t.Fatalf("GetPoolByTargetUrl failed: %v, got %+v", err, foundPool)
+		}
+
+		err = database.DeletePoolTarget(ctx, DeletePoolTargetParams{
+			PoolID:    poolID,
+			TargetUrl: "https://github.com/another/repo",
+		})
+		if err != nil {
+			t.Fatalf("DeletePoolTarget failed: %v", err)
+		}
+
+		_, err = database.GetPoolByTargetUrl(ctx, "https://github.com/another/repo")
+		if err != sql.ErrNoRows {
+			t.Fatalf("expected sql.ErrNoRows after delete, got %v", err)
+		}
+	})
+
+	// 11. Transactions via WithTx
 	t.Run("transactions_with_tx", func(t *testing.T) {
 		tx, err := database.SQL().BeginTx(ctx, nil)
 		if err != nil {

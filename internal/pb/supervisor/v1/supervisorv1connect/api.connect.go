@@ -71,6 +71,9 @@ const (
 	// PoolServiceWatchRunnersProcedure is the fully-qualified name of the PoolService's WatchRunners
 	// RPC.
 	PoolServiceWatchRunnersProcedure = "/supervisor.v1.PoolService/WatchRunners"
+	// PoolServiceDiscoverTargetsProcedure is the fully-qualified name of the PoolService's
+	// DiscoverTargets RPC.
+	PoolServiceDiscoverTargetsProcedure = "/supervisor.v1.PoolService/DiscoverTargets"
 	// AuthProfileServiceListAuthProfilesProcedure is the fully-qualified name of the
 	// AuthProfileService's ListAuthProfiles RPC.
 	AuthProfileServiceListAuthProfilesProcedure = "/supervisor.v1.AuthProfileService/ListAuthProfiles"
@@ -275,6 +278,8 @@ type PoolServiceClient interface {
 	TerminateRunner(context.Context, *connect.Request[v1.TerminateRunnerRequest]) (*connect.Response[v1.TerminateRunnerResponse], error)
 	// WatchRunners provides near-realtime server-streaming push of active runner instances
 	WatchRunners(context.Context, *connect.Request[v1.WatchRunnersRequest]) (*connect.ServerStreamForClient[v1.WatchRunnersResponse], error)
+	// DiscoverTargets queries available repositories or organizations from an auth profile
+	DiscoverTargets(context.Context, *connect.Request[v1.DiscoverTargetsRequest]) (*connect.Response[v1.DiscoverTargetsResponse], error)
 }
 
 // NewPoolServiceClient constructs a client for the supervisor.v1.PoolService service. By default,
@@ -336,6 +341,12 @@ func NewPoolServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(poolServiceMethods.ByName("WatchRunners")),
 			connect.WithClientOptions(opts...),
 		),
+		discoverTargets: connect.NewClient[v1.DiscoverTargetsRequest, v1.DiscoverTargetsResponse](
+			httpClient,
+			baseURL+PoolServiceDiscoverTargetsProcedure,
+			connect.WithSchema(poolServiceMethods.ByName("DiscoverTargets")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -349,6 +360,7 @@ type poolServiceClient struct {
 	listRunners     *connect.Client[v1.ListRunnersRequest, v1.ListRunnersResponse]
 	terminateRunner *connect.Client[v1.TerminateRunnerRequest, v1.TerminateRunnerResponse]
 	watchRunners    *connect.Client[v1.WatchRunnersRequest, v1.WatchRunnersResponse]
+	discoverTargets *connect.Client[v1.DiscoverTargetsRequest, v1.DiscoverTargetsResponse]
 }
 
 // ListPools calls supervisor.v1.PoolService.ListPools.
@@ -391,6 +403,11 @@ func (c *poolServiceClient) WatchRunners(ctx context.Context, req *connect.Reque
 	return c.watchRunners.CallServerStream(ctx, req)
 }
 
+// DiscoverTargets calls supervisor.v1.PoolService.DiscoverTargets.
+func (c *poolServiceClient) DiscoverTargets(ctx context.Context, req *connect.Request[v1.DiscoverTargetsRequest]) (*connect.Response[v1.DiscoverTargetsResponse], error) {
+	return c.discoverTargets.CallUnary(ctx, req)
+}
+
 // PoolServiceHandler is an implementation of the supervisor.v1.PoolService service.
 type PoolServiceHandler interface {
 	ListPools(context.Context, *connect.Request[v1.ListPoolsRequest]) (*connect.Response[v1.ListPoolsResponse], error)
@@ -405,6 +422,8 @@ type PoolServiceHandler interface {
 	TerminateRunner(context.Context, *connect.Request[v1.TerminateRunnerRequest]) (*connect.Response[v1.TerminateRunnerResponse], error)
 	// WatchRunners provides near-realtime server-streaming push of active runner instances
 	WatchRunners(context.Context, *connect.Request[v1.WatchRunnersRequest], *connect.ServerStream[v1.WatchRunnersResponse]) error
+	// DiscoverTargets queries available repositories or organizations from an auth profile
+	DiscoverTargets(context.Context, *connect.Request[v1.DiscoverTargetsRequest]) (*connect.Response[v1.DiscoverTargetsResponse], error)
 }
 
 // NewPoolServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -462,6 +481,12 @@ func NewPoolServiceHandler(svc PoolServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(poolServiceMethods.ByName("WatchRunners")),
 		connect.WithHandlerOptions(opts...),
 	)
+	poolServiceDiscoverTargetsHandler := connect.NewUnaryHandler(
+		PoolServiceDiscoverTargetsProcedure,
+		svc.DiscoverTargets,
+		connect.WithSchema(poolServiceMethods.ByName("DiscoverTargets")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/supervisor.v1.PoolService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PoolServiceListPoolsProcedure:
@@ -480,6 +505,8 @@ func NewPoolServiceHandler(svc PoolServiceHandler, opts ...connect.HandlerOption
 			poolServiceTerminateRunnerHandler.ServeHTTP(w, r)
 		case PoolServiceWatchRunnersProcedure:
 			poolServiceWatchRunnersHandler.ServeHTTP(w, r)
+		case PoolServiceDiscoverTargetsProcedure:
+			poolServiceDiscoverTargetsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -519,6 +546,10 @@ func (UnimplementedPoolServiceHandler) TerminateRunner(context.Context, *connect
 
 func (UnimplementedPoolServiceHandler) WatchRunners(context.Context, *connect.Request[v1.WatchRunnersRequest], *connect.ServerStream[v1.WatchRunnersResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.PoolService.WatchRunners is not implemented"))
+}
+
+func (UnimplementedPoolServiceHandler) DiscoverTargets(context.Context, *connect.Request[v1.DiscoverTargetsRequest]) (*connect.Response[v1.DiscoverTargetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.PoolService.DiscoverTargets is not implemented"))
 }
 
 // AuthProfileServiceClient is a client for the supervisor.v1.AuthProfileService service.

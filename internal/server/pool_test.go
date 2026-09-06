@@ -12,6 +12,7 @@ import (
 	"github.com/noosxe/gh-runner/internal/db"
 	supervisorv1 "github.com/noosxe/gh-runner/internal/pb/supervisor/v1"
 	"github.com/noosxe/gh-runner/internal/pb/supervisor/v1/supervisorv1connect"
+	"github.com/noosxe/gh-runner/internal/provider"
 	"github.com/noosxe/gh-runner/internal/server"
 )
 
@@ -138,6 +139,25 @@ func TestPoolServiceCRUDAndValidation(t *testing.T) {
 		t.Fatalf("Non-existent auth_profile_id want CodeInvalidArgument, got: %v", err)
 	}
 
+	// 2c. Validation: reject mixing repos and orgs
+	mixedScopeReq := connect.NewRequest(&supervisorv1.CreatePoolRequest{
+		Pool: &supervisorv1.Pool{
+			Name:          "mixed-scope-pool",
+			Provider:      "github",
+			Scope:         "repo",
+			AuthProfileId: authProfile.ID,
+			TargetUrls: []string{
+				"https://github.com/acme/repo-one",
+				"https://github.com/acme", // Org URL in a repo pool
+			},
+		},
+	})
+	mixedScopeReq.Header().Set("Cookie", "session_token="+rawCookie)
+	_, err = client.CreatePool(ctx, mixedScopeReq)
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("Mixed scope target want CodeInvalidArgument, got: %v", err)
+	}
+
 	// 3. CreatePool valid GitHub pool
 	createReq := connect.NewRequest(&supervisorv1.CreatePoolRequest{
 		Pool: &supervisorv1.Pool{
@@ -205,7 +225,7 @@ func TestPoolServiceCRUDAndValidation(t *testing.T) {
 			Id:                       createdPool.Id,
 			Name:                     "github-arm64",
 			Provider:                 "github",
-			RepositoryUrl:            "https://github.com/org/repo",
+			RepositoryUrl:            "https://github.com/org",
 			Scope:                    "org",
 			AuthProfileId:            authProfile.ID,
 			MinIdleRunners:           4,
@@ -621,5 +641,131 @@ func TestPoolServiceWatchRunners(t *testing.T) {
 	}
 	if err := stream.Err(); err != nil && !strings.Contains(err.Error(), "canceled") {
 		t.Errorf("unexpected error on stream cancel: %v", err)
+	}
+}
+
+func TestPoolServiceDiscoverTargets(t *testing.T) {
+	ctx := context.Background()
+	database, jwtSecret := setupTestDB(t)
+
+	// Create auth profile
+	prof, err := database.CreateEncryptedAuthProfile(ctx, "test-gh-profile", "pat", sql.NullInt64{}, "", "secret-token")
+	if err != nil {
+		t.Fatalf("CreateEncryptedAuthProfile failed: %v", err)
+	}
+
+	poolSvc := server.NewPoolService(database, nil, nil, server.WithDiscoverer(func(ctx context.Context, p db.DecryptedAuthProfile, scope string) ([]provider.DiscoveredTarget, error) {
+		if scope == "org" {
+			return []provider.DiscoveredTarget{
+				{
+					Name:        "acme-org",
+					FullName:    "acme-org",
+					HTMLURL:     "https://github.com/acme-org",
+					Description: "Acme Corp Org",
+					AvatarURL:   "https://avatars.example.com/acme",
+				},
+			}, nil
+		}
+		return []provider.DiscoveredTarget{
+			{
+				Name:        "repo-alpha",
+				FullName:    "acme-org/repo-alpha",
+				HTMLURL:     "https://github.com/acme-org/repo-alpha",
+				Description: "First repo",
+				IsPrivate:   true,
+			},
+			{
+				Name:        "repo-beta",
+				FullName:    "acme-org/repo-beta",
+				HTMLURL:     "https://github.com/acme-org/repo-beta",
+				Description: "Second repo",
+				IsPrivate:   false,
+			},
+		}, nil
+	}))
+
+	srv := server.New(server.Options{
+		Port:             8080,
+		AuthDB:           database,
+		PoolDB:           database,
+		JWTSigningSecret: jwtSecret,
+	})
+	path, handler := supervisorv1connect.NewPoolServiceHandler(poolSvc, srv.ConnectHandlerOptions()...)
+	srv.MountConnectHandler(path, handler)
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	authClient := supervisorv1connect.NewAuthServiceClient(ts.Client(), ts.URL)
+	_, _ = authClient.SetupAdmin(ctx, connect.NewRequest(&supervisorv1.SetupAdminRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	loginRes, err := authClient.Login(ctx, connect.NewRequest(&supervisorv1.LoginRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("Login failed: %v", err)
+	}
+	cookie := loginRes.Header().Get("Set-Cookie")
+	rawCookie := strings.Split(strings.Split(cookie, ";")[0], "=")[1]
+
+	client := supervisorv1connect.NewPoolServiceClient(ts.Client(), ts.URL)
+
+	// 1. Missing AuthProfileId
+	badReq := connect.NewRequest(&supervisorv1.DiscoverTargetsRequest{
+		AuthProfileId: 0,
+		Scope:         "repo",
+	})
+	badReq.Header().Set("Cookie", "session_token="+rawCookie)
+	_, err = client.DiscoverTargets(ctx, badReq)
+	if err == nil {
+		t.Fatal("expected error with auth_profile_id = 0, got nil")
+	}
+
+	// 2. Invalid Scope
+	invalidScopeReq := connect.NewRequest(&supervisorv1.DiscoverTargetsRequest{
+		AuthProfileId: prof.ID,
+		Scope:         "invalid_scope",
+	})
+	invalidScopeReq.Header().Set("Cookie", "session_token="+rawCookie)
+	_, err = client.DiscoverTargets(ctx, invalidScopeReq)
+	if err == nil {
+		t.Fatal("expected error with invalid scope, got nil")
+	}
+
+	// 3. Discover Repositories
+	repoReq := connect.NewRequest(&supervisorv1.DiscoverTargetsRequest{
+		AuthProfileId: prof.ID,
+		Scope:         "repo",
+	})
+	repoReq.Header().Set("Cookie", "session_token="+rawCookie)
+	repoRes, err := client.DiscoverTargets(ctx, repoReq)
+	if err != nil {
+		t.Fatalf("DiscoverTargets repos failed: %v", err)
+	}
+	if len(repoRes.Msg.Targets) != 2 {
+		t.Fatalf("expected 2 discovered repos, got %d", len(repoRes.Msg.Targets))
+	}
+	if repoRes.Msg.Targets[0].Name != "repo-alpha" || !repoRes.Msg.Targets[0].IsPrivate {
+		t.Errorf("unexpected repo target 0: %+v", repoRes.Msg.Targets[0])
+	}
+	if repoRes.Msg.Targets[1].Name != "repo-beta" || repoRes.Msg.Targets[1].IsPrivate {
+		t.Errorf("unexpected repo target 1: %+v", repoRes.Msg.Targets[1])
+	}
+
+	// 4. Discover Organizations
+	orgReq := connect.NewRequest(&supervisorv1.DiscoverTargetsRequest{
+		AuthProfileId: prof.ID,
+		Scope:         "org",
+	})
+	orgReq.Header().Set("Cookie", "session_token="+rawCookie)
+	orgRes, err := client.DiscoverTargets(ctx, orgReq)
+	if err != nil {
+		t.Fatalf("DiscoverTargets orgs failed: %v", err)
+	}
+	if len(orgRes.Msg.Targets) != 1 || orgRes.Msg.Targets[0].Name != "acme-org" {
+		t.Fatalf("expected 1 discovered org (acme-org), got %+v", orgRes.Msg.Targets)
 	}
 }

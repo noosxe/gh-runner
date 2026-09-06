@@ -17,6 +17,11 @@ const mockPools = [
     allowDocker: true,
     runnerImage: "ghcr.io/noosxe/runner-aio:latest",
     maxRunnerLifetimeSeconds: 7200,
+    targetUrls: [
+      "https://github.com/noosxe/gh-runner",
+      "https://github.com/noosxe/frontend",
+      "https://github.com/noosxe/docs",
+    ],
   },
   {
     id: 2n,
@@ -57,6 +62,21 @@ vi.mock("../lib/api/query-hooks", () => ({
   useCreatePool: () => ({
     mutateAsync: vi.fn().mockResolvedValue({ pool: { id: 999n } }),
     isPending: false,
+  }),
+  useDiscoverTargets: () => ({
+    data: [
+      {
+        name: "gh-runner",
+        fullName: "noosxe/gh-runner",
+        htmlUrl: "https://github.com/noosxe/gh-runner",
+        description: "Lightweight runner",
+        isPrivate: false,
+        avatarUrl: "",
+      },
+    ],
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
   }),
 }));
 
@@ -150,9 +170,16 @@ describe("PoolsPage", () => {
     expect(screen.getAllByText("+ Add Runner Pool").length).toBeGreaterThan(0);
   });
 
+  it("displays multi-target count badge when pool has multiple targets", () => {
+    mockPoolsData = mockPools;
+    render(<PoolsPage />);
+
+    expect(screen.getByText("+2 more")).toBeInTheDocument();
+  });
+
   it("suggests amd64 runner labels when supervisor hostArch is amd64", () => {
     mockPoolsData = mockPools;
-    mockAuthProfilesData = [{ id: 1n, name: "prod-profile" }];
+    mockAuthProfilesData = [{ id: 1n, name: "prod-profile", authMethod: "github-pat" }];
     mockSessionData = { username: "admin", isAdmin: true, hostArch: "amd64", hostOs: "linux" };
 
     render(<PoolsPage />);
@@ -160,6 +187,16 @@ describe("PoolsPage", () => {
     const addButtons = screen.getAllByText("+ Add Runner Pool");
     fireEvent.click(addButtons[0]);
 
+    // Step 1: Identity
+    const poolNameInput = screen.getByLabelText(/Pool Name/i);
+    fireEvent.change(poolNameInput, { target: { value: "my-ci-pool" } });
+    fireEvent.click(screen.getByText("Continue to Scope & Targets"));
+
+    // Step 2: Targets
+    fireEvent.click(screen.getByText("Select All Filtered"));
+    fireEvent.click(screen.getByText("Continue to Specifications"));
+
+    // Step 3: Specs
     const labelsInput = screen.getByLabelText("Runner Labels") as HTMLInputElement;
     expect(labelsInput.value).toBe("self-hosted,linux,amd64");
   });

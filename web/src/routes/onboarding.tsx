@@ -346,6 +346,7 @@ export function OnboardingPage() {
             maxRunnerLifetimeSeconds: 7200,
             imageUpdateAvailable: false,
             latestImage: "",
+            targetUrls: repositoryUrl.trim() ? [repositoryUrl.trim()] : [],
           },
         });
       }

@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	AddPoolTarget(ctx context.Context, arg AddPoolTargetParams) (PoolTarget, error)
 	CompleteRenovateRun(ctx context.Context, arg CompleteRenovateRunParams) (RenovateRun, error)
 	CompleteRenovateRunByContainerID(ctx context.Context, arg CompleteRenovateRunByContainerIDParams) (RenovateRun, error)
 	CountAdminUsers(ctx context.Context) (int64, error)
@@ -34,6 +35,8 @@ type Querier interface {
 	DeleteAuthProfile(ctx context.Context, id int64) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt time.Time) error
 	DeleteJobHistoryOlderThan(ctx context.Context, completedAt sql.NullTime) error
+	DeletePoolTarget(ctx context.Context, arg DeletePoolTargetParams) error
+	DeletePoolTargetsByPoolId(ctx context.Context, poolID int64) error
 	DeleteRenovateConfigByPoolId(ctx context.Context, poolID int64) error
 	DeleteRenovateRunsByPoolId(ctx context.Context, poolID int64) error
 	DeleteRunnerPool(ctx context.Context, id int64) error
@@ -49,6 +52,7 @@ type Querier interface {
 	GetJobHistoryById(ctx context.Context, id int64) (JobHistory, error)
 	GetJobStatsSince(ctx context.Context, createdAt time.Time) (GetJobStatsSinceRow, error)
 	GetLatestRenovateRunByPoolId(ctx context.Context, poolID int64) (RenovateRun, error)
+	GetPoolByTargetUrl(ctx context.Context, targetUrl string) (RunnerPool, error)
 	GetRenovateConfigByPoolId(ctx context.Context, poolID int64) (RenovateConfig, error)
 	GetRenovateRun(ctx context.Context, id int64) (RenovateRun, error)
 	GetRenovateRunByContainerID(ctx context.Context, containerID sql.NullString) (RenovateRun, error)
@@ -56,6 +60,7 @@ type Querier interface {
 	GetRunnerPoolByName(ctx context.Context, name string) (RunnerPool, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	ListAdminUsers(ctx context.Context) ([]AdminUser, error)
+	ListAllPoolTargets(ctx context.Context) ([]PoolTarget, error)
 	ListAppSettings(ctx context.Context) ([]AppSetting, error)
 	ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]AuditLog, error)
 	ListAuditLogsByUserId(ctx context.Context, arg ListAuditLogsByUserIdParams) ([]AuditLog, error)
@@ -63,6 +68,8 @@ type Querier interface {
 	ListEnabledRenovateConfigs(ctx context.Context) ([]RenovateConfig, error)
 	ListJobHistory(ctx context.Context, arg ListJobHistoryParams) ([]JobHistory, error)
 	ListJobHistoryByPoolId(ctx context.Context, arg ListJobHistoryByPoolIdParams) ([]JobHistory, error)
+	ListPoolTargetsByPoolId(ctx context.Context, poolID int64) ([]PoolTarget, error)
+	ListPoolsByTargetUrl(ctx context.Context, targetUrl string) ([]RunnerPool, error)
 	ListRenovateConfigs(ctx context.Context) ([]RenovateConfig, error)
 	ListRenovateRunsByPoolId(ctx context.Context, arg ListRenovateRunsByPoolIdParams) ([]RenovateRun, error)
 	ListRunnerPools(ctx context.Context) ([]RunnerPool, error)

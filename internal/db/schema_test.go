@@ -27,11 +27,11 @@ func TestInitialSchemaTablesAndSeeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version failed: %v", err)
 	}
-	if ver != 2 {
-		t.Fatalf("database version = %d, want 2", ver)
+	if ver != 3 {
+		t.Fatalf("database version = %d, want 3", ver)
 	}
 
-	// Verify all 9 tables and their columns field-for-field per docs/07.
+	// Verify all 10 tables and their columns field-for-field per docs/07.
 	expectedTables := map[string][]string{
 		"admin_users": {
 			"id", "username", "password_hash", "created_at", "updated_at",
@@ -47,6 +47,9 @@ func TestInitialSchemaTablesAndSeeds(t *testing.T) {
 			"min_idle_runners", "max_concurrency", "labels", "runner_image",
 			"allow_docker", "max_runner_lifetime_seconds", "cpu_limit", "memory_limit",
 			"created_at", "updated_at",
+		},
+		"pool_targets": {
+			"id", "pool_id", "target_url", "created_at",
 		},
 		"renovate_configs": {
 			"id", "pool_id", "enabled", "cron_schedule", "image", "created_at", "updated_at",
@@ -147,10 +150,10 @@ func TestInitialSchemaUpDownIdempotent(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Initial state: version 2
+	// Initial state: version 3
 	ver, err := database.Version(ctx, nil)
-	if err != nil || ver != 2 {
-		t.Fatalf("Version after boot = %d (err: %v), want 2", ver, err)
+	if err != nil || ver != 3 {
+		t.Fatalf("Version after boot = %d (err: %v), want 3", ver, err)
 	}
 
 	// Rollback all migrations down to version 0
@@ -170,7 +173,7 @@ func TestInitialSchemaUpDownIdempotent(t *testing.T) {
 
 	// Verify tables are dropped
 	for _, table := range []string{
-		"admin_users", "sessions", "auth_profiles", "runner_pools",
+		"admin_users", "sessions", "auth_profiles", "runner_pools", "pool_targets",
 		"renovate_configs", "renovate_runs", "job_history", "audit_logs", "app_settings",
 	} {
 		cols := getTableColumns(t, database, table)
@@ -179,14 +182,14 @@ func TestInitialSchemaUpDownIdempotent(t *testing.T) {
 		}
 	}
 
-	// Migrate up again: should succeed and restore version 2
+	// Migrate up again: should succeed and restore version 3
 	if err := database.Migrate(ctx, nil); err != nil {
 		t.Fatalf("Migrate up after rollback failed: %v", err)
 	}
 
 	verUp, err := database.Version(ctx, nil)
-	if err != nil || verUp != 2 {
-		t.Fatalf("Version after Migrate up = %d (err: %v), want 2", verUp, err)
+	if err != nil || verUp != 3 {
+		t.Fatalf("Version after Migrate up = %d (err: %v), want 3", verUp, err)
 	}
 
 	// Verify app_settings seeded again

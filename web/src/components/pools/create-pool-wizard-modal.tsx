@@ -1,0 +1,919 @@
+import { useState, useMemo, type FormEvent } from "react";
+import { useCreatePool, useDiscoverTargets } from "../../lib/api/query-hooks";
+import { getSuggestedRunnerLabels } from "../../lib/utils/labels";
+import {
+  Server,
+  X,
+  ChevronRight,
+  ChevronLeft,
+  Search,
+  Check,
+  CheckSquare,
+  Square,
+  ExternalLink,
+  AlertCircle,
+  Loader2,
+  Lock,
+  Globe,
+  Building,
+  FolderGit2,
+  Layers,
+  Bot,
+} from "lucide-react";
+
+export interface CreatePoolWizardModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  authProfiles?: Array<{
+    id: bigint;
+    name: string;
+    authMethod: string;
+  }>;
+  hostOs?: string;
+  hostArch?: string;
+}
+
+export function CreatePoolWizardModal({
+  isOpen,
+  onClose,
+  authProfiles,
+  hostOs,
+  hostArch,
+}: CreatePoolWizardModalProps) {
+  const createPoolMutation = useCreatePool();
+  const suggestedLabels = getSuggestedRunnerLabels(hostOs, hostArch);
+
+  // Step indicator: 1: Identity, 2: Targets, 3: Specs, 4: Review
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const [error, setError] = useState<string | null>(null);
+
+  // Step 1: Identity & Credentials
+  const [poolName, setPoolName] = useState("");
+  const [authProfileId, setAuthProfileId] = useState<string>(
+    authProfiles && authProfiles.length > 0 ? authProfiles[0].id.toString() : "",
+  );
+
+  // Step 2: Scope & Discovery Targets
+  const [scope, setScope] = useState<"repo" | "org">("repo");
+  const [targetSearch, setTargetSearch] = useState("");
+  const [selectedTargetUrls, setSelectedTargetUrls] = useState<string[]>([]);
+
+  // Step 3: Specs & Quotas
+  const [minIdleRunners, setMinIdleRunners] = useState(1);
+  const [maxConcurrency, setMaxConcurrency] = useState(5);
+  const [customLabels, setCustomLabels] = useState<string | null>(null);
+  const labels = customLabels ?? suggestedLabels;
+  const [runnerImage, setRunnerImage] = useState("ghcr.io/noosxe/gh-runner:latest");
+  const [allowDocker, setAllowDocker] = useState(true);
+  const [cpuLimit, setCpuLimit] = useState("2.0");
+  const [memoryLimit, setMemoryLimit] = useState("4GB");
+
+  // Renovate Config
+  const [renovateEnabled, setRenovateEnabled] = useState(false);
+  const [renovateCron, setRenovateCron] = useState("0 2 * * *");
+  const [renovateImage, setRenovateImage] = useState("renovate/renovate:latest");
+
+  // Auth Profile and Provider Resolution
+  const selectedAuthProfile = useMemo(() => {
+    if (!authProfiles || authProfiles.length === 0) return null;
+    if (authProfileId) {
+      return authProfiles.find((p) => p.id.toString() === authProfileId) ?? authProfiles[0];
+    }
+    return authProfiles[0];
+  }, [authProfiles, authProfileId]);
+
+  const deducedProvider = useMemo(() => {
+    const m = selectedAuthProfile?.authMethod;
+    if (!m) return "github";
+    if (m.startsWith("gitea")) return "gitea";
+    if (m.startsWith("forgejo")) return "forgejo";
+    return "github";
+  }, [selectedAuthProfile]);
+
+  const isDockerLocked = deducedProvider === "gitea" || deducedProvider === "forgejo";
+
+  // Slug validation for pool name: lowercase letters, numbers, and hyphens only
+  const isNameSlugValid = useMemo(() => {
+    const trimmed = poolName.trim();
+    if (!trimmed) return false;
+    return /^[a-z0-9-]+$/.test(trimmed);
+  }, [poolName]);
+
+  // Target discovery query hook
+  const activeProfileBigInt = useMemo(() => {
+    return selectedAuthProfile ? selectedAuthProfile.id : 0n;
+  }, [selectedAuthProfile]);
+
+  const {
+    data: discoveredTargets,
+    isLoading: isDiscovering,
+    error: discoveryError,
+    refetch: refetchDiscovery,
+  } = useDiscoverTargets(activeProfileBigInt, scope);
+
+  // Client-side search filtering of discovered targets
+  const filteredDiscoveredTargets = useMemo(() => {
+    if (!discoveredTargets) return [];
+    if (!targetSearch.trim()) return discoveredTargets;
+    const term = targetSearch.toLowerCase();
+    return discoveredTargets.filter(
+      (t) =>
+        t.name.toLowerCase().includes(term) ||
+        t.fullName.toLowerCase().includes(term) ||
+        t.description.toLowerCase().includes(term) ||
+        t.htmlUrl.toLowerCase().includes(term),
+    );
+  }, [discoveredTargets, targetSearch]);
+
+  const handleToggleTarget = (url: string) => {
+    setSelectedTargetUrls((prev) =>
+      prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url],
+    );
+  };
+
+  const handleSelectAllFiltered = () => {
+    const filteredUrls = filteredDiscoveredTargets.map((t) => t.htmlUrl);
+    setSelectedTargetUrls((prev) => Array.from(new Set([...prev, ...filteredUrls])));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTargetUrls([]);
+  };
+
+  // Step Navigation Handlers
+  const handleNextFromStep1 = () => {
+    setError(null);
+    if (!poolName.trim()) {
+      setError("Pool name is required");
+      return;
+    }
+    if (!isNameSlugValid) {
+      setError(
+        "Pool name must contain only lowercase alphanumeric characters and hyphens (e.g. arm64-ci-pool)",
+      );
+      return;
+    }
+    if (!selectedAuthProfile) {
+      setError("Please select a Git Auth Profile");
+      return;
+    }
+    setCurrentStep(2);
+  };
+
+  const handleNextFromStep2 = () => {
+    setError(null);
+    if (selectedTargetUrls.length === 0) {
+      setError(`Please select at least one ${scope === "repo" ? "repository" : "organization"}`);
+      return;
+    }
+    setCurrentStep(3);
+  };
+
+  const handleNextFromStep3 = () => {
+    setError(null);
+    if (minIdleRunners > maxConcurrency) {
+      setError("Min idle warm runners cannot exceed max concurrency");
+      return;
+    }
+    setCurrentStep(4);
+  };
+
+  const handleCreatePool = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (selectedTargetUrls.length === 0) {
+      setError("At least one target URL is required");
+      return;
+    }
+
+    const effectiveLabels = labels.trim() || suggestedLabels;
+    const parsedLabels = effectiveLabels
+      .split(",")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    try {
+      await createPoolMutation.mutateAsync({
+        pool: {
+          $typeName: "supervisor.v1.Pool",
+          id: 0n,
+          name: poolName.trim(),
+          provider: deducedProvider,
+          repositoryUrl: selectedTargetUrls[0] || "",
+          minIdleRunners,
+          maxConcurrency,
+          labels:
+            parsedLabels.length > 0
+              ? parsedLabels
+              : suggestedLabels
+                  .split(",")
+                  .map((l) => l.trim())
+                  .filter(Boolean),
+          runnerImage: runnerImage.trim() || "ghcr.io/noosxe/gh-runner:latest",
+          allowDocker: isDockerLocked ? true : allowDocker,
+          renovate: renovateEnabled
+            ? {
+                $typeName: "supervisor.v1.RenovateConfig",
+                enabled: true,
+                cronSchedule: renovateCron.trim() || "0 2 * * *",
+                image: renovateImage.trim() || "renovate/renovate:latest",
+              }
+            : undefined,
+          activeRunners: 0,
+          idleRunners: 0,
+          authProfileId: selectedAuthProfile?.id ?? 0n,
+          scope,
+          cpuLimit: cpuLimit.trim() || "2.0",
+          memoryLimit: memoryLimit.trim() || "4GB",
+          maxRunnerLifetimeSeconds: 7200,
+          imageUpdateAvailable: false,
+          latestImage: "",
+          targetUrls: selectedTargetUrls,
+        },
+      });
+      onClose();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create runner pool");
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto">
+      <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900 text-xs my-8">
+        {/* Wizard Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <Server className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              Create Runner Pool Wizard
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Step Progress Stepper */}
+        <div className="mt-4 flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
+          {[
+            { step: 1, label: "Identity & Auth" },
+            { step: 2, label: "Scope & Discovery" },
+            { step: 3, label: "Runner Specs" },
+            { step: 4, label: "Review & Create" },
+          ].map((s) => {
+            const isActive = currentStep === s.step;
+            const isCompleted = currentStep > s.step;
+            return (
+              <div key={s.step} className="flex items-center gap-2">
+                <div
+                  className={`flex h-6 w-6 items-center justify-center rounded-full font-bold transition-colors ${
+                    isCompleted
+                      ? "bg-emerald-600 text-white"
+                      : isActive
+                        ? "bg-blue-600 text-white"
+                        : "bg-slate-100 text-slate-400 dark:bg-slate-800"
+                  }`}
+                >
+                  {isCompleted ? <Check className="h-3.5 w-3.5" /> : s.step}
+                </div>
+                <span
+                  className={`font-semibold hidden sm:inline ${
+                    isActive
+                      ? "text-blue-600 dark:text-blue-400"
+                      : isCompleted
+                        ? "text-slate-900 dark:text-white"
+                        : "text-slate-400"
+                  }`}
+                >
+                  {s.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Error Notification */}
+        {error && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Step 1: Identity & Credentials */}
+        {currentStep === 1 && (
+          <div className="mt-5 space-y-4">
+            <div>
+              <label
+                htmlFor="wizard-pool-name"
+                className="font-semibold text-slate-700 dark:text-slate-300 block mb-1"
+              >
+                Pool Name (Slug)
+              </label>
+              <input
+                id="wizard-pool-name"
+                type="text"
+                placeholder="e.g. arm64-ci-pool"
+                value={poolName}
+                onChange={(e) => setPoolName(e.target.value.toLowerCase())}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Lowercase letters, digits, and hyphens only. Used as container identifier prefix.
+              </p>
+              {poolName && !isNameSlugValid && (
+                <p className="mt-1 text-[11px] text-rose-500 font-medium">
+                  Invalid slug format: must contain only a-z, 0-9, and hyphens.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="wizard-auth-profile"
+                className="font-semibold text-slate-700 dark:text-slate-300 block mb-1"
+              >
+                Git Authentication Profile
+              </label>
+              <select
+                id="wizard-auth-profile"
+                value={authProfileId}
+                onChange={(e) => {
+                  setAuthProfileId(e.target.value);
+                  setSelectedTargetUrls([]);
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              >
+                {authProfiles?.map((prof) => (
+                  <option key={prof.id.toString()} value={prof.id.toString()}>
+                    {prof.name} ({prof.authMethod})
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[11px] text-slate-500">Deduced Provider:</span>
+                <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-950/50 dark:text-blue-400 capitalize">
+                  {deducedProvider}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleNextFromStep1}
+                disabled={!poolName.trim() || !isNameSlugValid || !selectedAuthProfile}
+                className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white shadow-xs hover:bg-blue-500 disabled:opacity-50"
+              >
+                <span>Continue to Scope & Targets</span>
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Scope & Target Discovery */}
+        {currentStep === 2 && (
+          <div className="mt-5 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-center">
+              <div>
+                <label
+                  htmlFor="wizard-scope"
+                  className="font-semibold text-slate-700 dark:text-slate-300 block mb-1"
+                >
+                  Pool Scope
+                </label>
+                <select
+                  id="wizard-scope"
+                  value={scope}
+                  onChange={(e) => {
+                    setScope(e.target.value as "repo" | "org");
+                    setSelectedTargetUrls([]);
+                  }}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                >
+                  <option value="repo">Repositories (Multi-Repo)</option>
+                  <option value="org">Organizations (Multi-Org)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 justify-end pt-5">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+                  <Layers className="h-3.5 w-3.5" />
+                  <span>
+                    {selectedTargetUrls.length}{" "}
+                    {scope === "repo" ? "Repositories" : "Organizations"} Selected
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* Target Discovery Search & Action Bar */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder={`Search discovered ${scope === "repo" ? "repositories" : "organizations"}...`}
+                  value={targetSearch}
+                  onChange={(e) => setTargetSearch(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white pl-8 pr-3 py-1.5 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSelectAllFiltered}
+                  disabled={filteredDiscoveredTargets.length === 0}
+                  className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Select All Filtered
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearSelection}
+                  disabled={selectedTargetUrls.length === 0}
+                  className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            {/* Discovered Items Container */}
+            <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 p-2 dark:border-slate-800 dark:bg-slate-950/40 space-y-1.5">
+              {isDiscovering && (
+                <div className="flex flex-col items-center justify-center py-10 text-slate-400 gap-2">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                  <span>
+                    Discovering accessible {scope === "repo" ? "repositories" : "organizations"}...
+                  </span>
+                </div>
+              )}
+
+              {!isDiscovering && discoveryError && (
+                <div className="flex flex-col items-center justify-center py-8 text-center px-4">
+                  <AlertCircle className="h-6 w-6 text-rose-500 mb-1" />
+                  <p className="text-rose-600 dark:text-rose-400 font-semibold">
+                    Failed to discover targets
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1 max-w-sm">
+                    {discoveryError instanceof Error
+                      ? discoveryError.message
+                      : "Upstream API error"}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => refetchDiscovery()}
+                    className="mt-3 rounded-lg bg-blue-600 px-3 py-1 font-semibold text-white hover:bg-blue-500"
+                  >
+                    Retry Discovery
+                  </button>
+                </div>
+              )}
+
+              {!isDiscovering && !discoveryError && filteredDiscoveredTargets.length === 0 && (
+                <div className="py-8 text-center text-slate-400">
+                  <FolderGit2 className="h-6 w-6 mx-auto mb-1 opacity-50" />
+                  <span>
+                    No matching {scope === "repo" ? "repositories" : "organizations"} found
+                  </span>
+                </div>
+              )}
+
+              {!isDiscovering &&
+                !discoveryError &&
+                filteredDiscoveredTargets.map((target) => {
+                  const isSelected = selectedTargetUrls.includes(target.htmlUrl);
+                  return (
+                    <div
+                      key={target.htmlUrl}
+                      onClick={() => handleToggleTarget(target.htmlUrl)}
+                      className={`flex items-start gap-3 rounded-xl border p-2.5 transition-colors cursor-pointer ${
+                        isSelected
+                          ? "border-blue-500 bg-blue-50/50 dark:border-blue-700 dark:bg-blue-950/30"
+                          : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
+                      }`}
+                    >
+                      <div className="pt-0.5 text-blue-600 dark:text-blue-400 shrink-0">
+                        {isSelected ? (
+                          <CheckSquare className="h-4 w-4" />
+                        ) : (
+                          <Square className="h-4 w-4 text-slate-400" />
+                        )}
+                      </div>
+
+                      {target.avatarUrl ? (
+                        <img
+                          src={target.avatarUrl}
+                          alt={target.name}
+                          className="h-6 w-6 rounded-md object-cover shrink-0 mt-0.5"
+                        />
+                      ) : scope === "org" ? (
+                        <Building className="h-5 w-5 text-slate-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <FolderGit2 className="h-5 w-5 text-slate-400 shrink-0 mt-0.5" />
+                      )}
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-900 dark:text-white truncate">
+                            {target.fullName || target.name}
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.2 text-[10px] font-medium border ${
+                              target.isPrivate
+                                ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900"
+                                : "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                            }`}
+                          >
+                            {target.isPrivate ? (
+                              <>
+                                <Lock className="h-2.5 w-2.5" />
+                                Private
+                              </>
+                            ) : (
+                              <>
+                                <Globe className="h-2.5 w-2.5" />
+                                Public
+                              </>
+                            )}
+                          </span>
+                        </div>
+                        {target.description && (
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                            {target.description}
+                          </p>
+                        )}
+                      </div>
+
+                      <a
+                        href={target.htmlUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-slate-400 hover:text-blue-600 p-1 shrink-0"
+                        title="Open in upstream git provider"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(1)}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span>Back</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleNextFromStep2}
+                disabled={selectedTargetUrls.length === 0}
+                className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white shadow-xs hover:bg-blue-500 disabled:opacity-50"
+              >
+                <span>Continue to Specifications</span>
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Specs & Quotas */}
+        {currentStep === 3 && (
+          <div className="mt-5 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="wizard-min-idle"
+                  className="font-semibold text-slate-700 dark:text-slate-300 block mb-1"
+                >
+                  Min Idle Warm Runners
+                </label>
+                <input
+                  id="wizard-min-idle"
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={minIdleRunners}
+                  onChange={(e) => setMinIdleRunners(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Set to 0 for scale-to-zero mode (ephemeral on-demand only).
+                </p>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="wizard-max-concurrency"
+                  className="font-semibold text-slate-700 dark:text-slate-300 block mb-1"
+                >
+                  Max Concurrency
+                </label>
+                <input
+                  id="wizard-max-concurrency"
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={maxConcurrency}
+                  onChange={(e) => setMaxConcurrency(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Total maximum simultaneous runner containers allowed across all targets.
+                </p>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label
+                  htmlFor="wizard-labels"
+                  className="font-semibold text-slate-700 dark:text-slate-300 block mb-1"
+                >
+                  Runner Labels
+                </label>
+                <input
+                  id="wizard-labels"
+                  type="text"
+                  value={labels}
+                  onChange={(e) => setCustomLabels(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                  <span>Comma-separated list matched in workflow runs.</span>
+                  {customLabels !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomLabels(null)}
+                      className="text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      Reset to suggested ({suggestedLabels})
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="wizard-runner-image"
+                  className="font-semibold text-slate-700 dark:text-slate-300 block mb-1"
+                >
+                  Runner Image
+                </label>
+                <input
+                  id="wizard-runner-image"
+                  type="text"
+                  value={runnerImage}
+                  onChange={(e) => setRunnerImage(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="wizard-cpu"
+                  className="font-semibold text-slate-700 dark:text-slate-300 block mb-1"
+                >
+                  CPU Limit
+                </label>
+                <input
+                  id="wizard-cpu"
+                  type="text"
+                  value={cpuLimit}
+                  onChange={(e) => setCpuLimit(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="wizard-mem"
+                  className="font-semibold text-slate-700 dark:text-slate-300 block mb-1"
+                >
+                  Memory Limit
+                </label>
+                <input
+                  id="wizard-mem"
+                  type="text"
+                  value={memoryLimit}
+                  onChange={(e) => setMemoryLimit(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                />
+              </div>
+            </div>
+
+            {/* Docker Socket Privilege */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+              <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={isDockerLocked ? true : allowDocker}
+                  disabled={isDockerLocked}
+                  onChange={(e) => setAllowDocker(e.target.checked)}
+                  className="h-4 w-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>Enable Docker-in-Docker socket access</span>
+              </label>
+              {isDockerLocked && (
+                <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                  Mandatory for {deducedProvider} pools (runner daemon communicates via Docker
+                  daemon).
+                </p>
+              )}
+            </div>
+
+            {/* Renovate Bot Section */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-950/40 space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-900 dark:text-white">
+                <input
+                  type="checkbox"
+                  checked={renovateEnabled}
+                  onChange={(e) => setRenovateEnabled(e.target.checked)}
+                  className="h-4 w-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="flex items-center gap-1.5">
+                  <Bot className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  Enable Automated Renovate Dependency Scans
+                </span>
+              </label>
+
+              {renovateEnabled && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <div>
+                    <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      Cron Schedule
+                    </label>
+                    <input
+                      type="text"
+                      value={renovateCron}
+                      onChange={(e) => setRenovateCron(e.target.value)}
+                      placeholder="0 2 * * *"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      Renovate Image
+                    </label>
+                    <input
+                      type="text"
+                      value={renovateImage}
+                      onChange={(e) => setRenovateImage(e.target.value)}
+                      placeholder="renovate/renovate:latest"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(2)}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span>Back</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleNextFromStep3}
+                className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white shadow-xs hover:bg-blue-500"
+              >
+                <span>Review & Confirm</span>
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: Review & Confirmation */}
+        {currentStep === 4 && (
+          <form onSubmit={handleCreatePool} className="mt-5 space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-950/40 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">{poolName}</h4>
+                  <p className="text-[11px] text-slate-500">
+                    Provider Profile: {selectedAuthProfile?.name} ({selectedAuthProfile?.authMethod}
+                    )
+                  </p>
+                </div>
+                <span className="inline-flex items-center rounded-md bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 capitalize">
+                  {deducedProvider} ({scope})
+                </span>
+              </div>
+
+              {/* Targets Summary */}
+              <div>
+                <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
+                  Associated Targets ({selectedTargetUrls.length}):
+                </span>
+                <div className="max-h-32 overflow-y-auto space-y-1 rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
+                  {selectedTargetUrls.map((url) => (
+                    <div key={url} className="flex items-center justify-between text-[11px]">
+                      <span className="font-mono text-slate-800 dark:text-slate-200 truncate">
+                        {url}
+                      </span>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-slate-400 hover:text-blue-500 ml-2 shrink-0"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Specs Grid */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-slate-200 pt-3 dark:border-slate-800">
+                <div>
+                  <span className="text-slate-400 block">Idle Warm</span>
+                  <span className="font-bold text-slate-900 dark:text-white">{minIdleRunners}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Max Limit</span>
+                  <span className="font-bold text-slate-900 dark:text-white">{maxConcurrency}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">CPU / RAM</span>
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {cpuLimit} / {memoryLimit}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Docker Access</span>
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {isDockerLocked || allowDocker ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Labels & Renovate */}
+              <div className="border-t border-slate-200 pt-3 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400">Labels:</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300">{labels}</span>
+                </div>
+                {renovateEnabled && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 font-medium">
+                    <Bot className="h-3.5 w-3.5" />
+                    Renovate Scheduled ({renovateCron})
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(3)}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span>Back</span>
+              </button>
+              <button
+                type="submit"
+                disabled={createPoolMutation.isPending}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-5 py-2 font-semibold text-white shadow-xs hover:bg-blue-500 disabled:opacity-50"
+              >
+                {createPoolMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Creating Runner Pool...</span>
+                  </>
+                ) : (
+                  <span>Create Runner Pool</span>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
