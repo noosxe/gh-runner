@@ -63,13 +63,14 @@ service PoolService {
   rpc CreatePool (CreatePoolRequest) returns (CreatePoolResponse);
   rpc UpdatePool (UpdatePoolRequest) returns (UpdatePoolResponse);
   rpc DeletePool (DeletePoolRequest) returns (DeletePoolResponse);
+  rpc DiscoverTargets (DiscoverTargetsRequest) returns (DiscoverTargetsResponse);
 }
 
 message Pool {
   int64 id = 1;
   string name = 2;
   string provider = 3;
-  string repository_url = 4;
+  string repository_url = 4; // Primary / legacy single target
   int32 min_idle_runners = 5;
   int32 max_concurrency = 6;
   repeated string labels = 7;
@@ -83,10 +84,11 @@ message Pool {
 
   // Resource configuration
   int64 auth_profile_id = 13;
-  string scope = 14;              // "repo", "org", or "global"
+  string scope = 14;              // "repo" or "org"
   string cpu_limit = 15;
   string memory_limit = 16;
   int32 max_runner_lifetime_seconds = 17;
+  repeated string target_urls = 18; // Multi-target URLs (homogeneously repos or orgs)
 }
 
 message RenovateConfig {
@@ -123,6 +125,24 @@ message DeletePoolRequest {
 
 message DeletePoolResponse {
   bool success = 1;
+}
+
+message DiscoverTargetsRequest {
+  int64 auth_profile_id = 1;
+  string scope = 2; // "repo" or "org"
+}
+
+message DiscoveredTarget {
+  string name = 1;
+  string full_name = 2;
+  string html_url = 3;
+  string description = 4;
+  bool is_private = 5;
+  string avatar_url = 6;
+}
+
+message DiscoverTargetsResponse {
+  repeated DiscoveredTarget targets = 1;
 }
 
 // ----------------------------------------
