@@ -61,7 +61,7 @@ jobs:
   build:
     name: Build Native Supervisor Image
     needs: changes
-    if: ${{ always() && (startsWith(github.ref, 'refs/tags/v') || needs.changes.outputs.image == 'true') }}
+    if: ${{ always() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || needs.changes.outputs.image == 'true') }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:

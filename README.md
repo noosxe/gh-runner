@@ -22,6 +22,7 @@ A lightweight, secure, and self-contained self-hosted runner and orchestrator st
 - **Unified Multi-Provider Runner Image (`runner-aio`):** Multi-stage container image bundling GitHub Actions runner, Gitea `act_runner`, and Forgejo `forgejo-runner` with automatic provider detection, non-root user execution (`UID 1001`), and active signal traps for clean deregistration.
 - **Automated Health Probes:** Serves `GET /healthz` (liveness: process and SQLite accessible) and `GET /readyz` (readiness: database, audit loop, and Docker daemon reachability; reports `degraded` during Docker outages while remaining responsive).
 - **Reverse-Proxy TLS & Hardened Cookies:** Designed for TLS termination via external reverse proxies (Caddy, Traefik, Nginx) with unbuffered HTTP/2 streaming support and configurable `SUPERVISOR_SECURE_COOKIE` enforcing `Secure; HttpOnly; SameSite=Strict` attributes.
+- **Intelligent Gatekeeper CI/CD Filtering:** Unified path-based filtering architecture (`dorny/paths-filter@v3`) across all 5 GitHub Actions workflows (`go.yml`, `web.yml`, `lint.yml`, `build.yml`, `supervisor-build.yml`), diffing PR file changes in ~4s and skipping unimpacted heavy test, lint, and build matrices without dropping required branch status checks.
 - **Comprehensive Automated Test Suites:** Extensive test coverage across Go unit, race detection (`go test -race`), and testify test suites (`mockery`-backed Docker and GitProvider clients), runner script test harnesses, and 20 frontend Vitest test suites.
 
 ---
@@ -170,7 +171,6 @@ For comprehensive pipeline architecture, gatekeeper filtering rules, and cross-s
 
 ## 🗺️ Roadmap & Future Enhancements
 
-- **Path-Based CI Workflow Filtering:** *[Design Phase]* Extending the standardized gatekeeper pattern (`dorny/paths-filter@v3`) across all GitHub Actions workflows to selectively trigger only relevant test, lint, and build jobs per PR.
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.
