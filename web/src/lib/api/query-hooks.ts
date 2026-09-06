@@ -79,6 +79,19 @@ export function useSetAppSetting() {
   });
 }
 
+export function useCompleteOnboarding() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      return await onboardingClient.completeOnboarding({});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.onboardingStatus });
+      queryClient.invalidateQueries({ queryKey: queryKeys.session });
+    },
+  });
+}
+
 // Direct Query Helpers (used for route guards and preloading)
 export async function fetchOnboardingStatus(qc: QueryClient) {
   try {
@@ -96,6 +109,7 @@ export async function fetchOnboardingStatus(qc: QueryClient) {
       adminCreated: false,
       authProfileExists: false,
       poolExists: false,
+      onboardingCompleted: false,
     };
   }
 }

@@ -106,4 +106,20 @@ describe("TanStack Query hooks with ConnectRPC", () => {
     expect(triggerRes.success).toBe(true);
     expect(triggerRes.runId).toBe(43n);
   });
+
+  it("useCompleteOnboarding invokes completeOnboarding and invalidates queries", async () => {
+    vi.spyOn(onboardingClient, "completeOnboarding").mockResolvedValue({
+      success: true,
+    } as any);
+
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { useCompleteOnboarding } = await import("./query-hooks");
+
+    const { result } = renderHook(() => useCompleteOnboarding(), { wrapper });
+    const res = await result.current.mutateAsync();
+
+    expect(res.success).toBe(true);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["onboarding", "status"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["auth", "session"] });
+  });
 });
