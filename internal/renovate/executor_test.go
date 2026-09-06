@@ -219,6 +219,14 @@ func (m *mockGitProvider) PollQueuedJobs(ctx context.Context, targetURL string) 
 	return 0, nil
 }
 
+func (m *mockGitProvider) DiscoverOrganizations(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	return nil, nil
+}
+
+func (m *mockGitProvider) DiscoverRepositories(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	return nil, nil
+}
+
 func (m *mockGitProvider) GetRenovateToken(ctx context.Context, targetURL string) (string, error) {
 	if m.renovateErr != nil {
 		return "", m.renovateErr
@@ -244,6 +252,14 @@ func (m *mockGitProviderWithoutRenovate) ScalingMode() provider.ScalingMode {
 
 func (m *mockGitProviderWithoutRenovate) PollQueuedJobs(ctx context.Context, targetURL string) (int, error) {
 	return 0, nil
+}
+
+func (m *mockGitProviderWithoutRenovate) DiscoverOrganizations(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	return nil, nil
+}
+
+func (m *mockGitProviderWithoutRenovate) DiscoverRepositories(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	return nil, nil
 }
 
 type mockProviderResolver struct {

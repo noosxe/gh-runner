@@ -296,6 +296,281 @@ func (c *Client) getInstallationToken(ctx context.Context, owner, repo string) (
 	return res.Token, nil
 }
 
+func (c *Client) getInstallationTokenByID(ctx context.Context, installationID int64) (string, error) {
+	jwt, err := GenerateAppJWT(c.appID, c.privateKey, time.Now())
+	if err != nil {
+		return "", err
+	}
+
+	endpoint := fmt.Sprintf("%s/app/installations/%d/access_tokens", c.baseURL, installationID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBufferString("{}"))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	c.setCommonHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("requesting installation access token: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to create installation token (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var res struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", err
+	}
+	return res.Token, nil
+}
+
+// DiscoverOrganizations queries organizations accessible to the configured credentials.
+func (c *Client) DiscoverOrganizations(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	if c.authMethod == provider.AuthMethodGitHubApp {
+		jwt, err := GenerateAppJWT(c.appID, c.privateKey, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("generating app JWT: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/app/installations?per_page=100", nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+jwt)
+		c.setCommonHeaders(req)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("listing app installations: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("listing app installations (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var installations []struct {
+			ID      int64 `json:"id"`
+			Account struct {
+				Login       string `json:"login"`
+				HTMLURL     string `json:"html_url"`
+				AvatarURL   string `json:"avatar_url"`
+				Type        string `json:"type"`
+				Description string `json:"description"`
+			} `json:"account"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&installations); err != nil {
+			return nil, fmt.Errorf("decoding installations: %w", err)
+		}
+
+		targets := make([]provider.DiscoveredTarget, 0, len(installations))
+		for _, inst := range installations {
+			htmlURL := inst.Account.HTMLURL
+			if htmlURL == "" {
+				htmlURL = "https://github.com/" + inst.Account.Login
+			}
+			targets = append(targets, provider.DiscoveredTarget{
+				Name:        inst.Account.Login,
+				FullName:    inst.Account.Login,
+				HTMLURL:     htmlURL,
+				Description: inst.Account.Description,
+				AvatarURL:   inst.Account.AvatarURL,
+			})
+		}
+		return targets, nil
+	}
+
+	// PAT mode
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/user/orgs?per_page=100", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.pat)
+	c.setCommonHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("listing user orgs: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("listing user orgs (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var orgs []struct {
+		Login       string `json:"login"`
+		Description string `json:"description"`
+		AvatarURL   string `json:"avatar_url"`
+		HTMLURL     string `json:"html_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&orgs); err != nil {
+		return nil, fmt.Errorf("decoding user orgs: %w", err)
+	}
+
+	targets := make([]provider.DiscoveredTarget, 0, len(orgs))
+	for _, o := range orgs {
+		htmlURL := o.HTMLURL
+		if htmlURL == "" {
+			htmlURL = "https://github.com/" + o.Login
+		}
+		targets = append(targets, provider.DiscoveredTarget{
+			Name:        o.Login,
+			FullName:    o.Login,
+			HTMLURL:     htmlURL,
+			Description: o.Description,
+			AvatarURL:   o.AvatarURL,
+		})
+	}
+	return targets, nil
+}
+
+// DiscoverRepositories queries repositories accessible to the configured credentials.
+func (c *Client) DiscoverRepositories(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	if c.authMethod == provider.AuthMethodGitHubApp {
+		jwt, err := GenerateAppJWT(c.appID, c.privateKey, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("generating app JWT: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/app/installations?per_page=100", nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+jwt)
+		c.setCommonHeaders(req)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("listing app installations: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("listing app installations (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var installations []struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&installations); err != nil {
+			return nil, fmt.Errorf("decoding installations: %w", err)
+		}
+
+		var targets []provider.DiscoveredTarget
+		seen := make(map[string]bool)
+		for _, inst := range installations {
+			tok, err := c.getInstallationTokenByID(ctx, inst.ID)
+			if err != nil {
+				continue
+			}
+
+			reposReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/installation/repositories?per_page=100", nil)
+			if err != nil {
+				continue
+			}
+			reposReq.Header.Set("Authorization", "Bearer "+tok)
+			c.setCommonHeaders(reposReq)
+
+			reposResp, err := c.httpClient.Do(reposReq)
+			if err != nil {
+				continue
+			}
+
+			if reposResp.StatusCode != http.StatusOK {
+				_ = reposResp.Body.Close()
+				continue
+			}
+
+			var reposData struct {
+				Repositories []struct {
+					Name        string `json:"name"`
+					FullName    string `json:"full_name"`
+					HTMLURL     string `json:"html_url"`
+					Description string `json:"description"`
+					Private     bool   `json:"private"`
+					Owner       struct {
+						AvatarURL string `json:"avatar_url"`
+					} `json:"owner"`
+				} `json:"repositories"`
+			}
+			_ = json.NewDecoder(reposResp.Body).Decode(&reposData)
+			_ = reposResp.Body.Close()
+
+			for _, r := range reposData.Repositories {
+				if seen[r.HTMLURL] {
+					continue
+				}
+				seen[r.HTMLURL] = true
+				targets = append(targets, provider.DiscoveredTarget{
+					Name:        r.Name,
+					FullName:    r.FullName,
+					HTMLURL:     r.HTMLURL,
+					Description: r.Description,
+					IsPrivate:   r.Private,
+					AvatarURL:   r.Owner.AvatarURL,
+				})
+			}
+		}
+		return targets, nil
+	}
+
+	// PAT mode
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/user/repos?per_page=100&sort=updated", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.pat)
+	c.setCommonHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("listing user repos: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("listing user repos (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var repos []struct {
+		Name        string `json:"name"`
+		FullName    string `json:"full_name"`
+		HTMLURL     string `json:"html_url"`
+		Description string `json:"description"`
+		Private     bool   `json:"private"`
+		Owner       struct {
+			AvatarURL string `json:"avatar_url"`
+		} `json:"owner"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
+		return nil, fmt.Errorf("decoding user repos: %w", err)
+	}
+
+	targets := make([]provider.DiscoveredTarget, 0, len(repos))
+	for _, r := range repos {
+		targets = append(targets, provider.DiscoveredTarget{
+			Name:        r.Name,
+			FullName:    r.FullName,
+			HTMLURL:     r.HTMLURL,
+			Description: r.Description,
+			IsPrivate:   r.Private,
+			AvatarURL:   r.Owner.AvatarURL,
+		})
+	}
+	return targets, nil
+}
+
 func (c *Client) findInstallationID(ctx context.Context, owner, repo string) (int64, error) {
 	jwt, err := GenerateAppJWT(c.appID, c.privateKey, time.Now())
 	if err != nil {

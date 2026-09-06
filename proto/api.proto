@@ -64,6 +64,8 @@ service PoolService {
   rpc TerminateRunner (TerminateRunnerRequest) returns (TerminateRunnerResponse);
   // WatchRunners provides near-realtime server-streaming push of active runner instances
   rpc WatchRunners (WatchRunnersRequest) returns (stream WatchRunnersResponse);
+  // DiscoverTargets queries available repositories or organizations from an auth profile
+  rpc DiscoverTargets (DiscoverTargetsRequest) returns (DiscoverTargetsResponse);
 }
 
 message Pool {
@@ -92,6 +94,9 @@ message Pool {
   // Image update metadata
   bool image_update_available = 18;
   string latest_image = 19;
+
+  // Multi-target URLs
+  repeated string target_urls = 20;
 }
 
 message RenovateConfig {
@@ -174,6 +179,24 @@ message WatchRunnersRequest {
 
 message WatchRunnersResponse {
   repeated RunnerInstance runners = 1;
+}
+
+message DiscoverTargetsRequest {
+  int64 auth_profile_id = 1;
+  string scope = 2; // "repo" or "org"
+}
+
+message DiscoveredTarget {
+  string name = 1;
+  string full_name = 2;
+  string html_url = 3;
+  string description = 4;
+  bool is_private = 5;
+  string avatar_url = 6;
+}
+
+message DiscoverTargetsResponse {
+  repeated DiscoveredTarget targets = 1;
 }
 
 // ----------------------------------------

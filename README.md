@@ -26,7 +26,8 @@ A lightweight, secure, and self-contained self-hosted runner and orchestrator st
 - **Automated Dependabot Ecosystem Maintenance:** Automated weekly dependency updates via GitHub Dependabot across `github-actions`, `gomod`, `npm` (`/web`), and `docker` ecosystems, featuring grouped minor/patch updates and an enforced 1-day supply chain cool-off period on frontend npm packages to defend against zero-day registry compromises.
 - **Modular Moby Engine SDK (M16):** Decoupled container orchestration engine utilizing `github.com/moby/moby/client` and `github.com/moby/moby/api`, eliminating monolithic Docker daemon transitive dependencies, removing legacy `replace` directives, and resolving upstream daemon CVE alerts.
 - **Playwright End-to-End (E2E) Testing Suite (M17):** Hermetic, containerized Playwright test harness testing all human-usable web supervisor flows (authentication, onboarding wizard, pools management, streaming logs, Renovate, and maintenance) with local mock Git provider and Docker engine servers. Manual/local trigger only via `make test-e2e`.
-- **Comprehensive Automated Test Suites:** Extensive test coverage across Go unit, race detection (`go test -race`), and testify test suites (`mockery`-backed Docker and GitProvider clients), runner script test harnesses, and 20 frontend Vitest test suites.
+- **Multi-Target Runner Pools & Upstream Discovery Wizard (M18):** 4-step guided creation wizard with automatic repository and organization target discovery across GitHub (App & PAT), Gitea, and Forgejo profiles. Enables a single runner pool to dynamically serve multiple repositories or organizations under unified concurrency quotas and round-robin warm standby provisioning, with strict scope homogeneity enforcement.
+- **Comprehensive Automated Test Suites:** Extensive test coverage across Go unit, race detection (`go test -race`), and testify test suites (`mockery`-backed Docker and GitProvider clients), runner script test harnesses, and 20+ frontend Vitest test suites.
 
 ---
 
@@ -321,7 +322,6 @@ For comprehensive pipeline architecture, gatekeeper filtering rules, and cross-s
 
 ## 🗺️ Roadmap & Future Enhancements
 
-- **Multi-Target Runner Pools & Upstream Discovery Wizard:** *[Design Phase]* 4-step pool creation wizard with automatic repository/organization discovery across GitHub, Gitea, and Forgejo profiles, enabling a single pool to dynamically serve multiple repositories or organizations under unified concurrency quotas.
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.

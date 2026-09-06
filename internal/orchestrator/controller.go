@@ -46,6 +46,7 @@ const (
 // ProvisionRequest represents a queued runner provisioning request when the global quota is saturated.
 type ProvisionRequest struct {
 	PoolName  string    `json:"pool_name"`
+	TargetURL string    `json:"target_url,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -62,6 +63,11 @@ type AppSettingsReader interface {
 // PoolRepository abstracts loading active runner pools from the database.
 type PoolRepository interface {
 	ListRunnerPools(ctx context.Context) ([]db.RunnerPool, error)
+}
+
+// PoolTargetsRepository abstracts loading pool targets from the database.
+type PoolTargetsRepository interface {
+	ListPoolTargetsByPoolId(ctx context.Context, poolID int64) ([]db.PoolTarget, error)
 }
 
 // TaskExitHandler processes termination events for one-off task containers (e.g. Renovate bot) (docs/03 §5).
@@ -740,10 +746,14 @@ func (c *PoolController) deregisterRunner(ctx context.Context, r RunnerStatus) {
 				if runnerName == "" {
 					runnerName = r.ID
 				}
-				if err := dereg.DeregisterRunner(ctx, provider.RegistrationScope(p.Scope), p.RepositoryUrl, runnerName); err != nil {
-					c.logger.Warn("failed to deregister runner via provider API", "runner", runnerName, "err", err)
+				targetURL := r.TargetURL
+				if targetURL == "" {
+					targetURL = p.RepositoryUrl
+				}
+				if err := dereg.DeregisterRunner(ctx, provider.RegistrationScope(p.Scope), targetURL, runnerName); err != nil {
+					c.logger.Warn("failed to deregister runner via provider API", "runner", runnerName, "target", targetURL, "err", err)
 				} else {
-					c.logger.Info("successfully deregistered runner via provider API", "runner", runnerName)
+					c.logger.Info("successfully deregistered runner via provider API", "runner", runnerName, "target", targetURL)
 				}
 			}
 			return
@@ -756,6 +766,27 @@ func (c *PoolController) loadPools(ctx context.Context) ([]db.RunnerPool, error)
 		return nil, nil
 	}
 	return c.db.ListRunnerPools(ctx)
+}
+
+func (c *PoolController) loadPoolTargets(ctx context.Context, p db.RunnerPool) []string {
+	if tr, ok := c.db.(PoolTargetsRepository); ok {
+		targets, err := tr.ListPoolTargetsByPoolId(ctx, p.ID)
+		if err == nil && len(targets) > 0 {
+			urls := make([]string, 0, len(targets))
+			for _, t := range targets {
+				if tURL := strings.TrimSpace(t.TargetUrl); tURL != "" {
+					urls = append(urls, tURL)
+				}
+			}
+			if len(urls) > 0 {
+				return urls
+			}
+		}
+	}
+	if strings.TrimSpace(p.RepositoryUrl) != "" {
+		return []string{strings.TrimSpace(p.RepositoryUrl)}
+	}
+	return nil
 }
 
 func (c *PoolController) validateAndProvisionPool(ctx context.Context, p db.RunnerPool) error {
@@ -803,27 +834,36 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 		}
 	}
 
+	targets := c.loadPoolTargets(ctx, p)
+	if len(targets) == 0 {
+		return nil
+	}
+
 	effectiveTarget := p.MinIdleRunners
 
 	// Polling-based scaling for providers without webhook support (e.g. Forgejo per docs/03 §3b, RUN-70):
-	// Every audit cycle calls PollQueuedJobs(); if queued_jobs > idle_runners, provision up to max_concurrency.
+	// Every audit cycle calls PollQueuedJobs() across all targets; if queued_jobs > idle_runners, provision up to max_concurrency.
 	if gitProv != nil && gitProv.ScalingMode() == provider.ScalingPolling {
-		queuedJobs, err := gitProv.PollQueuedJobs(ctx, p.RepositoryUrl)
-		if err != nil {
-			c.logger.Warn("polling queued jobs for pool failed", "pool", p.Name, "err", err)
-		} else {
-			idleCount := int64(len(idleRunners))
-			if int64(queuedJobs) > idleCount {
-				deficit := int64(queuedJobs) - idleCount
-				c.logger.Info("polling detected queued jobs exceeding idle runners",
-					"pool", p.Name,
-					"queued_jobs", queuedJobs,
-					"idle_runners", idleCount,
-					"additional_needed", deficit,
-				)
-				if activeCount+deficit > effectiveTarget {
-					effectiveTarget = activeCount + deficit
-				}
+		totalQueued := 0
+		for _, target := range targets {
+			queuedJobs, err := gitProv.PollQueuedJobs(ctx, target)
+			if err != nil {
+				c.logger.Warn("polling queued jobs for target failed", "pool", p.Name, "target", target, "err", err)
+			} else {
+				totalQueued += queuedJobs
+			}
+		}
+		idleCount := int64(len(idleRunners))
+		if int64(totalQueued) > idleCount {
+			deficit := int64(totalQueued) - idleCount
+			c.logger.Info("polling detected queued jobs exceeding idle runners",
+				"pool", p.Name,
+				"queued_jobs", totalQueued,
+				"idle_runners", idleCount,
+				"additional_needed", deficit,
+			)
+			if activeCount+deficit > effectiveTarget {
+				effectiveTarget = activeCount + deficit
 			}
 		}
 	}
@@ -921,6 +961,8 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 			break
 		}
 
+		targetURL := targets[int(activeCount)%len(targets)]
+
 		// Check global quota circuit breaker (Total Allowed Runners per docs/03 §4, docs/05 §3)
 		if c.globalMaxRunners > 0 && c.TotalActiveRunners() >= c.globalMaxRunners {
 			c.logger.Warn("global runner quota saturated, queuing provisioning request internally",
@@ -928,11 +970,11 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 				"global_active", c.TotalActiveRunners(),
 				"global_max", c.globalMaxRunners,
 			)
-			c.enqueueRequest(p.Name)
+			c.enqueueRequest(p.Name, targetURL)
 			continue
 		}
 
-		if err := c.spawnSingleRunner(ctx, p, gitProv, onDemand); err != nil {
+		if err := c.spawnSingleRunner(ctx, p, gitProv, onDemand, targetURL); err != nil {
 			return err
 		}
 		activeCount++
@@ -941,7 +983,7 @@ func (c *PoolController) reconcilePoolWithProvider(ctx context.Context, p db.Run
 	return nil
 }
 
-func (c *PoolController) spawnSingleRunner(ctx context.Context, p db.RunnerPool, gitProv provider.GitProvider, onDemand bool) error {
+func (c *PoolController) spawnSingleRunner(ctx context.Context, p db.RunnerPool, gitProv provider.GitProvider, onDemand bool, targetURL string) error {
 	if gitProv == nil {
 		var err error
 		gitProv, err = c.providerResolver.ResolveProvider(ctx, p.AuthProfileID)
@@ -950,26 +992,37 @@ func (c *PoolController) spawnSingleRunner(ctx context.Context, p db.RunnerPool,
 		}
 	}
 
-	token, err := gitProv.GetRegistrationToken(ctx, provider.RegistrationScope(p.Scope), p.RepositoryUrl)
+	if targetURL == "" {
+		targetURL = p.RepositoryUrl
+	}
+
+	token, err := gitProv.GetRegistrationToken(ctx, provider.RegistrationScope(p.Scope), targetURL)
 	if err != nil {
-		return fmt.Errorf("getting registration token for pool %q: %w", p.Name, err)
+		return fmt.Errorf("getting registration token for pool %q target %q: %w", p.Name, targetURL, err)
 	}
 
 	containerName := GenerateContainerName(p.Name)
 	labels := formatLabels(p.Labels)
 
 	env := []string{
-		"GITHUB_REPOSITORY_URL=" + p.RepositoryUrl,
+		"GITHUB_REPOSITORY_URL=" + targetURL,
 		"RUNNER_TOKEN=" + token,
 		"RUNNER_NAME=" + containerName,
 		"RUNNER_LABELS=" + labels,
 		"RUNNER_WORKDIR=_work",
 		"RUNNER_EPHEMERAL=1",
 	}
+	if strings.Contains(strings.ToLower(p.Provider), "gitea") {
+		env = append(env, "GITEA_INSTANCE_URL="+targetURL)
+	} else if strings.Contains(strings.ToLower(p.Provider), "forgejo") {
+		env = append(env, "FORGEJO_INSTANCE_URL="+targetURL)
+	}
 
 	config := RunnerConfig{
 		Name:        containerName,
 		PoolName:    p.Name,
+		RepoURL:     targetURL,
+		Token:       token,
 		Image:       p.RunnerImage,
 		AllowDocker: p.AllowDocker,
 		Env:         env,
@@ -993,12 +1046,13 @@ func (c *PoolController) spawnSingleRunner(ctx context.Context, p db.RunnerPool,
 		State:     "running",
 		SpawnedAt: time.Now().UTC(),
 		OnDemand:  onDemand,
+		TargetURL: targetURL,
 	})
 
 	if onDemand {
-		c.logger.Info("spawned on-demand runner", "pool", p.Name, "id", id)
+		c.logger.Info("spawned on-demand runner", "pool", p.Name, "id", id, "target", targetURL)
 	} else {
-		c.logger.Info("spawned idle runner", "pool", p.Name, "id", id)
+		c.logger.Info("spawned standby runner", "pool", p.Name, "id", id, "target", targetURL)
 	}
 	return nil
 }
@@ -1089,12 +1143,13 @@ func (c *PoolController) QueueLengthForPool(poolName string) int {
 	return count
 }
 
-func (c *PoolController) enqueueRequest(poolName string) {
+func (c *PoolController) enqueueRequest(poolName, targetURL string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.queue = append(c.queue, ProvisionRequest{
 		PoolName:  poolName,
+		TargetURL: targetURL,
 		CreatedAt: time.Now().UTC(),
 	})
 }
@@ -1145,7 +1200,17 @@ func (c *PoolController) drainQueue(ctx context.Context) {
 			continue
 		}
 
-		if err := c.spawnSingleRunner(ctx, p, nil, true); err != nil {
+		targetURL := req.TargetURL
+		if targetURL == "" {
+			targets := c.loadPoolTargets(ctx, p)
+			if len(targets) > 0 {
+				targetURL = targets[int(poolActive)%len(targets)]
+			} else {
+				targetURL = p.RepositoryUrl
+			}
+		}
+
+		if err := c.spawnSingleRunner(ctx, p, nil, true, targetURL); err != nil {
 			c.logger.Error("failed spawning queued runner", "pool", p.Name, "err", err)
 			remaining = append(remaining, req)
 			continue

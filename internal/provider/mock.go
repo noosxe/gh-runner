@@ -14,6 +14,24 @@ type MockProvider struct {
 	PollQueuedJobsFn      func(ctx context.Context, targetURL string) (int, error)
 	DeregisterRunnerFn    func(ctx context.Context, scope RegistrationScope, targetURL, runnerName string) error
 	GetRenovateTokenFn    func(ctx context.Context, targetURL string) (string, error)
+	DiscoverOrganizationsFn func(ctx context.Context) ([]DiscoveredTarget, error)
+	DiscoverRepositoriesFn  func(ctx context.Context) ([]DiscoveredTarget, error)
+}
+
+// DiscoverOrganizations delegates to DiscoverOrganizationsFn if set, otherwise returns nil.
+func (m *MockProvider) DiscoverOrganizations(ctx context.Context) ([]DiscoveredTarget, error) {
+	if m.DiscoverOrganizationsFn != nil {
+		return m.DiscoverOrganizationsFn(ctx)
+	}
+	return nil, nil
+}
+
+// DiscoverRepositories delegates to DiscoverRepositoriesFn if set, otherwise returns nil.
+func (m *MockProvider) DiscoverRepositories(ctx context.Context) ([]DiscoveredTarget, error) {
+	if m.DiscoverRepositoriesFn != nil {
+		return m.DiscoverRepositoriesFn(ctx)
+	}
+	return nil, nil
 }
 
 // GetRegistrationToken delegates to RegistrationTokenFn if set, otherwise returns a default token.
@@ -106,6 +124,22 @@ func (m *MockGitProvider) DeregisterRunner(ctx context.Context, scope Registrati
 func (m *MockGitProvider) GetRenovateToken(ctx context.Context, targetURL string) (string, error) {
 	args := m.Called(ctx, targetURL)
 	return args.String(0), args.Error(1)
+}
+
+func (m *MockGitProvider) DiscoverOrganizations(ctx context.Context) ([]DiscoveredTarget, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]DiscoveredTarget), args.Error(1)
+}
+
+func (m *MockGitProvider) DiscoverRepositories(ctx context.Context) ([]DiscoveredTarget, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]DiscoveredTarget), args.Error(1)
 }
 
 var _ GitProvider = (*MockGitProvider)(nil)

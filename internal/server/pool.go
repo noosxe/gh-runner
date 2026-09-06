@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/noosxe/gh-runner/internal/db"
 	supervisorv1 "github.com/noosxe/gh-runner/internal/pb/supervisor/v1"
 	"github.com/noosxe/gh-runner/internal/pb/supervisor/v1/supervisorv1connect"
+	"github.com/noosxe/gh-runner/internal/provider"
 )
 
 // PoolDatabase defines the database queries required by PoolService.
@@ -28,6 +30,10 @@ type PoolDatabase interface {
 	GetRenovateConfigByPoolId(ctx context.Context, poolID int64) (db.RenovateConfig, error)
 	CreateRenovateConfig(ctx context.Context, arg db.CreateRenovateConfigParams) (db.RenovateConfig, error)
 	UpdateRenovateConfig(ctx context.Context, arg db.UpdateRenovateConfigParams) (db.RenovateConfig, error)
+	ListPoolTargetsByPoolId(ctx context.Context, poolID int64) ([]db.PoolTarget, error)
+	AddPoolTarget(ctx context.Context, arg db.AddPoolTargetParams) (db.PoolTarget, error)
+	DeletePoolTargetsByPoolId(ctx context.Context, poolID int64) error
+	GetDecryptedAuthProfileById(ctx context.Context, id int64) (*db.DecryptedAuthProfile, error)
 }
 
 // PoolStatsProvider provides live active/idle runner counts and runtime reload capabilities.
@@ -55,21 +61,39 @@ type RunnerManager interface {
 	TerminateRunner(ctx context.Context, poolName, containerID string) error
 }
 
+// TargetDiscovererFunc queries available repositories or organizations using a decrypted profile.
+type TargetDiscovererFunc func(ctx context.Context, profile db.DecryptedAuthProfile, scope string) ([]provider.DiscoveredTarget, error)
+
+// PoolServiceOption configures a PoolService instance.
+type PoolServiceOption func(*PoolService)
+
+// WithDiscoverer overrides the default target discovery function.
+func WithDiscoverer(fn TargetDiscovererFunc) PoolServiceOption {
+	return func(s *PoolService) {
+		s.discoverer = fn
+	}
+}
+
 // PoolService implements supervisorv1connect.PoolServiceHandler.
 type PoolService struct {
 	supervisorv1connect.UnimplementedPoolServiceHandler
 	db            PoolDatabase
 	statsProvider PoolStatsProvider
 	runnerMgr     RunnerManager
+	discoverer    TargetDiscovererFunc
 }
 
 // NewPoolService constructs a PoolService instance.
-func NewPoolService(database PoolDatabase, statsProvider PoolStatsProvider, runnerMgr RunnerManager) *PoolService {
-	return &PoolService{
+func NewPoolService(database PoolDatabase, statsProvider PoolStatsProvider, runnerMgr RunnerManager, opts ...PoolServiceOption) *PoolService {
+	s := &PoolService{
 		db:            database,
 		statsProvider: statsProvider,
 		runnerMgr:     runnerMgr,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func parseLabels(raw string) []string {
@@ -96,6 +120,15 @@ func (s *PoolService) toProto(ctx context.Context, p db.RunnerPool) *supervisorv
 				Image:        cfg.Image,
 			}
 		}
+		if targets, err := s.db.ListPoolTargetsByPoolId(ctx, p.ID); err == nil && len(targets) > 0 {
+			urls := make([]string, 0, len(targets))
+			for _, t := range targets {
+				urls = append(urls, t.TargetUrl)
+			}
+			proto.TargetUrls = urls
+		} else if p.RepositoryUrl != "" {
+			proto.TargetUrls = []string{p.RepositoryUrl}
+		}
 	}
 	return proto
 }
@@ -118,6 +151,10 @@ func ConvertDBPoolToProto(p db.RunnerPool, stats PoolStatsProvider) *supervisorv
 		CpuLimit:                 p.CpuLimit.String,
 		MemoryLimit:              p.MemoryLimit.String,
 		MaxRunnerLifetimeSeconds: int32(p.MaxRunnerLifetimeSeconds),
+	}
+
+	if p.RepositoryUrl != "" {
+		protoPool.TargetUrls = []string{p.RepositoryUrl}
 	}
 
 	if stats != nil {
@@ -146,7 +183,43 @@ func validatePoolInput(p *supervisorv1.Pool) error {
 	}
 
 	if strings.TrimSpace(p.RepositoryUrl) == "" {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("repository_url must not be empty"))
+		if len(p.TargetUrls) > 0 {
+			p.RepositoryUrl = strings.TrimSpace(p.TargetUrls[0])
+		} else {
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("repository_url or target_urls must not be empty"))
+		}
+	}
+
+	scope := strings.ToLower(strings.TrimSpace(p.Scope))
+	if scope == "" {
+		scope = "repo"
+	}
+	if scope != "repo" && scope != "org" && scope != "global" {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid pool scope %q: must be 'repo' or 'org'", p.Scope))
+	}
+
+	targets := p.TargetUrls
+	if len(targets) == 0 && p.RepositoryUrl != "" {
+		targets = []string{p.RepositoryUrl}
+	}
+
+	for _, target := range targets {
+		t := strings.TrimSpace(target)
+		if t == "" {
+			continue
+		}
+		u, err := url.Parse(t)
+		if err != nil || u.Host == "" {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid target url %q", target))
+		}
+		trimmedPath := strings.Trim(u.Path, "/")
+		parts := strings.Split(trimmedPath, "/")
+		if scope == "repo" && (trimmedPath == "" || len(parts) < 2) {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("target %q is not a repository URL (pool scope is 'repo'); mixing repositories and organizations is not allowed", target))
+		}
+		if scope == "org" && len(parts) >= 2 {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("target %q is a repository URL (pool scope is 'org'); mixing repositories and organizations is not allowed", target))
+		}
 	}
 
 	// Gitea and Forgejo require allow_docker=true (docs/05 §4)
@@ -249,6 +322,21 @@ func (s *PoolService) CreatePool(ctx context.Context, req *connect.Request[super
 		})
 	}
 
+	// Persist target URLs into pool_targets
+	targetURLs := pool.TargetUrls
+	if len(targetURLs) == 0 && created.RepositoryUrl != "" {
+		targetURLs = []string{created.RepositoryUrl}
+	}
+	for _, t := range targetURLs {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			_, _ = s.db.AddPoolTarget(ctx, db.AddPoolTargetParams{
+				PoolID:    created.ID,
+				TargetUrl: t,
+			})
+		}
+	}
+
 	recordAuditLog(ctx, s.db, "pool.create", "runner_pool", &created.ID, map[string]any{
 		"name":            created.Name,
 		"provider":        created.Provider,
@@ -339,6 +427,22 @@ func (s *PoolService) UpdatePool(ctx context.Context, req *connect.Request[super
 		}
 	}
 
+	// Update pool_targets
+	targetURLs := pool.TargetUrls
+	if len(targetURLs) == 0 && updated.RepositoryUrl != "" {
+		targetURLs = []string{updated.RepositoryUrl}
+	}
+	_ = s.db.DeletePoolTargetsByPoolId(ctx, pool.Id)
+	for _, t := range targetURLs {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			_, _ = s.db.AddPoolTarget(ctx, db.AddPoolTargetParams{
+				PoolID:    pool.Id,
+				TargetUrl: t,
+			})
+		}
+	}
+
 	recordAuditLog(ctx, s.db, "pool.update", "runner_pool", &updated.ID, map[string]any{
 		"name":            updated.Name,
 		"provider":        updated.Provider,
@@ -366,6 +470,7 @@ func (s *PoolService) DeletePool(ctx context.Context, req *connect.Request[super
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("pool id %d not found: %w", req.Msg.Id, err))
 	}
 
+	_ = s.db.DeletePoolTargetsByPoolId(ctx, req.Msg.Id)
 	if err := s.db.DeleteRunnerPool(ctx, req.Msg.Id); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("deleting runner pool: %w", err))
 	}
@@ -555,4 +660,66 @@ func (s *PoolService) getRunnerInstances(p db.RunnerPool) []*supervisorv1.Runner
 		})
 	}
 	return res
+}
+
+func defaultDiscover(ctx context.Context, profile db.DecryptedAuthProfile, scope string) ([]provider.DiscoveredTarget, error) {
+	prov, err := provider.DefaultRegistry.Build(ctx, profile)
+	if err != nil {
+		return nil, fmt.Errorf("building provider client: %w", err)
+	}
+	if scope == "org" {
+		return prov.DiscoverOrganizations(ctx)
+	}
+	return prov.DiscoverRepositories(ctx)
+}
+
+// DiscoverTargets queries accessible repositories or organizations using an auth profile.
+func (s *PoolService) DiscoverTargets(ctx context.Context, req *connect.Request[supervisorv1.DiscoverTargetsRequest]) (*connect.Response[supervisorv1.DiscoverTargetsResponse], error) {
+	if req.Msg == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request payload is required"))
+	}
+	if req.Msg.AuthProfileId <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("auth_profile_id is required"))
+	}
+	scope := strings.ToLower(strings.TrimSpace(req.Msg.Scope))
+	if scope == "" {
+		scope = "repo"
+	}
+	if scope != "repo" && scope != "org" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid scope %q: must be 'repo' or 'org'", req.Msg.Scope))
+	}
+
+	profile, err := s.db.GetDecryptedAuthProfileById(ctx, req.Msg.AuthProfileId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("auth profile %d not found", req.Msg.AuthProfileId))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fetching auth profile %d: %w", req.Msg.AuthProfileId, err))
+	}
+
+	discoverFn := s.discoverer
+	if discoverFn == nil {
+		discoverFn = defaultDiscover
+	}
+
+	discovered, err := discoverFn(ctx, *profile, scope)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("discovering %s targets: %w", scope, err))
+	}
+
+	protoTargets := make([]*supervisorv1.DiscoveredTarget, 0, len(discovered))
+	for _, t := range discovered {
+		protoTargets = append(protoTargets, &supervisorv1.DiscoveredTarget{
+			Name:        t.Name,
+			FullName:    t.FullName,
+			HtmlUrl:     t.HTMLURL,
+			Description: t.Description,
+			IsPrivate:   t.IsPrivate,
+			AvatarUrl:   t.AvatarURL,
+		})
+	}
+
+	return connect.NewResponse(&supervisorv1.DiscoverTargetsResponse{
+		Targets: protoTargets,
+	}), nil
 }

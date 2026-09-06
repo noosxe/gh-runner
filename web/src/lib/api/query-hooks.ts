@@ -43,6 +43,8 @@ export const queryKeys = {
   renovateStatus: (poolId: bigint) => ["renovate", "status", poolId.toString()] as const,
   renovateHistory: (poolId: bigint, limit?: number, offset?: number) =>
     ["renovate", "history", poolId.toString(), { limit, offset }] as const,
+  discoverTargets: (authProfileId: bigint, scope: string) =>
+    ["pools", "discoverTargets", authProfileId.toString(), scope] as const,
 };
 
 // Onboarding Service Hooks
@@ -250,6 +252,21 @@ export function useTerminateRunner() {
       queryClient.invalidateQueries({ queryKey: queryKeys.pools });
       queryClient.invalidateQueries({ queryKey: queryKeys.systemStats });
     },
+  });
+}
+
+export function useDiscoverTargets(authProfileId: bigint, scope: string) {
+  return useQuery({
+    queryKey: queryKeys.discoverTargets(authProfileId, scope),
+    queryFn: async () => {
+      const res = await poolClient.discoverTargets({
+        authProfileId,
+        scope,
+      });
+      return res.targets;
+    },
+    enabled: authProfileId > 0n && !!scope,
+    staleTime: 60_000,
   });
 }
 

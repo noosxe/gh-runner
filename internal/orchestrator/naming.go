@@ -16,6 +16,7 @@ const (
 	LabelID        = "com.github-runner-supervisor.id"
 	LabelSpawnedAt = "com.github-runner-supervisor.spawned-at"
 	LabelTaskType  = "com.github-runner-supervisor.task-type"
+	LabelTargetURL = "com.github-runner-supervisor.target-url"
 
 	// Task types
 	TaskTypeRunner = "runner"

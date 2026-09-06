@@ -403,6 +403,26 @@ func (d *DB) ImportSeedConfig(ctx context.Context, cfg *SeedConfig, mode ImportM
 			return fmt.Errorf("checking pool %q: %w", pool.Name, err)
 		}
 
+		// Ensure primary repository_url is in pool_targets
+		if pool.RepositoryURL != "" {
+			targets, _ := qtx.ListPoolTargetsByPoolId(ctx, poolID)
+			found := false
+			for _, t := range targets {
+				if t.TargetUrl == pool.RepositoryURL {
+					found = true
+					break
+				}
+			}
+			if !found {
+				if _, err := qtx.AddPoolTarget(ctx, AddPoolTargetParams{
+					PoolID:    poolID,
+					TargetUrl: pool.RepositoryURL,
+				}); err != nil {
+					return fmt.Errorf("adding pool target for pool %q: %w", pool.Name, err)
+				}
+			}
+		}
+
 		// Handle Renovate Config for pool
 		if pool.Renovate != nil {
 			image := pool.Renovate.Image

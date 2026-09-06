@@ -237,6 +237,9 @@ func (c *Client) spawn(ctx context.Context, config orchestrator.RunnerConfig, ta
 		orchestrator.LabelSpawnedAt: time.Now().UTC().Format(time.RFC3339),
 		orchestrator.LabelTaskType:  taskType,
 	}
+	if config.RepoURL != "" {
+		labels[orchestrator.LabelTargetURL] = config.RepoURL
+	}
 
 	env := config.Env
 	if len(env) == 0 {
@@ -469,6 +472,7 @@ func (c *Client) AuditRunners(ctx context.Context) ([]orchestrator.RunnerStatus,
 			State:     string(cnt.State),
 			IPAddress: ipAddress,
 			SpawnedAt: spawnedAt,
+			TargetURL: cnt.Labels[orchestrator.LabelTargetURL],
 		})
 	}
 

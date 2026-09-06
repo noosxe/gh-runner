@@ -38,6 +38,16 @@ const (
 	AuthMethodPAT AuthMethod = "pat"
 )
 
+// DiscoveredTarget represents an organization or repository discovered from a Git provider.
+type DiscoveredTarget struct {
+	Name        string `json:"name"`
+	FullName    string `json:"full_name"`
+	HTMLURL     string `json:"html_url"`
+	Description string `json:"description"`
+	IsPrivate   bool   `json:"is_private"`
+	AvatarURL   string `json:"avatar_url"`
+}
+
 // GitProvider is the unified interface decoupling the supervisor from VCS APIs (docs/02 §3.2).
 type GitProvider interface {
 	// GetRegistrationToken retrieves a short-lived runner registration token for the target URL and scope.
@@ -51,6 +61,12 @@ type GitProvider interface {
 
 	// PollQueuedJobs queries the forge's API for queued jobs (used when ScalingMode() == ScalingPolling).
 	PollQueuedJobs(ctx context.Context, targetURL string) (int, error)
+
+	// DiscoverOrganizations discovers accessible organizations from the provider.
+	DiscoverOrganizations(ctx context.Context) ([]DiscoveredTarget, error)
+
+	// DiscoverRepositories discovers accessible repositories from the provider.
+	DiscoverRepositories(ctx context.Context) ([]DiscoveredTarget, error)
 }
 
 // RenovateTokenProvider is optionally implemented by GitProviders that supply tokens for Renovate bot tasks.

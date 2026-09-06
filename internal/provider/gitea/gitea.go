@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -254,11 +255,140 @@ func parseGiteaTargetURL(rawURL string) (instanceURL, owner, repo string, err er
 	return instanceURL, owner, repo, nil
 }
 
+// DiscoverOrganizations queries accessible organizations from the Gitea instance.
+func (c *Client) DiscoverOrganizations(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	c.mu.RLock()
+	baseURL := c.baseURL
+	c.mu.RUnlock()
+
+	if baseURL == "" {
+		baseURL = strings.TrimRight(os.Getenv("GITEA_INSTANCE_URL"), "/")
+	}
+	if baseURL == "" {
+		return nil, errors.New("gitea instance URL is required for target discovery (set GITEA_INSTANCE_URL)")
+	}
+
+	endpoint := baseURL + "/api/v1/user/orgs?limit=100"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	c.setAuthHeader(req)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling Gitea API: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("listing Gitea orgs failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var orgs []struct {
+		UserName    string `json:"username"`
+		FullName    string `json:"full_name"`
+		AvatarURL   string `json:"avatar_url"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&orgs); err != nil {
+		return nil, fmt.Errorf("decoding Gitea orgs response: %w", err)
+	}
+
+	targets := make([]provider.DiscoveredTarget, 0, len(orgs))
+	for _, o := range orgs {
+		name := o.UserName
+		fullName := o.FullName
+		if fullName == "" {
+			fullName = name
+		}
+		targets = append(targets, provider.DiscoveredTarget{
+			Name:        name,
+			FullName:    fullName,
+			HTMLURL:     baseURL + "/" + name,
+			Description: o.Description,
+			AvatarURL:   o.AvatarURL,
+		})
+	}
+	return targets, nil
+}
+
+// DiscoverRepositories queries accessible repositories from the Gitea instance.
+func (c *Client) DiscoverRepositories(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	c.mu.RLock()
+	baseURL := c.baseURL
+	c.mu.RUnlock()
+
+	if baseURL == "" {
+		baseURL = strings.TrimRight(os.Getenv("GITEA_INSTANCE_URL"), "/")
+	}
+	if baseURL == "" {
+		return nil, errors.New("gitea instance URL is required for target discovery (set GITEA_INSTANCE_URL)")
+	}
+
+	endpoint := baseURL + "/api/v1/user/repos?limit=100"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	c.setAuthHeader(req)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling Gitea API: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("listing Gitea repos failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var repos []struct {
+		Name        string `json:"name"`
+		FullName    string `json:"full_name"`
+		HTMLURL     string `json:"html_url"`
+		Description string `json:"description"`
+		Private     bool   `json:"private"`
+		Owner       struct {
+			AvatarURL string `json:"avatar_url"`
+		} `json:"owner"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
+		return nil, fmt.Errorf("decoding Gitea repos response: %w", err)
+	}
+
+	targets := make([]provider.DiscoveredTarget, 0, len(repos))
+	for _, r := range repos {
+		targets = append(targets, provider.DiscoveredTarget{
+			Name:        r.Name,
+			FullName:    r.FullName,
+			HTMLURL:     r.HTMLURL,
+			Description: r.Description,
+			IsPrivate:   r.Private,
+			AvatarURL:   r.Owner.AvatarURL,
+		})
+	}
+	return targets, nil
+}
+
 func init() {
 	provider.DefaultRegistry.Register(provider.AuthMethodGiteaToken, func(ctx context.Context, profile db.DecryptedAuthProfile) (provider.GitProvider, error) {
 		if profile.Token == "" {
 			return nil, fmt.Errorf("%w: token is required for gitea_token", provider.ErrMissingCredentials)
 		}
-		return NewClient(profile.Token)
+		var opts []ClientOption
+		token := profile.Token
+		if strings.Contains(token, "|") {
+			parts := strings.SplitN(token, "|", 2)
+			if strings.HasPrefix(parts[0], "http") {
+				opts = append(opts, WithBaseURL(parts[0]))
+				token = parts[1]
+			}
+		}
+		return NewClient(token, opts...)
 	})
 }

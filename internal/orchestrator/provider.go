@@ -39,6 +39,7 @@ type RunnerStatus struct {
 	SpawnedAt time.Time `json:"spawned_at"`
 	IsBusy    bool      `json:"is_busy,omitempty"`
 	OnDemand  bool      `json:"on_demand,omitempty"`
+	TargetURL string    `json:"target_url,omitempty"`
 }
 
 // ContainerProvider abstracts container lifecycle operations from the underlying container engine.

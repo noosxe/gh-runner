@@ -56,6 +56,13 @@ type JobHistory struct {
 	CreatedAt        time.Time      `json:"created_at"`
 }
 
+type PoolTarget struct {
+	ID        int64     `json:"id"`
+	PoolID    int64     `json:"pool_id"`
+	TargetUrl string    `json:"target_url"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type RenovateConfig struct {
 	ID           int64          `json:"id"`
 	PoolID       int64          `json:"pool_id"`

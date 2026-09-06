@@ -97,6 +97,14 @@ func (m *mockGitProvider) PollQueuedJobs(ctx context.Context, targetURL string) 
 	return m.queuedJobs, nil
 }
 
+func (m *mockGitProvider) DiscoverOrganizations(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	return nil, nil
+}
+
+func (m *mockGitProvider) DiscoverRepositories(ctx context.Context) ([]provider.DiscoveredTarget, error) {
+	return nil, nil
+}
+
 func TestPoolController_BootAndMinIdleProvisioning(t *testing.T) {
 	ctx := context.Background()
 
