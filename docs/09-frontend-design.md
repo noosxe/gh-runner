@@ -447,19 +447,33 @@ The authenticated layout (`_authenticated.tsx`) consists of a fixed sidebar navi
 
 ## 5. Dialogs & Modal Specifications
 
-### 5.1 `CreatePoolModal` / `EditPoolModal`
-- **Fields**:
-  - Pool Name (Slug format: `^[a-z0-9-]+$`, max 40 chars).
-  - Git Provider: Radio buttons (`GitHub`, `Gitea`, `Forgejo`).
-  - Target URL: Full repository or organization URL.
-  - Scope: `repo` or `org`.
-  - Auth Profile: Dropdown populated from `AuthProfileService.ListAuthProfiles`.
-  - Labels: Chip input (e.g. `self-hosted`, `linux`, `arm64`).
-  - Concurrency: `min_idle_runners` (number, min 0), `max_concurrency` (number, min 1).
-  - Runner Image: Text input (default: `ghcr.io/noosxe/runner-aio:latest`).
-  - Resource Quotas: CPU Limit (e.g. `2.0`), Memory Limit (e.g. `4GB`).
-  - Max Runner Lifetime: Seconds (default `7200`).
-  - Docker Privileges: `Allow Docker in runner` checkbox. **Rule**: Automatically checked and disabled (read-only true) if Provider is `Gitea` or `Forgejo` per docs/05 §4.
+### 5.1 `CreatePoolWizardModal` / `EditPoolModal`
+
+The pool creation flow is structured as a **4-step guided wizard** with upstream target auto-discovery (docs/14 §4), eliminating copy-pasting URLs and enabling multi-target pool assignments:
+
+- **Step 1: Pool Identity & Authentication**
+  - **Pool Name**: Slug format (`^[a-z0-9-]+$`, max 40 characters) with real-time uniqueness validation.
+  - **Git Auth Profile**: Dropdown selector displaying profile name, provider badge (`GitHub`, `Gitea`, `Forgejo`), and auth type (`GitHub App`, `PAT`). Provider is deduced automatically from the selected auth profile.
+- **Step 2: Pool Scope & Discovered Target Selection**
+  - **Pool Scope Dropdown**: `repo` (Repository-scoped) or `org` (Organization-scoped).
+  - **Homogeneous Target Constraint**: Mixing `repo` and `org` in the same pool is strictly prohibited by UI and backend validation.
+  - **Discovery Engine**: The UI invokes `PoolService.DiscoverTargets({ auth_profile_id, scope })` upon entering Step 2 or switching scope. Zero manual URL copy-pasting.
+  - **Target Multi-Selection List**:
+    - Instant live filter / search input (matches name or URL).
+    - Quick actions: `[ Select All Filtered ]`, `[ Clear Selection ]`.
+    - Checkbox cards displaying avatar, target name, private/public badge, description, and link.
+    - Selected counter: e.g., `3 repositories selected`.
+- **Step 3: Runner Specifications & Quotas**
+  - **Concurrency Quotas**: `min_idle_runners` (min 0, default 1) and `max_concurrency` (min 1, default 5) shared dynamically across all targets in the pool.
+  - **Runner Labels**: Comma-separated or chip tags automatically pre-populated with host arch suggestions (e.g., `self-hosted,linux,amd64` or `self-hosted,linux,arm64`).
+  - **Runner Image**: Text input (default: `ghcr.io/noosxe/gh-runner:latest`).
+  - **Docker Engine Privileges (`allow_docker`)**: Toggle checkbox. Automatically checked and disabled (locked true) if provider is Gitea or Forgejo.
+  - **Resource Quotas**: CPU Limit (e.g., `2.0`), Memory Limit (e.g., `4GB`).
+  - **Max Lifetime**: Seconds (default: `7200` / 2 hours).
+  - **Renovate Bot (Optional)**: Enable toggle, cron schedule (`0 2 * * *`), and container image (`renovate/renovate:latest`).
+- **Step 4: Review & Confirmation**
+  - Summary card displaying pool name, provider, scope, list of selected target URLs, runner image, quotas, and labels before final submission to `PoolService.CreatePool`.
+
 
 ### 5.2 `CreateAuthProfileModal`
 - **Fields**:

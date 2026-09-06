@@ -159,17 +159,38 @@ const (
 	ScalingPolling ScalingMode = "polling"   // Forgejo
 )
 
+type DiscoveredTarget struct {
+	Name        string `json:"name"`
+	FullName    string `json:"full_name"`
+	HTMLURL     string `json:"html_url"`
+	Description string `json:"description"`
+	IsPrivate   bool   `json:"is_private"`
+	AvatarURL   string `json:"avatar_url"`
+}
+
 type GitProvider interface {
 	GetRegistrationToken(ctx context.Context, scope RegistrationScope, targetURL string) (string, error)
 	ValidateCredentials(ctx context.Context) error
 	ScalingMode() ScalingMode
 	// Polling-only: check for queued jobs via forge API (used when ScalingMode() == ScalingPolling)
 	PollQueuedJobs(ctx context.Context, targetURL string) (int, error)
+	// Target Discovery: queries visible entities from upstream forge
+	DiscoverOrganizations(ctx context.Context) ([]DiscoveredTarget, error)
+	DiscoverRepositories(ctx context.Context) ([]DiscoveredTarget, error)
 }
 ```
 
 - **Scaling Mode**: Each provider declares its scaling strategy. GitHub and Gitea support `workflow_job` webhooks for event-driven scaling. Forgejo lacks webhook support for job events and uses API polling as a fallback.
 - **`PollQueuedJobs`**: Only called for providers with `ScalingPolling` mode. Queries the forge's API for jobs in a `queued` state, returning the count to the orchestrator.
+- **Target Discovery**: `DiscoverOrganizations` and `DiscoverRepositories` allow the supervisor backend to enumerate entities accessible by the configured authentication profile without exposing credentials to the web client.
+
+### 3.3 Multi-Target Runner Pools
+
+A runner pool can target **multiple repositories** OR **multiple organizations** under a shared concurrency and resource quota (see [14-multi-target-pool-wizard.md](14-multi-target-pool-wizard.md)).
+- **Runner Invariant**: Upstream runner binaries (`config.sh`, `act_runner`, `forgejo-runner`) accept only a single `--url` target per container.
+- **Dynamic Routing**: When a webhook or polling event arrives for a specific target URL in the pool's target list, the supervisor spins up an ephemeral runner configured specifically for that repository or organization.
+- **Global Concurrency Ceiling**: Active containers across all targets in the pool count towards the pool's `max_concurrency`. Idle warm runners are distributed or maintained according to pool scheduling policies.
+- **Scope Homogeneity**: A pool is strictly scoped to either `repo` (multiple repositories) or `org` (multiple organizations). Heterogeneous mixing of repositories and organizations within the same pool is prohibited.
 
 ## 4. Configuration & Database Sync
 
