@@ -13,7 +13,7 @@ A lightweight, secure, and self-contained self-hosted runner and orchestrator st
 ## ✨ Features
 
 - **All-in-One Multi-Provider Supervisor:** Database-driven daemon that automatically provisions, monitors, scales, and maintains dynamic pools of ephemeral runner containers across GitHub, Gitea, and Forgejo repositories.
-- **Embedded Web UI & 5-Step Onboarding Wizard:** Single-Page Application (React 19, TypeScript, TanStack Router & Query, TailwindCSS) embedded directly into the Go supervisor binary via `go:embed`. Features a zero-config 5-step onboarding wizard, dark/light theme switching, and live pool management.
+- **Embedded Web UI & Flexible Onboarding Wizard:** Single-Page Application (React 19, TypeScript, TanStack Router & Query, TailwindCSS) embedded directly into the Go supervisor binary via `go:embed`. Features an administrator bootstrap setup, optional Git provider, safeguard, and pool configuration with instant "Skip to Dashboard" capability, zero-pool empty states with prerequisite guidance, dark/light theme switching, and live pool management.
 - **Dynamic Ephemeral Scaling:** Automatically manages warm standby containers (`min_idle_runners`) ready for immediate job dispatch, auto-scales up to concurrency limits (`max_concurrency`), and aggressively prunes completed or failed containers within seconds.
 - **Real-Time Streaming Logs & Interactive Terminal:** Unbuffered ConnectRPC server-sent streaming (`StreamRunnerLogs`, `StreamSystemMetrics`) pushing real-time container output directly to an embedded xterm.js terminal emulator with auto-scroll and quick-copy.
 - **Dependency Automation via Renovate:** Built-in scheduled Renovate task runner for autonomous dependency updates, configured via cron expressions with isolated ephemeral container execution.
@@ -63,13 +63,15 @@ curl -s http://localhost:8090/healthz
 # Expected output: {"status":"healthy","checks":{"db":"ok"}}
 ```
 
-### 3. Complete the Onboarding Wizard
-Navigate to `http://localhost:8090` in your browser. The system will automatically direct you to the 5-step onboarding wizard:
-1. **Create Master Administrator:** Set administrative credentials for the dashboard.
-2. **Connect Git Provider:** Connect GitHub (GitHub App or PAT), Gitea (PAT), or Forgejo (PAT).
-3. **Global Scaling Safeguards:** Establish total allowed runner limits, idle warm pool quotas, and history retention.
-4. **Initial Runner Pool Setup:** Configure your repository URL, warm standby targets, concurrency limits, and optional Renovate automation.
-5. **Review & Launch:** Review configuration and launch your supervisor!
+### 3. Complete or Skip Onboarding
+Navigate to `http://localhost:8090` in your browser. The system will automatically direct you to the onboarding wizard:
+1. **Create Master Administrator:** Set administrative credentials for the dashboard (mandatory).
+2. **Connect Git Provider (Optional):** Connect GitHub (GitHub App or PAT), Gitea (PAT), or Forgejo (PAT), or skip to configure later.
+3. **Global Scaling Safeguards (Optional):** Establish total allowed runner limits, idle warm pool quotas, and history retention.
+4. **Initial Runner Pool Setup (Optional):** Configure your repository URL, warm standby targets, concurrency limits, and optional Renovate automation.
+5. **Review & Launch:** Review configured settings and launch into the dashboard.
+
+> Operators can also click **Skip to Dashboard** at any step after creating the administrator account to finalize onboarding immediately and configure authentication profiles or runner pools later.
 
 ---
 
@@ -166,7 +168,6 @@ Automated GitHub Actions workflows ensure continuous verification and multi-arch
 
 ## 🗺️ Roadmap & Future Enhancements
 
-- **Flexible Web UI Onboarding & Optional Setup Flow:** *[Design Phase]* Making all onboarding steps after administrator credential creation optional, allowing operators to skip Git provider and pool setup and navigate directly to the dashboard on first boot.
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.
