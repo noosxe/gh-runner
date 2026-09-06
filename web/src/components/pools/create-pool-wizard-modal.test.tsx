@@ -13,6 +13,14 @@ let mockDiscoveredTargets: Array<{
 }> = [];
 let mockIsDiscovering = false;
 let mockDiscoveryError: Error | null = null;
+let mockInstallUrl = "";
+let mockInstallations: Array<{
+  id: bigint;
+  accountLogin: string;
+  accountType: string;
+  htmlUrl: string;
+  repositorySelection: string;
+}> = [];
 const mockRefetchDiscovery = vi.fn();
 
 vi.mock("../../lib/api/query-hooks", () => ({
@@ -21,7 +29,11 @@ vi.mock("../../lib/api/query-hooks", () => ({
     isPending: false,
   }),
   useDiscoverTargets: () => ({
-    data: mockDiscoveredTargets,
+    data: {
+      targets: mockDiscoveredTargets,
+      installUrl: mockInstallUrl,
+      installations: mockInstallations,
+    },
     isLoading: mockIsDiscovering,
     error: mockDiscoveryError,
     refetch: mockRefetchDiscovery,
@@ -37,6 +49,8 @@ describe("CreatePoolWizardModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockMutateAsync.mockResolvedValue({ pool: { id: 101n } });
+    mockInstallUrl = "";
+    mockInstallations = [];
     mockDiscoveredTargets = [
       {
         name: "frontend-monorepo",
@@ -201,5 +215,61 @@ describe("CreatePoolWizardModal", () => {
     }) as HTMLInputElement;
     expect(dockerCheckbox.checked).toBe(true);
     expect(dockerCheckbox.disabled).toBe(true);
+  });
+
+  it("renders guided GitHub App installation callout when 0 targets discovered and installUrl is present", () => {
+    mockDiscoveredTargets = [];
+    mockInstallUrl = "https://github.com/apps/my-app/installations/new";
+
+    render(
+      <CreatePoolWizardModal isOpen={true} onClose={vi.fn()} authProfiles={defaultAuthProfiles} />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Pool Name \(Slug\)/i), {
+      target: { value: "test-pool" },
+    });
+    fireEvent.click(screen.getByText("Continue to Scope & Targets"));
+
+    expect(screen.getByText("GitHub App Not Installed Yet")).toBeInTheDocument();
+    const installBtn = screen.getByRole("link", {
+      name: /Install GitHub App on Your Account/i,
+    });
+    expect(installBtn).toBeInTheDocument();
+    expect(installBtn).toHaveAttribute("href", "https://github.com/apps/my-app/installations/new");
+    expect(installBtn).toHaveAttribute("target", "_blank");
+    expect(installBtn).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("renders 'Manage Access in GitHub' button linking to installation settings when targets are present", () => {
+    mockInstallUrl = "https://github.com/apps/my-app/installations/new";
+    mockInstallations = [
+      {
+        id: 12345n,
+        accountLogin: "acme-corp",
+        accountType: "Organization",
+        htmlUrl: "https://github.com/organizations/acme-corp/settings/installations/12345",
+        repositorySelection: "selected",
+      },
+    ];
+
+    render(
+      <CreatePoolWizardModal isOpen={true} onClose={vi.fn()} authProfiles={defaultAuthProfiles} />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Pool Name \(Slug\)/i), {
+      target: { value: "test-pool" },
+    });
+    fireEvent.click(screen.getByText("Continue to Scope & Targets"));
+
+    const manageBtn = screen.getByRole("link", {
+      name: /Manage Access in GitHub/i,
+    });
+    expect(manageBtn).toBeInTheDocument();
+    expect(manageBtn).toHaveAttribute(
+      "href",
+      "https://github.com/organizations/acme-corp/settings/installations/12345",
+    );
+    expect(manageBtn).toHaveAttribute("target", "_blank");
+    expect(manageBtn).toHaveAttribute("rel", "noopener noreferrer");
   });
 });

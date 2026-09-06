@@ -614,4 +614,63 @@ describe("OnboardingPage (Full 5 Steps)", () => {
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/" });
     });
   });
+
+  it("shows GitHub App installation prompt in Step 2 when created app is uninstalled", async () => {
+    mockSetupAdmin.mockResolvedValueOnce({});
+    mockCreateAuthProfile.mockResolvedValueOnce({
+      profile: {
+        id: 15n,
+        name: "test-app-profile",
+        authMethod: "github_app",
+        installUrl: "https://github.com/apps/test-app-profile/installations/new",
+        installationsCount: 0,
+      },
+    });
+
+    render(<OnboardingPage />);
+
+    // Step 1: Admin
+    fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
+      target: { value: "validpassword123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm Password"), {
+      target: { value: "validpassword123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Git Provider/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
+    });
+
+    // Step 2: Switch to GitHub App
+    fireEvent.click(screen.getByRole("button", { name: "GitHub App" }));
+    fireEvent.change(screen.getByLabelText("GitHub App ID"), { target: { value: "9988" } });
+    fireEvent.change(screen.getByLabelText("Private Key PEM"), {
+      target: { value: "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Safeguards/i }));
+
+    // Expect installation prompt in Step 2
+    await waitFor(() => {
+      expect(
+        screen.getByText("Step 2 of 5: Install GitHub App on Your Account"),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Action Required: Install App in GitHub")).toBeInTheDocument();
+    const installLink = screen.getByRole("link", { name: /Install GitHub App on GitHub/i });
+    expect(installLink).toBeInTheDocument();
+    expect(installLink).toHaveAttribute(
+      "href",
+      "https://github.com/apps/test-app-profile/installations/new",
+    );
+    expect(installLink).toHaveAttribute("target", "_blank");
+
+    // Click Continue to Safeguards
+    fireEvent.click(screen.getByRole("button", { name: /Continue: Safeguards/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 3 of 5: Global Scaling Safeguards")).toBeInTheDocument();
+    });
+  });
 });

@@ -28,6 +28,8 @@ import {
   Server,
   Rocket,
   Info,
+  FolderGit2,
+  ExternalLink,
 } from "lucide-react";
 
 export function OnboardingPage() {
@@ -71,6 +73,10 @@ export function OnboardingPage() {
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [createdAuthProfileId, setCreatedAuthProfileId] = useState<bigint | null>(null);
+  const [githubAppInstallPrompt, setGithubAppInstallPrompt] = useState<{
+    installUrl: string;
+    profileName: string;
+  } | null>(null);
 
   // Step 3: Global Safeguards State
   const [totalAllowedRunners, setTotalAllowedRunners] = useState(20);
@@ -240,7 +246,18 @@ export function OnboardingPage() {
         setCreatedAuthProfileId(res.profile.id);
       }
       setGitProfileSkipped(false);
-      setCurrentStep(3);
+      if (
+        authMethod === "github_app" &&
+        res?.profile?.installUrl &&
+        (res.profile.installationsCount ?? 0) === 0
+      ) {
+        setGithubAppInstallPrompt({
+          installUrl: res.profile.installUrl,
+          profileName: res.profile.name || profileName.trim(),
+        });
+      } else {
+        setCurrentStep(3);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to register Git auth profile");
     }
@@ -687,160 +704,224 @@ export function OnboardingPage() {
           ))}
 
         {/* Step 2: Git Provider Auth Profile */}
-        {currentStep === 2 && (
-          <form onSubmit={handleProviderSubmit} className="mt-6 space-y-4 text-xs">
+        {currentStep === 2 && githubAppInstallPrompt ? (
+          <div className="mt-6 space-y-4 text-xs">
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-white">
-                Step 2 of 5: Connect Git Provider
+                Step 2 of 5: Install GitHub App on Your Account
               </h2>
               <p className="mt-0.5 text-slate-500 dark:text-slate-400">
-                Register authentication credentials to fetch runner registration tokens and
-                orchestrate pools.
+                Profile &ldquo;{githubAppInstallPrompt.profileName}&rdquo; was created successfully.
               </p>
             </div>
 
-            {/* Provider Type Selection */}
-            <div>
-              <label className="font-semibold text-slate-700 dark:text-slate-300">
-                Provider Method
-              </label>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {[
-                  { id: "github_pat", label: "GitHub PAT" },
-                  { id: "github_app", label: "GitHub App" },
-                  { id: "gitea_pat", label: "Gitea PAT" },
-                  { id: "forgejo_pat", label: "Forgejo PAT" },
-                ].map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setAuthMethod(m.id as any)}
-                    className={`rounded-xl border p-2.5 text-center font-medium transition-all ${
-                      authMethod === m.id
-                        ? "border-blue-500 bg-blue-50/50 text-blue-700 font-semibold dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-300"
-                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5 text-slate-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-slate-200">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+                  <FolderGit2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                    Action Required: Install App in GitHub
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                    Your GitHub App credentials have been saved and encrypted. To allow gh-runner to
+                    access your repositories and register self-hosted runners, install the app on
+                    your GitHub user account or organization.
+                  </p>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <a
+                      href={githubAppInstallPrompt.installUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white shadow-xs hover:bg-blue-500 transition-colors"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      <span>Install GitHub App on GitHub</span>
+                    </a>
+                  </div>
+                </div>
               </div>
             </div>
-
-            <div>
-              <label
-                htmlFor="profile-name"
-                className="font-semibold text-slate-700 dark:text-slate-300"
-              >
-                Profile Name
-              </label>
-              <input
-                id="profile-name"
-                type="text"
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                required
-              />
-            </div>
-
-            {authMethod === "github_app" ? (
-              <>
-                <div>
-                  <label
-                    htmlFor="app-id"
-                    className="font-semibold text-slate-700 dark:text-slate-300"
-                  >
-                    GitHub App ID
-                  </label>
-                  <input
-                    id="app-id"
-                    type="number"
-                    value={appId}
-                    onChange={(e) => setAppId(e.target.value)}
-                    placeholder="e.g. 123456"
-                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="private-key"
-                    className="font-semibold text-slate-700 dark:text-slate-300"
-                  >
-                    Private Key PEM
-                  </label>
-                  <textarea
-                    id="private-key"
-                    rows={4}
-                    value={privateKeyPem}
-                    onChange={(e) => setPrivateKeyPem(e.target.value)}
-                    placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
-                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white p-3 font-mono text-[11px] text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
-                </div>
-              </>
-            ) : (
-              <div>
-                <label
-                  htmlFor="provider-token"
-                  className="font-semibold text-slate-700 dark:text-slate-300"
-                >
-                  Personal Access Token (PAT)
-                </label>
-                <div className="relative mt-1">
-                  <input
-                    id="provider-token"
-                    type={showToken ? "text" : "password"}
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                    placeholder="ghp_..."
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 pr-10 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
-                  <button
-                    type="button"
-                    aria-label="Toggle token visibility"
-                    onClick={() => setShowToken(!showToken)}
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                    tabIndex={-1}
-                  >
-                    {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-            )}
 
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setCurrentStep(1)}
+                onClick={() => setGithubAppInstallPrompt(null)}
                 className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
               >
                 <ArrowLeft className="h-4 w-4" />
-                <span>Back</span>
+                <span>Edit Credentials</span>
               </button>
               <button
                 type="button"
-                onClick={handleSkipProvider}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                onClick={() => {
+                  setGithubAppInstallPrompt(null);
+                  setCurrentStep(3);
+                }}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-xs hover:bg-blue-700"
               >
-                Skip this step
-              </button>
-              <button
-                type="submit"
-                disabled={createAuthProfileMutation.isPending}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
-              >
-                <span>
-                  {createAuthProfileMutation.isPending ? "Connecting..." : "Next: Safeguards"}
-                </span>
+                <span>Continue: Safeguards</span>
                 <ArrowRight className="h-4 w-4" />
               </button>
             </div>
-          </form>
+          </div>
+        ) : (
+          currentStep === 2 && (
+            <form onSubmit={handleProviderSubmit} className="mt-6 space-y-4 text-xs">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Step 2 of 5: Connect Git Provider
+                </h2>
+                <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+                  Register authentication credentials to fetch runner registration tokens and
+                  orchestrate pools.
+                </p>
+              </div>
+
+              {/* Provider Type Selection */}
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300">
+                  Provider Method
+                </label>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    { id: "github_pat", label: "GitHub PAT" },
+                    { id: "github_app", label: "GitHub App" },
+                    { id: "gitea_pat", label: "Gitea PAT" },
+                    { id: "forgejo_pat", label: "Forgejo PAT" },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setAuthMethod(m.id as any)}
+                      className={`rounded-xl border p-2.5 text-center font-medium transition-all ${
+                        authMethod === m.id
+                          ? "border-blue-500 bg-blue-50/50 text-blue-700 font-semibold dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-300"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="profile-name"
+                  className="font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  Profile Name
+                </label>
+                <input
+                  id="profile-name"
+                  type="text"
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                  required
+                />
+              </div>
+
+              {authMethod === "github_app" ? (
+                <>
+                  <div>
+                    <label
+                      htmlFor="app-id"
+                      className="font-semibold text-slate-700 dark:text-slate-300"
+                    >
+                      GitHub App ID
+                    </label>
+                    <input
+                      id="app-id"
+                      type="number"
+                      value={appId}
+                      onChange={(e) => setAppId(e.target.value)}
+                      placeholder="e.g. 123456"
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="private-key"
+                      className="font-semibold text-slate-700 dark:text-slate-300"
+                    >
+                      Private Key PEM
+                    </label>
+                    <textarea
+                      id="private-key"
+                      rows={4}
+                      value={privateKeyPem}
+                      onChange={(e) => setPrivateKeyPem(e.target.value)}
+                      placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white p-3 font-mono text-[11px] text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      required
+                    />
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label
+                    htmlFor="provider-token"
+                    className="font-semibold text-slate-700 dark:text-slate-300"
+                  >
+                    Personal Access Token (PAT)
+                  </label>
+                  <div className="relative mt-1">
+                    <input
+                      id="provider-token"
+                      type={showToken ? "text" : "password"}
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                      placeholder="ghp_..."
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 pr-10 text-slate-900 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      required
+                    />
+                    <button
+                      type="button"
+                      aria-label="Toggle token visibility"
+                      onClick={() => setShowToken(!showToken)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      tabIndex={-1}
+                    >
+                      {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep(1)}
+                  className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  <span>Back</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSkipProvider}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                >
+                  Skip this step
+                </button>
+                <button
+                  type="submit"
+                  disabled={createAuthProfileMutation.isPending}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <span>
+                    {createAuthProfileMutation.isPending ? "Connecting..." : "Next: Safeguards"}
+                  </span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </form>
+          )
         )}
 
         {/* Step 3: Global Scaling Safeguards */}

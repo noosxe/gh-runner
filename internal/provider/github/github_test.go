@@ -28,7 +28,28 @@ func setupMockGitHubServer(t *testing.T) *httptest.Server {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":12345,"name":"test-runner-app"}`))
+		_, _ = w.Write([]byte(`{"id":12345,"name":"test-runner-app","slug":"my-awesome-app"}`))
+	})
+
+	// 1b. /app/installations endpoint
+	mux.HandleFunc("/app/installations", func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{
+				"id": 7777,
+				"account": {
+					"login": "my-org",
+					"type": "Organization"
+				},
+				"html_url": "https://github.com/organizations/my-org/settings/installations/7777",
+				"repository_selection": "selected"
+			}
+		]`))
 	})
 
 	// 2. /user endpoint (PAT)
@@ -223,3 +244,31 @@ func TestRegistryIntegration(t *testing.T) {
 		t.Errorf("expected webhook scaling mode")
 	}
 }
+
+func TestGitHubAppMetadata(t *testing.T) {
+	server := setupMockGitHubServer(t)
+	pkcs1PEM, _, _ := generateTestKeyPEMs(t)
+	ctx := context.Background()
+
+	client, err := github.NewAppProvider(12345, pkcs1PEM, github.WithBaseURL(server.URL))
+	if err != nil {
+		t.Fatalf("NewAppProvider failed: %v", err)
+	}
+
+	installURL, insts, err := client.GetAppMetadata(ctx)
+	if err != nil {
+		t.Fatalf("GetAppMetadata failed: %v", err)
+	}
+
+	expectedURL := server.URL + "/apps/my-awesome-app/installations/new"
+	if installURL != expectedURL {
+		t.Errorf("unexpected installURL: got %s, want %s", installURL, expectedURL)
+	}
+	if len(insts) != 1 {
+		t.Fatalf("expected 1 installation, got %d", len(insts))
+	}
+	if insts[0].AccountLogin != "my-org" || insts[0].AccountType != "Organization" {
+		t.Errorf("unexpected installation: %+v", insts[0])
+	}
+}
+

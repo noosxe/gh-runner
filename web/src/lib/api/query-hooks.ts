@@ -263,10 +263,15 @@ export function useDiscoverTargets(authProfileId: bigint, scope: string) {
         authProfileId,
         scope,
       });
-      return res.targets;
+      return {
+        targets: res.targets,
+        installUrl: res.installUrl,
+        installations: res.installations,
+      };
     },
     enabled: authProfileId > 0n && !!scope,
     staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -105,11 +105,28 @@ export function CreatePoolWizardModal({
   }, [selectedAuthProfile]);
 
   const {
-    data: discoveredTargets,
+    data: discoveryData,
     isLoading: isDiscovering,
     error: discoveryError,
     refetch: refetchDiscovery,
   } = useDiscoverTargets(activeProfileBigInt, scope);
+
+  const discoveredTargets = useMemo(() => {
+    if (Array.isArray(discoveryData)) return discoveryData;
+    return discoveryData?.targets ?? [];
+  }, [discoveryData]);
+  const installUrl = Array.isArray(discoveryData) ? "" : (discoveryData?.installUrl ?? "");
+  const installations = useMemo(() => {
+    if (Array.isArray(discoveryData)) return [];
+    return discoveryData?.installations ?? [];
+  }, [discoveryData]);
+
+  const manageAccessUrl = useMemo(() => {
+    if (installations.length === 1 && installations[0].htmlUrl) {
+      return installations[0].htmlUrl;
+    }
+    return installUrl || "";
+  }, [installations, installUrl]);
 
   // Client-side search filtering of discovered targets
   const filteredDiscoveredTargets = useMemo(() => {
@@ -435,6 +452,18 @@ export function CreatePoolWizardModal({
                 />
               </div>
               <div className="flex items-center gap-2">
+                {manageAccessUrl && (
+                  <a
+                    href={manageAccessUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 shadow-xs"
+                    title="Manage repository access in GitHub"
+                  >
+                    <ExternalLink className="h-3 w-3 text-slate-400" />
+                    <span>Manage Access in GitHub</span>
+                  </a>
+                )}
                 <button
                   type="button"
                   onClick={handleSelectAllFiltered}
@@ -486,14 +515,52 @@ export function CreatePoolWizardModal({
                 </div>
               )}
 
-              {!isDiscovering && !discoveryError && filteredDiscoveredTargets.length === 0 && (
-                <div className="py-8 text-center text-slate-400">
-                  <FolderGit2 className="h-6 w-6 mx-auto mb-1 opacity-50" />
-                  <span>
-                    No matching {scope === "repo" ? "repositories" : "organizations"} found
-                  </span>
+              {!isDiscovering && !discoveryError && discoveredTargets.length === 0 && (
+                <div className="py-8 px-4 text-center">
+                  <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/60 mb-2.5">
+                    <FolderGit2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <h4 className="text-xs font-semibold text-slate-900 dark:text-white">
+                    {installUrl
+                      ? "GitHub App Not Installed Yet"
+                      : `No ${scope === "repo" ? "repositories" : "organizations"} found`}
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+                    {installUrl
+                      ? "This GitHub App has not been installed on any account or organization. Install the app to grant access to repositories."
+                      : `No accessible ${scope === "repo" ? "repositories" : "organizations"} were found for this auth profile.`}
+                  </p>
+                  {installUrl && (
+                    <div className="mt-3.5">
+                      <a
+                        href={installUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 shadow-xs transition-colors"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        <span>Install GitHub App on Your Account</span>
+                      </a>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2">
+                        After completing installation in GitHub, return here — your repositories
+                        will appear automatically.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
+
+              {!isDiscovering &&
+                !discoveryError &&
+                discoveredTargets.length > 0 &&
+                filteredDiscoveredTargets.length === 0 && (
+                  <div className="py-8 text-center text-slate-400">
+                    <FolderGit2 className="h-6 w-6 mx-auto mb-1 opacity-50" />
+                    <span>
+                      No matching {scope === "repo" ? "repositories" : "organizations"} found
+                    </span>
+                  </div>
+                )}
 
               {!isDiscovering &&
                 !discoveryError &&
