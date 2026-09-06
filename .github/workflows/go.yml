@@ -86,9 +86,24 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Command parity with the Makefile targets run inside `nix develop`
-      # (make build/vet/test): kept inline here so CI does not depend on
-      # make being present on the runner image.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build Web Assets
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
       - name: Build
         run: go build ./...
 
