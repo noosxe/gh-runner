@@ -14,6 +14,7 @@ The backend daemon is engineered to be modular, extensible, and free of heavy CG
 - **Database Tooling**: 
   - **SQLc** (`github.com/sqlc-dev/sqlc`) generates type-safe Go code from SQL schema and query definitions.
   - **Goose** (`github.com/pressly/goose/v3`) handles database migrations. Migrations are executed automatically during application startup, and any errors are strictly logged.
+- **Container Orchestration SDK**: **Moby Client SDK** (`github.com/moby/moby/client` and `github.com/moby/moby/api`). The supervisor interacts with the local container runtime strictly via the decoupled client module and API types package, avoiding monolithic daemon dependencies (`docker/docker`) and eliminating downstream CVE surfaces.
 - **Logging**: The native standard library `log/slog` is mandated for structured logging. 
   - Each backend module must instantiate a proper logger instance configured with relevant attributes (e.g., `slog.String("module", "orchestrator")`).
   - Standard log levels are `info`, `warn`, and `error`.

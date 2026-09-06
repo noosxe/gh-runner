@@ -172,6 +172,7 @@ For comprehensive pipeline architecture, gatekeeper filtering rules, and cross-s
 
 ## 🗺️ Roadmap & Future Enhancements
 
+- **Modular Moby Client SDK Migration (M16):** Migrate container orchestration from monolithic `github.com/docker/docker` to lightweight `github.com/moby/moby/client` and `api`, eliminating legacy `replace` directives and resolving 4 upstream daemon CVE alerts. Consult **[docs/12-moby-client-migration.md](docs/12-moby-client-migration.md)**. *[Design Phase]*
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.
