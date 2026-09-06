@@ -164,10 +164,13 @@ Automated GitHub Actions workflows ensure continuous verification and multi-arch
 - **Runner Multi-Arch Release (`build.yml`):** Native AMD64 and ARM64 parallel matrix build creating and publishing multi-arch manifests for `ghcr.io/<owner>/runner-aio` upon git tag release (`v*`).
 - **Supervisor Multi-Arch Release (`supervisor-build.yml`):** Native multi-stage AMD64 and ARM64 build compiling the supervisor daemon and embedded UI into `ghcr.io/<owner>/gh-runner-supervisor` upon git tag release (`v*`).
 
+For comprehensive pipeline architecture, gatekeeper filtering rules, and cross-subsystem trigger mapping, consult **[docs/11-ci-cd-pipelines.md](docs/11-ci-cd-pipelines.md)**.
+
 ---
 
 ## 🗺️ Roadmap & Future Enhancements
 
+- **Path-Based CI Workflow Filtering:** *[Design Phase]* Extending the standardized gatekeeper pattern (`dorny/paths-filter@v3`) across all GitHub Actions workflows to selectively trigger only relevant test, lint, and build jobs per PR.
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.
