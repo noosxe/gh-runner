@@ -39,6 +39,7 @@
             git
             curl
             gh
+            gnumake
 
             # Frontend & Web UI (M8)
             nodejs
@@ -58,6 +59,7 @@
             echo "   Go:              $(go version | awk '{print $3}')"
             echo "   Node:            $(node --version)"
             echo "   pnpm:            v$(pnpm --version)"
+            echo "   Make:            v$(make --version | head -n1 | awk '{print $3}')"
             echo "   golangci-lint:   $(golangci-lint --version | awk '{print $4}')"
             echo "   hadolint:        $(hadolint --version | head -n1 | awk '{print $4}')"
             echo "   oxlint:          $(oxlint --version | awk '{print $2}')"
