@@ -40,7 +40,7 @@ jobs:
       image: ${{ steps.filter.outputs.image }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Full history so paths-filter can diff against the previous push
           fetch-depth: 0
@@ -76,7 +76,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Set up Docker Buildx for advanced builder caching features
       - name: Set up Docker Buildx
@@ -134,7 +134,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Set up Docker Buildx to enable imagetools execution
       - name: Set up Docker Buildx

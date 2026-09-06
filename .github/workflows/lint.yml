@@ -34,7 +34,7 @@ jobs:
       docker: ${{ steps.filter.outputs.docker }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Full history so paths-filter can diff against the previous push
           fetch-depth: 0
@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # shellcheck ships with the ubuntu runner image; identical to the local
       # mandated check `nix develop --command shellcheck src/*.sh` (AGENTS.md).
@@ -83,7 +83,7 @@ jobs:
           - Dockerfile.supervisor
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Run Hadolint
         uses: hadolint/hadolint-action@v3.1.0
