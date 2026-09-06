@@ -89,6 +89,9 @@ const (
 	// OnboardingServiceSetAppSettingProcedure is the fully-qualified name of the OnboardingService's
 	// SetAppSetting RPC.
 	OnboardingServiceSetAppSettingProcedure = "/supervisor.v1.OnboardingService/SetAppSetting"
+	// OnboardingServiceCompleteOnboardingProcedure is the fully-qualified name of the
+	// OnboardingService's CompleteOnboarding RPC.
+	OnboardingServiceCompleteOnboardingProcedure = "/supervisor.v1.OnboardingService/CompleteOnboarding"
 	// AnalyticsServiceGetJobHistoryProcedure is the fully-qualified name of the AnalyticsService's
 	// GetJobHistory RPC.
 	AnalyticsServiceGetJobHistoryProcedure = "/supervisor.v1.AnalyticsService/GetJobHistory"
@@ -645,6 +648,7 @@ type OnboardingServiceClient interface {
 	GetOnboardingStatus(context.Context, *connect.Request[v1.GetOnboardingStatusRequest]) (*connect.Response[v1.GetOnboardingStatusResponse], error)
 	GetAppSettings(context.Context, *connect.Request[v1.GetAppSettingsRequest]) (*connect.Response[v1.GetAppSettingsResponse], error)
 	SetAppSetting(context.Context, *connect.Request[v1.SetAppSettingRequest]) (*connect.Response[v1.SetAppSettingResponse], error)
+	CompleteOnboarding(context.Context, *connect.Request[v1.CompleteOnboardingRequest]) (*connect.Response[v1.CompleteOnboardingResponse], error)
 }
 
 // NewOnboardingServiceClient constructs a client for the supervisor.v1.OnboardingService service.
@@ -676,6 +680,12 @@ func NewOnboardingServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(onboardingServiceMethods.ByName("SetAppSetting")),
 			connect.WithClientOptions(opts...),
 		),
+		completeOnboarding: connect.NewClient[v1.CompleteOnboardingRequest, v1.CompleteOnboardingResponse](
+			httpClient,
+			baseURL+OnboardingServiceCompleteOnboardingProcedure,
+			connect.WithSchema(onboardingServiceMethods.ByName("CompleteOnboarding")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -684,6 +694,7 @@ type onboardingServiceClient struct {
 	getOnboardingStatus *connect.Client[v1.GetOnboardingStatusRequest, v1.GetOnboardingStatusResponse]
 	getAppSettings      *connect.Client[v1.GetAppSettingsRequest, v1.GetAppSettingsResponse]
 	setAppSetting       *connect.Client[v1.SetAppSettingRequest, v1.SetAppSettingResponse]
+	completeOnboarding  *connect.Client[v1.CompleteOnboardingRequest, v1.CompleteOnboardingResponse]
 }
 
 // GetOnboardingStatus calls supervisor.v1.OnboardingService.GetOnboardingStatus.
@@ -701,11 +712,17 @@ func (c *onboardingServiceClient) SetAppSetting(ctx context.Context, req *connec
 	return c.setAppSetting.CallUnary(ctx, req)
 }
 
+// CompleteOnboarding calls supervisor.v1.OnboardingService.CompleteOnboarding.
+func (c *onboardingServiceClient) CompleteOnboarding(ctx context.Context, req *connect.Request[v1.CompleteOnboardingRequest]) (*connect.Response[v1.CompleteOnboardingResponse], error) {
+	return c.completeOnboarding.CallUnary(ctx, req)
+}
+
 // OnboardingServiceHandler is an implementation of the supervisor.v1.OnboardingService service.
 type OnboardingServiceHandler interface {
 	GetOnboardingStatus(context.Context, *connect.Request[v1.GetOnboardingStatusRequest]) (*connect.Response[v1.GetOnboardingStatusResponse], error)
 	GetAppSettings(context.Context, *connect.Request[v1.GetAppSettingsRequest]) (*connect.Response[v1.GetAppSettingsResponse], error)
 	SetAppSetting(context.Context, *connect.Request[v1.SetAppSettingRequest]) (*connect.Response[v1.SetAppSettingResponse], error)
+	CompleteOnboarding(context.Context, *connect.Request[v1.CompleteOnboardingRequest]) (*connect.Response[v1.CompleteOnboardingResponse], error)
 }
 
 // NewOnboardingServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -733,6 +750,12 @@ func NewOnboardingServiceHandler(svc OnboardingServiceHandler, opts ...connect.H
 		connect.WithSchema(onboardingServiceMethods.ByName("SetAppSetting")),
 		connect.WithHandlerOptions(opts...),
 	)
+	onboardingServiceCompleteOnboardingHandler := connect.NewUnaryHandler(
+		OnboardingServiceCompleteOnboardingProcedure,
+		svc.CompleteOnboarding,
+		connect.WithSchema(onboardingServiceMethods.ByName("CompleteOnboarding")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/supervisor.v1.OnboardingService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case OnboardingServiceGetOnboardingStatusProcedure:
@@ -741,6 +764,8 @@ func NewOnboardingServiceHandler(svc OnboardingServiceHandler, opts ...connect.H
 			onboardingServiceGetAppSettingsHandler.ServeHTTP(w, r)
 		case OnboardingServiceSetAppSettingProcedure:
 			onboardingServiceSetAppSettingHandler.ServeHTTP(w, r)
+		case OnboardingServiceCompleteOnboardingProcedure:
+			onboardingServiceCompleteOnboardingHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -760,6 +785,10 @@ func (UnimplementedOnboardingServiceHandler) GetAppSettings(context.Context, *co
 
 func (UnimplementedOnboardingServiceHandler) SetAppSetting(context.Context, *connect.Request[v1.SetAppSettingRequest]) (*connect.Response[v1.SetAppSettingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.OnboardingService.SetAppSetting is not implemented"))
+}
+
+func (UnimplementedOnboardingServiceHandler) CompleteOnboarding(context.Context, *connect.Request[v1.CompleteOnboardingRequest]) (*connect.Response[v1.CompleteOnboardingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("supervisor.v1.OnboardingService.CompleteOnboarding is not implemented"))
 }
 
 // AnalyticsServiceClient is a client for the supervisor.v1.AnalyticsService service.

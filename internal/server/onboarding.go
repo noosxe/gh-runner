@@ -53,16 +53,48 @@ func (s *OnboardingService) GetOnboardingStatus(ctx context.Context, _ *connect.
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("counting runner pools: %w", err))
 	}
 
+	var onboardingCompleted bool
+	if setting, err := s.db.GetAppSetting(ctx, "onboarding_completed"); err == nil {
+		onboardingCompleted = setting.Value == "true"
+	}
+
 	adminCreated := adminCount > 0
 	profileExists := profileCount > 0
 	poolExists := poolCount > 0
-	setupComplete := adminCreated && profileExists && poolExists
+	setupComplete := adminCreated && (onboardingCompleted || poolExists)
 
 	return connect.NewResponse(&supervisorv1.GetOnboardingStatusResponse{
-		AdminCreated:      adminCreated,
-		AuthProfileExists: profileExists,
-		PoolExists:        poolExists,
-		SetupComplete:     setupComplete,
+		AdminCreated:        adminCreated,
+		AuthProfileExists:   profileExists,
+		PoolExists:          poolExists,
+		SetupComplete:       setupComplete,
+		OnboardingCompleted: onboardingCompleted,
+	}), nil
+}
+
+// CompleteOnboarding marks the onboarding flow as completed.
+func (s *OnboardingService) CompleteOnboarding(ctx context.Context, _ *connect.Request[supervisorv1.CompleteOnboardingRequest]) (*connect.Response[supervisorv1.CompleteOnboardingResponse], error) {
+	adminCount, err := s.db.CountAdminUsers(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("counting admin users: %w", err))
+	}
+	if adminCount == 0 {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("admin user must be created before completing onboarding"))
+	}
+
+	if _, err := s.db.SetAppSetting(ctx, db.SetAppSettingParams{
+		Key:   "onboarding_completed",
+		Value: "true",
+	}); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persisting onboarding completion setting: %w", err))
+	}
+
+	recordAuditLog(ctx, s.db, "onboarding.complete", "onboarding", nil, map[string]any{
+		"completed": true,
+	})
+
+	return connect.NewResponse(&supervisorv1.CompleteOnboardingResponse{
+		Success: true,
 	}), nil
 }
 
