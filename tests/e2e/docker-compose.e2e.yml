@@ -1,0 +1,81 @@
+name: gh-runner-e2e
+
+networks:
+  e2e-net:
+    driver: bridge
+
+services:
+  e2e-mock-provider:
+    build:
+      context: ../..
+      dockerfile_inline: |
+        FROM golang:1.27-alpine
+        WORKDIR /app
+        COPY tests/e2e/mock/provider/main.go ./
+        RUN CGO_ENABLED=0 go build -o /app/mock-provider ./main.go
+        EXPOSE 8095
+        CMD ["/app/mock-provider"]
+    networks:
+      - e2e-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8095/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+
+  e2e-mock-docker:
+    build:
+      context: ../..
+      dockerfile_inline: |
+        FROM golang:1.27-alpine
+        WORKDIR /app
+        COPY tests/e2e/mock/docker/main.go ./
+        RUN CGO_ENABLED=0 go build -o /app/mock-docker ./main.go
+        EXPOSE 2375
+        CMD ["/app/mock-docker"]
+    networks:
+      - e2e-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:2375/_ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+
+  e2e-supervisor:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.supervisor
+    depends_on:
+      e2e-mock-provider:
+        condition: service_healthy
+      e2e-mock-docker:
+        condition: service_healthy
+    environment:
+      - SUPERVISOR_PORT=8090
+      - SUPERVISOR_DB_ENCRYPTION_KEY=e2e-testing-super-secret-master-key-min-32-bytes!
+      - SUPERVISOR_DATA_DIR=/data
+      - SUPERVISOR_LOG_LEVEL=debug
+      - SUPERVISOR_DOCKER_HOST=tcp://e2e-mock-docker:2375
+      - GITHUB_BASE_URL=http://e2e-mock-provider:8095
+      - GITEA_BASE_URL=http://e2e-mock-provider:8095
+      - FORGEJO_BASE_URL=http://e2e-mock-provider:8095
+    networks:
+      - e2e-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8090/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  e2e-playwright:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile.playwright
+    depends_on:
+      e2e-supervisor:
+        condition: service_healthy
+    environment:
+      - PLAYWRIGHT_BASE_URL=http://e2e-supervisor:8090
+      - CI=true
+    networks:
+      - e2e-net
