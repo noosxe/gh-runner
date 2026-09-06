@@ -53,7 +53,7 @@ By default, the host Docker socket (`/var/run/docker.sock`) is **not** mounted i
 
 ## 6. Transport Security & Reverse-Proxy TLS Termination
 
-The supervisor daemon listens exclusively on plain HTTP (`SUPERVISOR_PORT`, default `8080`) and delegates TLS termination, certificate renewal, and port 80/443 binding to an external reverse proxy (Caddy or Traefik) per the architectural decisions in [open-questions.md](open-questions.md#question-25-tls-termination-for-web-ui).
+The supervisor daemon listens exclusively on plain HTTP (`SUPERVISOR_PORT`, default `8090`) and delegates TLS termination, certificate renewal, and port 80/443 binding to an external reverse proxy (Caddy or Traefik) per the architectural decisions in [open-questions.md](open-questions.md#question-25-tls-termination-for-web-ui).
 
 - **No Self-Signed Certificates**: Avoids certificate errors, trust establishment hurdles, and TLS library bloat inside the container.
 - **Unbuffered ConnectRPC Streaming**: Proxies must disable response buffering (e.g. Caddy `flush_interval -1`, Traefik `flushInterval: -1`) to support real-time runner log tailing (`StreamRunnerLogs`) and live dashboard watch feeds (`WatchDashboard`).

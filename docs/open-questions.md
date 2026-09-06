@@ -12,7 +12,7 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 
 ## 3. Environment Variable Specification
 - We need to define the formal list of environment variables the Supervisor container itself requires or supports to boot (e.g., `PORT`, `DB_PATH`, `DB_ENCRYPTION_KEY`, `LOG_LEVEL`).
-> **✅ Resolved**: The supervisor requires the following environment variables: `DB_ENCRYPTION_KEY` (**required**, supervisor refuses to start without it), `PORT` (default `8080`), `DB_PATH` (default `/data/supervisor.db`), `LOG_LEVEL` (default `info`), `DOCKER_HOST` (default `unix:///var/run/docker.sock`), `DATA_DIR` (default `/data`). JWT signing secret is derived from `DB_ENCRYPTION_KEY` via HKDF with a distinct context label — no separate `JWT_SECRET` env var.
+> **✅ Resolved**: The supervisor requires the following environment variables: `DB_ENCRYPTION_KEY` (**required**, supervisor refuses to start without it), `PORT` (default `8090`), `DB_PATH` (default `/data/supervisor.db`), `LOG_LEVEL` (default `info`), `DOCKER_HOST` (default `unix:///var/run/docker.sock`), `DATA_DIR` (default `/data`). JWT signing secret is derived from `DB_ENCRYPTION_KEY` via HKDF with a distinct context label — no separate `JWT_SECRET` env var.
 
 ## 4. Data Retention & Pruning Strategy
 - We mention a 30-day retention window in the requirements, but we haven't defined the background cron worker or specific query responsible for purging old `job_history` rows and their associated log files to prevent disk exhaustion.

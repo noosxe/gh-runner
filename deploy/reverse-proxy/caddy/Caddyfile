@@ -21,7 +21,7 @@
     }
 
     # Reverse proxy upstream to the gh-runner supervisor container
-    reverse_proxy supervisor:8080 {
+    reverse_proxy supervisor:8090 {
         # CRITICAL: Disable response buffering for ConnectRPC server-streaming RPCs
         # (StreamRunnerLogs, WatchDashboard, WatchPools, WatchRunners).
         # Without this, streaming events are delayed in 4KB/16KB buffers.

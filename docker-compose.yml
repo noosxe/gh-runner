@@ -8,12 +8,12 @@ services:
     container_name: gh-runner-supervisor
     restart: unless-stopped
     ports:
-      - "${SUPERVISOR_PORT:-8080}:8080"
+      - "${SUPERVISOR_PORT:-8090}:8090"
     environment:
       # Safe dev fallback allows instant 'docker compose up' without manual .env creation
       - SUPERVISOR_DB_ENCRYPTION_KEY=${SUPERVISOR_DB_ENCRYPTION_KEY:-dev-insecure-master-encryption-key-for-local-testing-32b}
       # Fixed internal container port; host port controlled by SUPERVISOR_PORT in ports mapping
-      - SUPERVISOR_PORT=8080
+      - SUPERVISOR_PORT=8090
       - SUPERVISOR_LOG_LEVEL=${SUPERVISOR_LOG_LEVEL:-debug}
       - SUPERVISOR_DOCKER_HOST=${SUPERVISOR_DOCKER_HOST:-unix:///var/run/docker.sock}
       - SUPERVISOR_DATA_DIR=${SUPERVISOR_DATA_DIR:-/data}
@@ -26,7 +26,7 @@ services:
       # Docker daemon socket to spawn ephemeral runner containers (see security note in README)
       - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz && curl -f http://localhost:8080/readyz || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8090/healthz && curl -f http://localhost:8090/readyz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3

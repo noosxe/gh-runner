@@ -90,7 +90,7 @@ docker compose up -d supervisor
 ### Step 5: Verify Health
 Confirm the supervisor has booted successfully and the database health probe reports `ok`:
 ```bash
-curl -s http://localhost:8080/healthz
+curl -s http://localhost:8090/healthz
 # Expected response:
 # {"status":"healthy","checks":{"db":"ok"}}
 ```

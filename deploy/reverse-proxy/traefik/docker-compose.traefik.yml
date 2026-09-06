@@ -32,7 +32,7 @@ services:
     environment:
       # Required: 32+ byte encryption key
       - SUPERVISOR_DB_ENCRYPTION_KEY=${SUPERVISOR_DB_ENCRYPTION_KEY}
-      - SUPERVISOR_PORT=8080
+      - SUPERVISOR_PORT=8090
       # Enable Secure attribute on session cookies behind TLS proxy
       - SUPERVISOR_SECURE_COOKIE=true
       - SUPERVISOR_DATA_DIR=/data
@@ -50,7 +50,7 @@ services:
       - "traefik.http.routers.supervisor.tls.certresolver=letsencrypt"
       - "traefik.http.routers.supervisor.middlewares=supervisor-headers"
       # Upstream service port
-      - "traefik.http.services.supervisor.loadbalancer.server.port=8080"
+      - "traefik.http.services.supervisor.loadbalancer.server.port=8090"
       # CRITICAL: Disable response buffering for ConnectRPC server streams
       # (StreamRunnerLogs, WatchDashboard, WatchPools, WatchRunners).
       # flushInterval=-1 ensures immediate chunk flushing.

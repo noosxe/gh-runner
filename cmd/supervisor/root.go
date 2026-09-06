@@ -56,7 +56,7 @@ Run it with no subcommand to start the daemon.`,
 	f.StringVar(&flagLogLevel, "log-level", "info", "log level (debug, info, warn, error)")
 	f.StringVar(&flagDataDir, "data-dir", "/data", "data directory holding the database, backups, and runner logs")
 	f.StringVar(&flagDBPath, "db-path", "", "path to the SQLite database file (defaults to <data-dir>/supervisor.db)")
-	f.IntVar(&flagPort, "port", 8080, "HTTP port for the API and web control interface")
+	f.IntVar(&flagPort, "port", config.DefaultPort, "HTTP port for the API and web control interface")
 	f.StringVar(&flagDockerHost, "docker-host", "", "Docker daemon endpoint (defaults to the local Docker socket)")
 	f.BoolVar(&flagSecureCookie, "secure-cookie", false, "set Secure attribute on session cookies (recommended behind HTTPS reverse proxy)")
 

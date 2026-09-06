@@ -47,7 +47,7 @@ openssl rand -base64 32
 Add the output to `.env`:
 ```env
 SUPERVISOR_DB_ENCRYPTION_KEY=your_generated_base64_key_here
-SUPERVISOR_PORT=8080
+SUPERVISOR_PORT=8090
 ```
 
 ### 2. Launch the Supervisor Stack
@@ -59,12 +59,12 @@ docker compose up -d
 Verify that the supervisor is healthy:
 ```bash
 docker compose ps
-curl -s http://localhost:8080/healthz
+curl -s http://localhost:8090/healthz
 # Expected output: {"status":"healthy","checks":{"db":"ok"}}
 ```
 
 ### 3. Complete the Onboarding Wizard
-Navigate to `http://localhost:8080` in your browser. The system will automatically direct you to the 5-step onboarding wizard:
+Navigate to `http://localhost:8090` in your browser. The system will automatically direct you to the 5-step onboarding wizard:
 1. **Create Master Administrator:** Set administrative credentials for the dashboard.
 2. **Connect Git Provider:** Connect GitHub (GitHub App or PAT), Gitea (PAT), or Forgejo (PAT).
 3. **Global Scaling Safeguards:** Establish total allowed runner limits, idle warm pool quotas, and history retention.
@@ -102,7 +102,7 @@ The supervisor daemon layers configuration in increasing precedence: **built-in 
 | Variable | Type | Required | Default | Description |
 | :--- | :---: | :---: | :--- | :--- |
 | `SUPERVISOR_DB_ENCRYPTION_KEY` | String | **Yes** | — | Master key (min 32 bytes) used for AES-256 database encryption and HKDF JWT secret derivation. |
-| `SUPERVISOR_PORT` | Int | No | `8080` | HTTP port for the ConnectRPC API and embedded web control interface. |
+| `SUPERVISOR_PORT` | Int | No | `8090` | HTTP port for the ConnectRPC API and embedded web control interface. |
 | `SUPERVISOR_DATA_DIR` | String | No | `/data` | Data directory for SQLite database, snapshot backups, and gzipped execution logs. |
 | `SUPERVISOR_DB_PATH` | String | No | `/data/supervisor.db` | Explicit file path for the SQLite database. |
 | `SUPERVISOR_LOG_LEVEL` | String | No | `info` | Logging verbosity: `debug`, `info`, `warn`, `error`. Logs format as structured JSON. |
@@ -134,7 +134,7 @@ The supervisor daemon layers configuration in increasing precedence: **built-in 
 
 **Operational Hardening Recommendations:**
 - **Host Isolation:** Deploy the supervisor on a dedicated virtual machine or host instance isolated from shared production application workloads.
-- **Network Boundaries:** Do not expose the supervisor port (`8080`) directly to the public internet without an authenticating reverse proxy and firewall rules.
+- **Network Boundaries:** Do not expose the supervisor port (`8090`) directly to the public internet without an authenticating reverse proxy and firewall rules.
 - **Docker Socket Proxies:** In high-compliance environments, front the Docker socket with a capability-filtering socket proxy restricting container creation parameters.
 
 ### Credential & Token Segregation
