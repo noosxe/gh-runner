@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -269,6 +270,273 @@ func TestGitHubAppMetadata(t *testing.T) {
 	}
 	if insts[0].AccountLogin != "my-org" || insts[0].AccountType != "Organization" {
 		t.Errorf("unexpected installation: %+v", insts[0])
+	}
+}
+
+func TestGitHubDiscoveryPagination(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":12345,"name":"test-app","slug":"test-app"}`))
+	})
+
+	// 1. Installations endpoint (2 pages: 100 on page 1, 25 on page 2 -> 125 total)
+	mux.HandleFunc("/app/installations", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		if page == "1" || page == "" {
+			var insts []map[string]any
+			for i := 1; i <= 100; i++ {
+				insts = append(insts, map[string]any{
+					"id": int64(1000 + i),
+					"account": map[string]any{
+						"login": fmt.Sprintf("org-%d", i),
+						"type":  "Organization",
+					},
+					"repository_selection": "all",
+				})
+			}
+			_ = json.NewEncoder(w).Encode(insts)
+			return
+		}
+		if page == "2" {
+			var insts []map[string]any
+			for i := 101; i <= 125; i++ {
+				insts = append(insts, map[string]any{
+					"id": int64(1000 + i),
+					"account": map[string]any{
+						"login": fmt.Sprintf("org-%d", i),
+						"type":  "Organization",
+					},
+					"repository_selection": "all",
+				})
+			}
+			_ = json.NewEncoder(w).Encode(insts)
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]any{})
+	})
+
+	mux.HandleFunc("/app/installations/9999/access_tokens", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token":      "ghs_single_inst_token",
+			"expires_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+		})
+	})
+
+	// 2. Installation Repositories endpoint (2 pages: 100 on page 1, 35 on page 2 -> 135 total)
+	mux.HandleFunc("/installation/repositories", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		if page == "1" || page == "" {
+			var repos []map[string]any
+			for i := 1; i <= 100; i++ {
+				repos = append(repos, map[string]any{
+					"name":      fmt.Sprintf("repo-%d", i),
+					"full_name": fmt.Sprintf("my-org/repo-%d", i),
+					"html_url":  fmt.Sprintf("https://github.com/my-org/repo-%d", i),
+					"private":   false,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"repositories": repos})
+			return
+		}
+		if page == "2" {
+			var repos []map[string]any
+			for i := 101; i <= 135; i++ {
+				repos = append(repos, map[string]any{
+					"name":      fmt.Sprintf("repo-%d", i),
+					"full_name": fmt.Sprintf("my-org/repo-%d", i),
+					"html_url":  fmt.Sprintf("https://github.com/my-org/repo-%d", i),
+					"private":   false,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"repositories": repos})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"repositories": []any{}})
+	})
+
+	// 3. User repos (PAT mode: 2 pages: 100 on page 1, 15 on page 2 -> 115 total)
+	mux.HandleFunc("/user/repos", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		if page == "1" || page == "" {
+			var repos []map[string]any
+			for i := 1; i <= 100; i++ {
+				repos = append(repos, map[string]any{
+					"name":      fmt.Sprintf("pat-repo-%d", i),
+					"full_name": fmt.Sprintf("user/pat-repo-%d", i),
+					"html_url":  fmt.Sprintf("https://github.com/user/pat-repo-%d", i),
+					"private":   true,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(repos)
+			return
+		}
+		if page == "2" {
+			var repos []map[string]any
+			for i := 101; i <= 115; i++ {
+				repos = append(repos, map[string]any{
+					"name":      fmt.Sprintf("pat-repo-%d", i),
+					"full_name": fmt.Sprintf("user/pat-repo-%d", i),
+					"html_url":  fmt.Sprintf("https://github.com/user/pat-repo-%d", i),
+					"private":   true,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(repos)
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]any{})
+	})
+
+	// 4. User orgs (PAT mode: 2 pages: 100 on page 1, 12 on page 2 -> 112 total)
+	mux.HandleFunc("/user/orgs", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		if page == "1" || page == "" {
+			var orgs []map[string]any
+			for i := 1; i <= 100; i++ {
+				orgs = append(orgs, map[string]any{
+					"login": fmt.Sprintf("pat-org-%d", i),
+				})
+			}
+			_ = json.NewEncoder(w).Encode(orgs)
+			return
+		}
+		if page == "2" {
+			var orgs []map[string]any
+			for i := 101; i <= 112; i++ {
+				orgs = append(orgs, map[string]any{
+					"login": fmt.Sprintf("pat-org-%d", i),
+				})
+			}
+			_ = json.NewEncoder(w).Encode(orgs)
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]any{})
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	pkcs1PEM, _, _ := generateTestKeyPEMs(t)
+	ctx := context.Background()
+
+	// Test GitHub App pagination for DiscoverOrganizations & GetAppMetadata
+	appClient, err := github.NewAppProvider(12345, pkcs1PEM, github.WithBaseURL(server.URL))
+	if err != nil {
+		t.Fatalf("NewAppProvider failed: %v", err)
+	}
+
+	orgs, err := appClient.DiscoverOrganizations(ctx)
+	if err != nil {
+		t.Fatalf("DiscoverOrganizations (App) failed: %v", err)
+	}
+	if len(orgs) != 125 {
+		t.Fatalf("expected 125 organizations, got %d", len(orgs))
+	}
+
+	_, metaInsts, err := appClient.GetAppMetadata(ctx)
+	if err != nil {
+		t.Fatalf("GetAppMetadata failed: %v", err)
+	}
+	if len(metaInsts) != 125 {
+		t.Fatalf("expected 125 installations in metadata, got %d", len(metaInsts))
+	}
+
+	// Test GitHub App pagination for DiscoverRepositories with a single installation
+	singleInstMux := http.NewServeMux()
+	singleInstMux.HandleFunc("/app/installations", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{
+				"id": int64(9999),
+				"account": map[string]any{
+					"login": "my-org",
+					"type":  "Organization",
+				},
+				"repository_selection": "all",
+			},
+		})
+	})
+	singleInstMux.HandleFunc("/app/installations/9999/access_tokens", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token": "ghs_single_inst_token",
+		})
+	})
+	singleInstMux.HandleFunc("/installation/repositories", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		if page == "1" || page == "" {
+			var repos []map[string]any
+			for i := 1; i <= 100; i++ {
+				repos = append(repos, map[string]any{
+					"name":      fmt.Sprintf("repo-%d", i),
+					"full_name": fmt.Sprintf("my-org/repo-%d", i),
+					"html_url":  fmt.Sprintf("https://github.com/my-org/repo-%d", i),
+					"private":   false,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"repositories": repos})
+			return
+		}
+		if page == "2" {
+			var repos []map[string]any
+			for i := 101; i <= 135; i++ {
+				repos = append(repos, map[string]any{
+					"name":      fmt.Sprintf("repo-%d", i),
+					"full_name": fmt.Sprintf("my-org/repo-%d", i),
+					"html_url":  fmt.Sprintf("https://github.com/my-org/repo-%d", i),
+					"private":   false,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"repositories": repos})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"repositories": []any{}})
+	})
+	singleInstServer := httptest.NewServer(singleInstMux)
+	defer singleInstServer.Close()
+
+	appSingleClient, err := github.NewAppProvider(12345, pkcs1PEM, github.WithBaseURL(singleInstServer.URL))
+	if err != nil {
+		t.Fatalf("NewAppProvider single failed: %v", err)
+	}
+
+	repos, err := appSingleClient.DiscoverRepositories(ctx)
+	if err != nil {
+		t.Fatalf("DiscoverRepositories (App) failed: %v", err)
+	}
+	if len(repos) != 135 {
+		t.Fatalf("expected 135 repositories, got %d", len(repos))
+	}
+
+	// Test PAT mode pagination
+	patClient, err := github.NewPATProvider("valid-pat", github.WithBaseURL(server.URL))
+	if err != nil {
+		t.Fatalf("NewPATProvider failed: %v", err)
+	}
+
+	patRepos, err := patClient.DiscoverRepositories(ctx)
+	if err != nil {
+		t.Fatalf("DiscoverRepositories (PAT) failed: %v", err)
+	}
+	if len(patRepos) != 115 {
+		t.Fatalf("expected 115 pat repos, got %d", len(patRepos))
+	}
+
+	patOrgs, err := patClient.DiscoverOrganizations(ctx)
+	if err != nil {
+		t.Fatalf("DiscoverOrganizations (PAT) failed: %v", err)
+	}
+	if len(patOrgs) != 112 {
+		t.Fatalf("expected 112 pat orgs, got %d", len(patOrgs))
 	}
 }
 

@@ -268,50 +268,66 @@ func (c *Client) DiscoverOrganizations(ctx context.Context) ([]provider.Discover
 		return nil, errors.New("gitea instance URL is required for target discovery (set GITEA_INSTANCE_URL)")
 	}
 
-	endpoint := baseURL + "/api/v1/user/orgs?limit=100"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	c.setAuthHeader(req)
-	req.Header.Set("Accept", "application/json")
+	var targets []provider.DiscoveredTarget
+	seen := make(map[string]bool)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("calling Gitea API: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("listing Gitea orgs failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var orgs []struct {
-		UserName    string `json:"username"`
-		FullName    string `json:"full_name"`
-		AvatarURL   string `json:"avatar_url"`
-		Description string `json:"description"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&orgs); err != nil {
-		return nil, fmt.Errorf("decoding Gitea orgs response: %w", err)
-	}
-
-	targets := make([]provider.DiscoveredTarget, 0, len(orgs))
-	for _, o := range orgs {
-		name := o.UserName
-		fullName := o.FullName
-		if fullName == "" {
-			fullName = name
+	for page := 1; page <= 50; page++ {
+		endpoint := fmt.Sprintf("%s/api/v1/user/orgs?limit=100&page=%d", baseURL, page)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, err
 		}
-		targets = append(targets, provider.DiscoveredTarget{
-			Name:        name,
-			FullName:    fullName,
-			HTMLURL:     baseURL + "/" + name,
-			Description: o.Description,
-			AvatarURL:   o.AvatarURL,
-		})
+		c.setAuthHeader(req)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("calling Gitea API: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("listing Gitea orgs failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var orgs []struct {
+			UserName    string `json:"username"`
+			FullName    string `json:"full_name"`
+			AvatarURL   string `json:"avatar_url"`
+			Description string `json:"description"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&orgs); err != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("decoding Gitea orgs response: %w", err)
+		}
+		_ = resp.Body.Close()
+
+		for _, o := range orgs {
+			name := o.UserName
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+
+			fullName := o.FullName
+			if fullName == "" {
+				fullName = name
+			}
+			targets = append(targets, provider.DiscoveredTarget{
+				Name:        name,
+				FullName:    fullName,
+				HTMLURL:     baseURL + "/" + name,
+				Description: o.Description,
+				AvatarURL:   o.AvatarURL,
+			})
+		}
+
+		if len(orgs) < 100 {
+			break
+		}
 	}
+
 	return targets, nil
 }
 
@@ -328,50 +344,65 @@ func (c *Client) DiscoverRepositories(ctx context.Context) ([]provider.Discovere
 		return nil, errors.New("gitea instance URL is required for target discovery (set GITEA_INSTANCE_URL)")
 	}
 
-	endpoint := baseURL + "/api/v1/user/repos?limit=100"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	c.setAuthHeader(req)
-	req.Header.Set("Accept", "application/json")
+	var targets []provider.DiscoveredTarget
+	seen := make(map[string]bool)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("calling Gitea API: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
+	for page := 1; page <= 50; page++ {
+		endpoint := fmt.Sprintf("%s/api/v1/user/repos?limit=100&page=%d", baseURL, page)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		c.setAuthHeader(req)
+		req.Header.Set("Accept", "application/json")
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("listing Gitea repos failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("calling Gitea API: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("listing Gitea repos failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var repos []struct {
+			Name        string `json:"name"`
+			FullName    string `json:"full_name"`
+			HTMLURL     string `json:"html_url"`
+			Description string `json:"description"`
+			Private     bool   `json:"private"`
+			Owner       struct {
+				AvatarURL string `json:"avatar_url"`
+			} `json:"owner"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("decoding Gitea repos response: %w", err)
+		}
+		_ = resp.Body.Close()
+
+		for _, r := range repos {
+			if seen[r.HTMLURL] {
+				continue
+			}
+			seen[r.HTMLURL] = true
+			targets = append(targets, provider.DiscoveredTarget{
+				Name:        r.Name,
+				FullName:    r.FullName,
+				HTMLURL:     r.HTMLURL,
+				Description: r.Description,
+				IsPrivate:   r.Private,
+				AvatarURL:   r.Owner.AvatarURL,
+			})
+		}
+
+		if len(repos) < 100 {
+			break
+		}
 	}
 
-	var repos []struct {
-		Name        string `json:"name"`
-		FullName    string `json:"full_name"`
-		HTMLURL     string `json:"html_url"`
-		Description string `json:"description"`
-		Private     bool   `json:"private"`
-		Owner       struct {
-			AvatarURL string `json:"avatar_url"`
-		} `json:"owner"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
-		return nil, fmt.Errorf("decoding Gitea repos response: %w", err)
-	}
-
-	targets := make([]provider.DiscoveredTarget, 0, len(repos))
-	for _, r := range repos {
-		targets = append(targets, provider.DiscoveredTarget{
-			Name:        r.Name,
-			FullName:    r.FullName,
-			HTMLURL:     r.HTMLURL,
-			Description: r.Description,
-			IsPrivate:   r.Private,
-			AvatarURL:   r.Owner.AvatarURL,
-		})
-	}
 	return targets, nil
 }
 
