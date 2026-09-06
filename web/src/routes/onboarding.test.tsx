@@ -6,6 +6,7 @@ const mockSetupAdmin = vi.fn();
 const mockCreateAuthProfile = vi.fn();
 const mockSetAppSetting = vi.fn();
 const mockCreatePool = vi.fn();
+const mockCompleteOnboarding = vi.fn();
 const mockNavigate = vi.fn();
 
 let mockOnboardingStatus = {
@@ -38,6 +39,10 @@ vi.mock("../lib/api/query-hooks", () => ({
   }),
   useCreatePool: () => ({
     mutateAsync: mockCreatePool,
+    isPending: false,
+  }),
+  useCompleteOnboarding: () => ({
+    mutateAsync: mockCompleteOnboarding,
     isPending: false,
   }),
 }));
@@ -368,6 +373,89 @@ describe("OnboardingPage (Full 5 Steps)", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Docker daemon communication timeout")).toBeInTheDocument();
+    });
+  });
+
+  it("allows skipping directly to dashboard after Step 1 admin setup", async () => {
+    mockSetupAdmin.mockResolvedValueOnce({});
+    mockCompleteOnboarding.mockResolvedValueOnce({});
+
+    render(<OnboardingPage />);
+
+    // Step 1
+    fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm Password"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Git Provider/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
+    });
+
+    const skipHeaderBtn = screen.getByRole("button", { name: /Skip to Dashboard/i });
+    expect(skipHeaderBtn).toBeInTheDocument();
+    fireEvent.click(skipHeaderBtn);
+
+    await waitFor(() => {
+      expect(mockCompleteOnboarding).toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/" });
+    });
+  });
+
+  it("allows skipping Step 2, shows Step 4 prerequisite banner, and skips pool to finish setup", async () => {
+    mockSetupAdmin.mockResolvedValueOnce({});
+    mockCompleteOnboarding.mockResolvedValueOnce({});
+
+    render(<OnboardingPage />);
+
+    // Step 1
+    fireEvent.change(screen.getByLabelText("Password (min 10 characters)"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm Password"), {
+      target: { value: "longenoughpass123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Next: Git Provider/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 2 of 5: Connect Git Provider")).toBeInTheDocument();
+    });
+
+    // Step 2: Skip
+    fireEvent.click(screen.getByRole("button", { name: /Skip this step/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 3 of 5: Global Scaling Safeguards")).toBeInTheDocument();
+    });
+
+    // Step 3: Keep defaults & continue
+    fireEvent.click(screen.getByRole("button", { name: /Keep defaults & continue/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 4 of 5: Initial Runner Pool Setup")).toBeInTheDocument();
+      expect(screen.getByText("Git Authentication Profile Required")).toBeInTheDocument();
+    });
+
+    // Step 4: Skip Pool Setup & Review
+    fireEvent.click(screen.getByRole("button", { name: /Skip Pool Setup & Review/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Step 5 of 5: Review & Launch Supervisor")).toBeInTheDocument();
+      expect(screen.getByText(/Skipped — not configured/i)).toBeInTheDocument();
+      expect(screen.getByText(/Skipped — no pool created/i)).toBeInTheDocument();
+      expect(screen.getByText("Ready to Finish Setup")).toBeInTheDocument();
+    });
+
+    // Step 5: Finish & Open Dashboard
+    fireEvent.click(screen.getByRole("button", { name: /Finish & Open Dashboard/i }));
+
+    await waitFor(() => {
+      expect(mockCreatePool).not.toHaveBeenCalled();
+      expect(mockCompleteOnboarding).toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith({ to: "/" });
     });
   });
 });
