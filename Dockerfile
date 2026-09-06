@@ -4,7 +4,7 @@
 # Stage 1: Downloader
 # Download and verify actions-runner, act_runner, and forgejo-runner binaries
 # ------------------------------------------------------------------------------
-FROM ubuntu:24.04 AS downloader
+FROM ubuntu:25.10 AS downloader
 
 # Prevent interactive prompts during apt package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -63,7 +63,7 @@ RUN set -ex; \
 # ------------------------------------------------------------------------------
 # Stage 2: Final Runtime Image
 # ------------------------------------------------------------------------------
-FROM ubuntu:24.04
+FROM ubuntu:25.10
 
 # Prevent interactive prompts during apt package configuration
 ENV DEBIAN_FRONTEND=noninteractive
