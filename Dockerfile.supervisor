@@ -49,7 +49,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
 # Stage 3: Final Runtime
 # Minimal Alpine Linux base image with s6-overlay process supervision
 # ------------------------------------------------------------------------------
-FROM alpine:3.21
+FROM alpine:3.24
 
 ARG TARGETARCH
 ARG S6_OVERLAY_VERSION=3.2.3.2
