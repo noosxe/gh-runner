@@ -31,5 +31,6 @@ node_modules/
 *.tsbuildinfo
 /web/dist/
 
-
-
+# Direnv
+.direnv/
+.envrc.local

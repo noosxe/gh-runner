@@ -15,6 +15,7 @@ Welcome, AI Agent! This document acts as your compass for contributing to this r
   nix develop --command shellcheck src/*.sh
   ```
 - **Interactive shell**: If using a persistent terminal, run `nix develop` to enter the environment, and then run your commands inside it.
+- **direnv**: If using `direnv`, run `direnv allow` once to automatically load the Nix development environment upon entering the project directory.
 
 ---
 
