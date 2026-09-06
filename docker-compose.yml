@@ -39,7 +39,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        - RUNNER_VERSION=2.335.1
+        - GH_RUNNER_VERSION=2.337.0
     image: ghcr.io/noosxe/runner-aio:latest
     container_name: runner-aio
     init: true
