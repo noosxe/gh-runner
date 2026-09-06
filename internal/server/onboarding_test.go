@@ -177,3 +177,95 @@ func TestAppSettingsGetAndSet(t *testing.T) {
 		t.Fatalf("expected updated setting total_allowed_runners=25, got: %+v", getRes2.Msg.Settings)
 	}
 }
+
+func TestCompleteOnboarding(t *testing.T) {
+	ctx := context.Background()
+	database, jwtSecret := setupTestDB(t)
+
+	srv := server.New(server.Options{
+		Port:             8080,
+		AuthDB:           database,
+		OnboardingDB:     database,
+		JWTSigningSecret: jwtSecret,
+	})
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	client := supervisorv1connect.NewOnboardingServiceClient(ts.Client(), ts.URL)
+	authClient := supervisorv1connect.NewAuthServiceClient(ts.Client(), ts.URL)
+
+	// 1. Calling CompleteOnboarding before admin exists or without auth should fail
+	_, err := client.CompleteOnboarding(ctx, connect.NewRequest(&supervisorv1.CompleteOnboardingRequest{}))
+	if err == nil {
+		t.Fatal("expected CompleteOnboarding without admin/auth to fail")
+	}
+
+	// 2. Setup admin
+	_, err = authClient.SetupAdmin(ctx, connect.NewRequest(&supervisorv1.SetupAdminRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("SetupAdmin failed: %v", err)
+	}
+
+	// Log in to get session cookie
+	loginRes, err := authClient.Login(ctx, connect.NewRequest(&supervisorv1.LoginRequest{
+		Username: "admin",
+		Password: "password123",
+	}))
+	if err != nil {
+		t.Fatalf("Login failed: %v", err)
+	}
+	cookie := loginRes.Header().Get("Set-Cookie")
+	rawCookie := strings.Split(strings.Split(cookie, ";")[0], "=")[1]
+
+	// 3. Before complete, setup is not complete
+	statusRes, err := client.GetOnboardingStatus(ctx, connect.NewRequest(&supervisorv1.GetOnboardingStatusRequest{}))
+	if err != nil {
+		t.Fatalf("GetOnboardingStatus failed: %v", err)
+	}
+	if !statusRes.Msg.AdminCreated || statusRes.Msg.SetupComplete || statusRes.Msg.OnboardingCompleted {
+		t.Fatalf("expected AdminCreated=true, SetupComplete=false, OnboardingCompleted=false, got: %+v", statusRes.Msg)
+	}
+
+	// 4. Complete onboarding
+	compReq := connect.NewRequest(&supervisorv1.CompleteOnboardingRequest{})
+	compReq.Header().Set("Cookie", "session_token="+rawCookie)
+	compRes, err := client.CompleteOnboarding(ctx, compReq)
+	if err != nil {
+		t.Fatalf("CompleteOnboarding failed: %v", err)
+	}
+	if !compRes.Msg.Success {
+		t.Fatalf("expected Success=true, got: %+v", compRes.Msg)
+	}
+
+	// 5. Verify status now reports setup complete and onboarding completed
+	statusRes, err = client.GetOnboardingStatus(ctx, connect.NewRequest(&supervisorv1.GetOnboardingStatusRequest{}))
+	if err != nil {
+		t.Fatalf("GetOnboardingStatus failed: %v", err)
+	}
+	if !statusRes.Msg.AdminCreated || !statusRes.Msg.SetupComplete || !statusRes.Msg.OnboardingCompleted {
+		t.Fatalf("expected AdminCreated=true, SetupComplete=true, OnboardingCompleted=true, got: %+v", statusRes.Msg)
+	}
+
+	// 6. Verify audit log entry
+	logs, err := database.ListAuditLogs(ctx, db.ListAuditLogsParams{
+		Limit:  10,
+		Offset: 0,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditLogs failed: %v", err)
+	}
+	var auditFound bool
+	for _, l := range logs {
+		if l.Action == "onboarding.complete" && l.ResourceType.Valid && l.ResourceType.String == "onboarding" {
+			auditFound = true
+			break
+		}
+	}
+	if !auditFound {
+		t.Fatalf("expected audit log for onboarding.complete, got: %+v", logs)
+	}
+}

@@ -227,6 +227,7 @@ service OnboardingService {
   rpc GetOnboardingStatus (GetOnboardingStatusRequest) returns (GetOnboardingStatusResponse);
   rpc GetAppSettings (GetAppSettingsRequest) returns (GetAppSettingsResponse);
   rpc SetAppSetting (SetAppSettingRequest) returns (SetAppSettingResponse);
+  rpc CompleteOnboarding (CompleteOnboardingRequest) returns (CompleteOnboardingResponse);
 }
 
 message GetOnboardingStatusRequest {}
@@ -235,7 +236,14 @@ message GetOnboardingStatusResponse {
   bool admin_created = 1;
   bool auth_profile_exists = 2;
   bool pool_exists = 3;
-  bool setup_complete = 4;        // true when all above are true
+  bool setup_complete = 4;        // true when admin_created AND (onboarding_completed OR pool_exists)
+  bool onboarding_completed = 5;  // true if CompleteOnboarding was invoked
+}
+
+message CompleteOnboardingRequest {}
+
+message CompleteOnboardingResponse {
+  bool success = 1;
 }
 
 message GetAppSettingsRequest {}

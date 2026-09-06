@@ -1789,13 +1789,14 @@ func (*GetOnboardingStatusRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetOnboardingStatusResponse struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	AdminCreated      bool                   `protobuf:"varint,1,opt,name=admin_created,json=adminCreated,proto3" json:"admin_created,omitempty"`
-	AuthProfileExists bool                   `protobuf:"varint,2,opt,name=auth_profile_exists,json=authProfileExists,proto3" json:"auth_profile_exists,omitempty"`
-	PoolExists        bool                   `protobuf:"varint,3,opt,name=pool_exists,json=poolExists,proto3" json:"pool_exists,omitempty"`
-	SetupComplete     bool                   `protobuf:"varint,4,opt,name=setup_complete,json=setupComplete,proto3" json:"setup_complete,omitempty"` // true when all above are true
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	AdminCreated        bool                   `protobuf:"varint,1,opt,name=admin_created,json=adminCreated,proto3" json:"admin_created,omitempty"`
+	AuthProfileExists   bool                   `protobuf:"varint,2,opt,name=auth_profile_exists,json=authProfileExists,proto3" json:"auth_profile_exists,omitempty"`
+	PoolExists          bool                   `protobuf:"varint,3,opt,name=pool_exists,json=poolExists,proto3" json:"pool_exists,omitempty"`
+	SetupComplete       bool                   `protobuf:"varint,4,opt,name=setup_complete,json=setupComplete,proto3" json:"setup_complete,omitempty"`                   // true when admin_created AND (onboarding_completed OR pool_exists)
+	OnboardingCompleted bool                   `protobuf:"varint,5,opt,name=onboarding_completed,json=onboardingCompleted,proto3" json:"onboarding_completed,omitempty"` // true if CompleteOnboarding was invoked
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *GetOnboardingStatusResponse) Reset() {
@@ -1856,6 +1857,93 @@ func (x *GetOnboardingStatusResponse) GetSetupComplete() bool {
 	return false
 }
 
+func (x *GetOnboardingStatusResponse) GetOnboardingCompleted() bool {
+	if x != nil {
+		return x.OnboardingCompleted
+	}
+	return false
+}
+
+type CompleteOnboardingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompleteOnboardingRequest) Reset() {
+	*x = CompleteOnboardingRequest{}
+	mi := &file_api_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteOnboardingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteOnboardingRequest) ProtoMessage() {}
+
+func (x *CompleteOnboardingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteOnboardingRequest.ProtoReflect.Descriptor instead.
+func (*CompleteOnboardingRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{34}
+}
+
+type CompleteOnboardingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompleteOnboardingResponse) Reset() {
+	*x = CompleteOnboardingResponse{}
+	mi := &file_api_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteOnboardingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteOnboardingResponse) ProtoMessage() {}
+
+func (x *CompleteOnboardingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteOnboardingResponse.ProtoReflect.Descriptor instead.
+func (*CompleteOnboardingResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *CompleteOnboardingResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 type GetAppSettingsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1864,7 +1952,7 @@ type GetAppSettingsRequest struct {
 
 func (x *GetAppSettingsRequest) Reset() {
 	*x = GetAppSettingsRequest{}
-	mi := &file_api_proto_msgTypes[34]
+	mi := &file_api_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1876,7 +1964,7 @@ func (x *GetAppSettingsRequest) String() string {
 func (*GetAppSettingsRequest) ProtoMessage() {}
 
 func (x *GetAppSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[34]
+	mi := &file_api_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1889,7 +1977,7 @@ func (x *GetAppSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAppSettingsRequest.ProtoReflect.Descriptor instead.
 func (*GetAppSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{34}
+	return file_api_proto_rawDescGZIP(), []int{36}
 }
 
 type AppSettingEntry struct {
@@ -1903,7 +1991,7 @@ type AppSettingEntry struct {
 
 func (x *AppSettingEntry) Reset() {
 	*x = AppSettingEntry{}
-	mi := &file_api_proto_msgTypes[35]
+	mi := &file_api_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1915,7 +2003,7 @@ func (x *AppSettingEntry) String() string {
 func (*AppSettingEntry) ProtoMessage() {}
 
 func (x *AppSettingEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[35]
+	mi := &file_api_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1928,7 +2016,7 @@ func (x *AppSettingEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppSettingEntry.ProtoReflect.Descriptor instead.
 func (*AppSettingEntry) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{35}
+	return file_api_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *AppSettingEntry) GetKey() string {
@@ -1961,7 +2049,7 @@ type GetAppSettingsResponse struct {
 
 func (x *GetAppSettingsResponse) Reset() {
 	*x = GetAppSettingsResponse{}
-	mi := &file_api_proto_msgTypes[36]
+	mi := &file_api_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1973,7 +2061,7 @@ func (x *GetAppSettingsResponse) String() string {
 func (*GetAppSettingsResponse) ProtoMessage() {}
 
 func (x *GetAppSettingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[36]
+	mi := &file_api_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1986,7 +2074,7 @@ func (x *GetAppSettingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAppSettingsResponse.ProtoReflect.Descriptor instead.
 func (*GetAppSettingsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{36}
+	return file_api_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *GetAppSettingsResponse) GetSettings() []*AppSettingEntry {
@@ -2006,7 +2094,7 @@ type SetAppSettingRequest struct {
 
 func (x *SetAppSettingRequest) Reset() {
 	*x = SetAppSettingRequest{}
-	mi := &file_api_proto_msgTypes[37]
+	mi := &file_api_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2018,7 +2106,7 @@ func (x *SetAppSettingRequest) String() string {
 func (*SetAppSettingRequest) ProtoMessage() {}
 
 func (x *SetAppSettingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[37]
+	mi := &file_api_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2031,7 +2119,7 @@ func (x *SetAppSettingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAppSettingRequest.ProtoReflect.Descriptor instead.
 func (*SetAppSettingRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{37}
+	return file_api_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *SetAppSettingRequest) GetKey() string {
@@ -2058,7 +2146,7 @@ type SetAppSettingResponse struct {
 
 func (x *SetAppSettingResponse) Reset() {
 	*x = SetAppSettingResponse{}
-	mi := &file_api_proto_msgTypes[38]
+	mi := &file_api_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2070,7 +2158,7 @@ func (x *SetAppSettingResponse) String() string {
 func (*SetAppSettingResponse) ProtoMessage() {}
 
 func (x *SetAppSettingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[38]
+	mi := &file_api_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2083,7 +2171,7 @@ func (x *SetAppSettingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAppSettingResponse.ProtoReflect.Descriptor instead.
 func (*SetAppSettingResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{38}
+	return file_api_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *SetAppSettingResponse) GetKey() string {
@@ -2118,7 +2206,7 @@ type JobRecord struct {
 
 func (x *JobRecord) Reset() {
 	*x = JobRecord{}
-	mi := &file_api_proto_msgTypes[39]
+	mi := &file_api_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2130,7 +2218,7 @@ func (x *JobRecord) String() string {
 func (*JobRecord) ProtoMessage() {}
 
 func (x *JobRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[39]
+	mi := &file_api_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2143,7 +2231,7 @@ func (x *JobRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobRecord.ProtoReflect.Descriptor instead.
 func (*JobRecord) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{39}
+	return file_api_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *JobRecord) GetId() int64 {
@@ -2229,7 +2317,7 @@ type GetJobHistoryRequest struct {
 
 func (x *GetJobHistoryRequest) Reset() {
 	*x = GetJobHistoryRequest{}
-	mi := &file_api_proto_msgTypes[40]
+	mi := &file_api_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2241,7 +2329,7 @@ func (x *GetJobHistoryRequest) String() string {
 func (*GetJobHistoryRequest) ProtoMessage() {}
 
 func (x *GetJobHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[40]
+	mi := &file_api_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2254,7 +2342,7 @@ func (x *GetJobHistoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetJobHistoryRequest.ProtoReflect.Descriptor instead.
 func (*GetJobHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{40}
+	return file_api_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *GetJobHistoryRequest) GetPoolId() int64 {
@@ -2302,7 +2390,7 @@ type GetJobHistoryResponse struct {
 
 func (x *GetJobHistoryResponse) Reset() {
 	*x = GetJobHistoryResponse{}
-	mi := &file_api_proto_msgTypes[41]
+	mi := &file_api_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2314,7 +2402,7 @@ func (x *GetJobHistoryResponse) String() string {
 func (*GetJobHistoryResponse) ProtoMessage() {}
 
 func (x *GetJobHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[41]
+	mi := &file_api_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2327,7 +2415,7 @@ func (x *GetJobHistoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetJobHistoryResponse.ProtoReflect.Descriptor instead.
 func (*GetJobHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{41}
+	return file_api_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *GetJobHistoryResponse) GetJobs() []*JobRecord {
@@ -2353,7 +2441,7 @@ type GetJobRecordRequest struct {
 
 func (x *GetJobRecordRequest) Reset() {
 	*x = GetJobRecordRequest{}
-	mi := &file_api_proto_msgTypes[42]
+	mi := &file_api_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2365,7 +2453,7 @@ func (x *GetJobRecordRequest) String() string {
 func (*GetJobRecordRequest) ProtoMessage() {}
 
 func (x *GetJobRecordRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[42]
+	mi := &file_api_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2378,7 +2466,7 @@ func (x *GetJobRecordRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetJobRecordRequest.ProtoReflect.Descriptor instead.
 func (*GetJobRecordRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{42}
+	return file_api_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *GetJobRecordRequest) GetJobId() int64 {
@@ -2397,7 +2485,7 @@ type GetJobRecordResponse struct {
 
 func (x *GetJobRecordResponse) Reset() {
 	*x = GetJobRecordResponse{}
-	mi := &file_api_proto_msgTypes[43]
+	mi := &file_api_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2409,7 +2497,7 @@ func (x *GetJobRecordResponse) String() string {
 func (*GetJobRecordResponse) ProtoMessage() {}
 
 func (x *GetJobRecordResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[43]
+	mi := &file_api_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2422,7 +2510,7 @@ func (x *GetJobRecordResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetJobRecordResponse.ProtoReflect.Descriptor instead.
 func (*GetJobRecordResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{43}
+	return file_api_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *GetJobRecordResponse) GetJob() *JobRecord {
@@ -2446,7 +2534,7 @@ type LatencyBucket struct {
 
 func (x *LatencyBucket) Reset() {
 	*x = LatencyBucket{}
-	mi := &file_api_proto_msgTypes[44]
+	mi := &file_api_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2458,7 +2546,7 @@ func (x *LatencyBucket) String() string {
 func (*LatencyBucket) ProtoMessage() {}
 
 func (x *LatencyBucket) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[44]
+	mi := &file_api_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2471,7 +2559,7 @@ func (x *LatencyBucket) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LatencyBucket.ProtoReflect.Descriptor instead.
 func (*LatencyBucket) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{44}
+	return file_api_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *LatencyBucket) GetTimestamp() string {
@@ -2525,7 +2613,7 @@ type GetSystemStatsRequest struct {
 
 func (x *GetSystemStatsRequest) Reset() {
 	*x = GetSystemStatsRequest{}
-	mi := &file_api_proto_msgTypes[45]
+	mi := &file_api_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2537,7 +2625,7 @@ func (x *GetSystemStatsRequest) String() string {
 func (*GetSystemStatsRequest) ProtoMessage() {}
 
 func (x *GetSystemStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[45]
+	mi := &file_api_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2550,7 +2638,7 @@ func (x *GetSystemStatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSystemStatsRequest.ProtoReflect.Descriptor instead.
 func (*GetSystemStatsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{45}
+	return file_api_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *GetSystemStatsRequest) GetTimeframeHours() int32 {
@@ -2577,7 +2665,7 @@ type GetSystemStatsResponse struct {
 
 func (x *GetSystemStatsResponse) Reset() {
 	*x = GetSystemStatsResponse{}
-	mi := &file_api_proto_msgTypes[46]
+	mi := &file_api_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2589,7 +2677,7 @@ func (x *GetSystemStatsResponse) String() string {
 func (*GetSystemStatsResponse) ProtoMessage() {}
 
 func (x *GetSystemStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[46]
+	mi := &file_api_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2602,7 +2690,7 @@ func (x *GetSystemStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSystemStatsResponse.ProtoReflect.Descriptor instead.
 func (*GetSystemStatsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{46}
+	return file_api_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *GetSystemStatsResponse) GetTotalActiveRunners() int32 {
@@ -2677,7 +2765,7 @@ type WatchDashboardRequest struct {
 
 func (x *WatchDashboardRequest) Reset() {
 	*x = WatchDashboardRequest{}
-	mi := &file_api_proto_msgTypes[47]
+	mi := &file_api_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2689,7 +2777,7 @@ func (x *WatchDashboardRequest) String() string {
 func (*WatchDashboardRequest) ProtoMessage() {}
 
 func (x *WatchDashboardRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[47]
+	mi := &file_api_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2702,7 +2790,7 @@ func (x *WatchDashboardRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchDashboardRequest.ProtoReflect.Descriptor instead.
 func (*WatchDashboardRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{47}
+	return file_api_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *WatchDashboardRequest) GetIntervalMs() int32 {
@@ -2723,7 +2811,7 @@ type WatchDashboardResponse struct {
 
 func (x *WatchDashboardResponse) Reset() {
 	*x = WatchDashboardResponse{}
-	mi := &file_api_proto_msgTypes[48]
+	mi := &file_api_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2735,7 +2823,7 @@ func (x *WatchDashboardResponse) String() string {
 func (*WatchDashboardResponse) ProtoMessage() {}
 
 func (x *WatchDashboardResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[48]
+	mi := &file_api_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2748,7 +2836,7 @@ func (x *WatchDashboardResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchDashboardResponse.ProtoReflect.Descriptor instead.
 func (*WatchDashboardResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{48}
+	return file_api_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *WatchDashboardResponse) GetStats() *GetSystemStatsResponse {
@@ -2781,7 +2869,7 @@ type StreamRunnerLogsRequest struct {
 
 func (x *StreamRunnerLogsRequest) Reset() {
 	*x = StreamRunnerLogsRequest{}
-	mi := &file_api_proto_msgTypes[49]
+	mi := &file_api_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2793,7 +2881,7 @@ func (x *StreamRunnerLogsRequest) String() string {
 func (*StreamRunnerLogsRequest) ProtoMessage() {}
 
 func (x *StreamRunnerLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[49]
+	mi := &file_api_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2806,7 +2894,7 @@ func (x *StreamRunnerLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamRunnerLogsRequest.ProtoReflect.Descriptor instead.
 func (*StreamRunnerLogsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{49}
+	return file_api_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *StreamRunnerLogsRequest) GetRunnerId() string {
@@ -2827,7 +2915,7 @@ type LogChunk struct {
 
 func (x *LogChunk) Reset() {
 	*x = LogChunk{}
-	mi := &file_api_proto_msgTypes[50]
+	mi := &file_api_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2839,7 +2927,7 @@ func (x *LogChunk) String() string {
 func (*LogChunk) ProtoMessage() {}
 
 func (x *LogChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[50]
+	mi := &file_api_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2852,7 +2940,7 @@ func (x *LogChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogChunk.ProtoReflect.Descriptor instead.
 func (*LogChunk) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{50}
+	return file_api_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *LogChunk) GetTimestamp() string {
@@ -2885,7 +2973,7 @@ type GetRunnerLogsRequest struct {
 
 func (x *GetRunnerLogsRequest) Reset() {
 	*x = GetRunnerLogsRequest{}
-	mi := &file_api_proto_msgTypes[51]
+	mi := &file_api_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2897,7 +2985,7 @@ func (x *GetRunnerLogsRequest) String() string {
 func (*GetRunnerLogsRequest) ProtoMessage() {}
 
 func (x *GetRunnerLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[51]
+	mi := &file_api_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2910,7 +2998,7 @@ func (x *GetRunnerLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunnerLogsRequest.ProtoReflect.Descriptor instead.
 func (*GetRunnerLogsRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{51}
+	return file_api_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *GetRunnerLogsRequest) GetRunnerId() string {
@@ -2929,7 +3017,7 @@ type GetRunnerLogsResponse struct {
 
 func (x *GetRunnerLogsResponse) Reset() {
 	*x = GetRunnerLogsResponse{}
-	mi := &file_api_proto_msgTypes[52]
+	mi := &file_api_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2941,7 +3029,7 @@ func (x *GetRunnerLogsResponse) String() string {
 func (*GetRunnerLogsResponse) ProtoMessage() {}
 
 func (x *GetRunnerLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[52]
+	mi := &file_api_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2954,7 +3042,7 @@ func (x *GetRunnerLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRunnerLogsResponse.ProtoReflect.Descriptor instead.
 func (*GetRunnerLogsResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{52}
+	return file_api_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *GetRunnerLogsResponse) GetLines() []*LogChunk {
@@ -2978,7 +3066,7 @@ type RenovateRun struct {
 
 func (x *RenovateRun) Reset() {
 	*x = RenovateRun{}
-	mi := &file_api_proto_msgTypes[53]
+	mi := &file_api_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2990,7 +3078,7 @@ func (x *RenovateRun) String() string {
 func (*RenovateRun) ProtoMessage() {}
 
 func (x *RenovateRun) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[53]
+	mi := &file_api_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3003,7 +3091,7 @@ func (x *RenovateRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenovateRun.ProtoReflect.Descriptor instead.
 func (*RenovateRun) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{53}
+	return file_api_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *RenovateRun) GetId() int64 {
@@ -3057,7 +3145,7 @@ type TriggerRenovateRunRequest struct {
 
 func (x *TriggerRenovateRunRequest) Reset() {
 	*x = TriggerRenovateRunRequest{}
-	mi := &file_api_proto_msgTypes[54]
+	mi := &file_api_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3069,7 +3157,7 @@ func (x *TriggerRenovateRunRequest) String() string {
 func (*TriggerRenovateRunRequest) ProtoMessage() {}
 
 func (x *TriggerRenovateRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[54]
+	mi := &file_api_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3082,7 +3170,7 @@ func (x *TriggerRenovateRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerRenovateRunRequest.ProtoReflect.Descriptor instead.
 func (*TriggerRenovateRunRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{54}
+	return file_api_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *TriggerRenovateRunRequest) GetPoolId() int64 {
@@ -3102,7 +3190,7 @@ type TriggerRenovateRunResponse struct {
 
 func (x *TriggerRenovateRunResponse) Reset() {
 	*x = TriggerRenovateRunResponse{}
-	mi := &file_api_proto_msgTypes[55]
+	mi := &file_api_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3114,7 +3202,7 @@ func (x *TriggerRenovateRunResponse) String() string {
 func (*TriggerRenovateRunResponse) ProtoMessage() {}
 
 func (x *TriggerRenovateRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[55]
+	mi := &file_api_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3127,7 +3215,7 @@ func (x *TriggerRenovateRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerRenovateRunResponse.ProtoReflect.Descriptor instead.
 func (*TriggerRenovateRunResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{55}
+	return file_api_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *TriggerRenovateRunResponse) GetSuccess() bool {
@@ -3153,7 +3241,7 @@ type GetRenovateStatusRequest struct {
 
 func (x *GetRenovateStatusRequest) Reset() {
 	*x = GetRenovateStatusRequest{}
-	mi := &file_api_proto_msgTypes[56]
+	mi := &file_api_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3165,7 +3253,7 @@ func (x *GetRenovateStatusRequest) String() string {
 func (*GetRenovateStatusRequest) ProtoMessage() {}
 
 func (x *GetRenovateStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[56]
+	mi := &file_api_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3178,7 +3266,7 @@ func (x *GetRenovateStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRenovateStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetRenovateStatusRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{56}
+	return file_api_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *GetRenovateStatusRequest) GetPoolId() int64 {
@@ -3198,7 +3286,7 @@ type GetRenovateStatusResponse struct {
 
 func (x *GetRenovateStatusResponse) Reset() {
 	*x = GetRenovateStatusResponse{}
-	mi := &file_api_proto_msgTypes[57]
+	mi := &file_api_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3210,7 +3298,7 @@ func (x *GetRenovateStatusResponse) String() string {
 func (*GetRenovateStatusResponse) ProtoMessage() {}
 
 func (x *GetRenovateStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[57]
+	mi := &file_api_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3223,7 +3311,7 @@ func (x *GetRenovateStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRenovateStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetRenovateStatusResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{57}
+	return file_api_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *GetRenovateStatusResponse) GetLastRun() *RenovateRun {
@@ -3251,7 +3339,7 @@ type ListRenovateHistoryRequest struct {
 
 func (x *ListRenovateHistoryRequest) Reset() {
 	*x = ListRenovateHistoryRequest{}
-	mi := &file_api_proto_msgTypes[58]
+	mi := &file_api_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3263,7 +3351,7 @@ func (x *ListRenovateHistoryRequest) String() string {
 func (*ListRenovateHistoryRequest) ProtoMessage() {}
 
 func (x *ListRenovateHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[58]
+	mi := &file_api_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3276,7 +3364,7 @@ func (x *ListRenovateHistoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRenovateHistoryRequest.ProtoReflect.Descriptor instead.
 func (*ListRenovateHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{58}
+	return file_api_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *ListRenovateHistoryRequest) GetPoolId() int64 {
@@ -3310,7 +3398,7 @@ type ListRenovateHistoryResponse struct {
 
 func (x *ListRenovateHistoryResponse) Reset() {
 	*x = ListRenovateHistoryResponse{}
-	mi := &file_api_proto_msgTypes[59]
+	mi := &file_api_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3322,7 +3410,7 @@ func (x *ListRenovateHistoryResponse) String() string {
 func (*ListRenovateHistoryResponse) ProtoMessage() {}
 
 func (x *ListRenovateHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[59]
+	mi := &file_api_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3335,7 +3423,7 @@ func (x *ListRenovateHistoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRenovateHistoryResponse.ProtoReflect.Descriptor instead.
 func (*ListRenovateHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{59}
+	return file_api_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *ListRenovateHistoryResponse) GetRuns() []*RenovateRun {
@@ -3366,7 +3454,7 @@ type ImageUpdate struct {
 
 func (x *ImageUpdate) Reset() {
 	*x = ImageUpdate{}
-	mi := &file_api_proto_msgTypes[60]
+	mi := &file_api_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3378,7 +3466,7 @@ func (x *ImageUpdate) String() string {
 func (*ImageUpdate) ProtoMessage() {}
 
 func (x *ImageUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[60]
+	mi := &file_api_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3391,7 +3479,7 @@ func (x *ImageUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageUpdate.ProtoReflect.Descriptor instead.
 func (*ImageUpdate) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{60}
+	return file_api_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *ImageUpdate) GetId() int64 {
@@ -3445,7 +3533,7 @@ type CheckImageUpdateRequest struct {
 
 func (x *CheckImageUpdateRequest) Reset() {
 	*x = CheckImageUpdateRequest{}
-	mi := &file_api_proto_msgTypes[61]
+	mi := &file_api_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3457,7 +3545,7 @@ func (x *CheckImageUpdateRequest) String() string {
 func (*CheckImageUpdateRequest) ProtoMessage() {}
 
 func (x *CheckImageUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[61]
+	mi := &file_api_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3470,7 +3558,7 @@ func (x *CheckImageUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckImageUpdateRequest.ProtoReflect.Descriptor instead.
 func (*CheckImageUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{61}
+	return file_api_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *CheckImageUpdateRequest) GetPoolId() int64 {
@@ -3490,7 +3578,7 @@ type CheckImageUpdateResponse struct {
 
 func (x *CheckImageUpdateResponse) Reset() {
 	*x = CheckImageUpdateResponse{}
-	mi := &file_api_proto_msgTypes[62]
+	mi := &file_api_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3502,7 +3590,7 @@ func (x *CheckImageUpdateResponse) String() string {
 func (*CheckImageUpdateResponse) ProtoMessage() {}
 
 func (x *CheckImageUpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[62]
+	mi := &file_api_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3515,7 +3603,7 @@ func (x *CheckImageUpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckImageUpdateResponse.ProtoReflect.Descriptor instead.
 func (*CheckImageUpdateResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{62}
+	return file_api_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *CheckImageUpdateResponse) GetUpdateAvailable() bool {
@@ -3541,7 +3629,7 @@ type PullImageRequest struct {
 
 func (x *PullImageRequest) Reset() {
 	*x = PullImageRequest{}
-	mi := &file_api_proto_msgTypes[63]
+	mi := &file_api_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3553,7 +3641,7 @@ func (x *PullImageRequest) String() string {
 func (*PullImageRequest) ProtoMessage() {}
 
 func (x *PullImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[63]
+	mi := &file_api_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3566,7 +3654,7 @@ func (x *PullImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullImageRequest.ProtoReflect.Descriptor instead.
 func (*PullImageRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{63}
+	return file_api_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *PullImageRequest) GetPoolId() int64 {
@@ -3586,7 +3674,7 @@ type PullImageResponse struct {
 
 func (x *PullImageResponse) Reset() {
 	*x = PullImageResponse{}
-	mi := &file_api_proto_msgTypes[64]
+	mi := &file_api_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3598,7 +3686,7 @@ func (x *PullImageResponse) String() string {
 func (*PullImageResponse) ProtoMessage() {}
 
 func (x *PullImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[64]
+	mi := &file_api_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3611,7 +3699,7 @@ func (x *PullImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullImageResponse.ProtoReflect.Descriptor instead.
 func (*PullImageResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{64}
+	return file_api_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *PullImageResponse) GetSuccess() bool {
@@ -3637,7 +3725,7 @@ type ListImageUpdatesRequest struct {
 
 func (x *ListImageUpdatesRequest) Reset() {
 	*x = ListImageUpdatesRequest{}
-	mi := &file_api_proto_msgTypes[65]
+	mi := &file_api_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3649,7 +3737,7 @@ func (x *ListImageUpdatesRequest) String() string {
 func (*ListImageUpdatesRequest) ProtoMessage() {}
 
 func (x *ListImageUpdatesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[65]
+	mi := &file_api_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3662,7 +3750,7 @@ func (x *ListImageUpdatesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImageUpdatesRequest.ProtoReflect.Descriptor instead.
 func (*ListImageUpdatesRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{65}
+	return file_api_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *ListImageUpdatesRequest) GetPoolId() int64 {
@@ -3681,7 +3769,7 @@ type ListImageUpdatesResponse struct {
 
 func (x *ListImageUpdatesResponse) Reset() {
 	*x = ListImageUpdatesResponse{}
-	mi := &file_api_proto_msgTypes[66]
+	mi := &file_api_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3693,7 +3781,7 @@ func (x *ListImageUpdatesResponse) String() string {
 func (*ListImageUpdatesResponse) ProtoMessage() {}
 
 func (x *ListImageUpdatesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[66]
+	mi := &file_api_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3706,7 +3794,7 @@ func (x *ListImageUpdatesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListImageUpdatesResponse.ProtoReflect.Descriptor instead.
 func (*ListImageUpdatesResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{66}
+	return file_api_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *ListImageUpdatesResponse) GetUpdates() []*ImageUpdate {
@@ -3725,7 +3813,7 @@ type DismissImageUpdateRequest struct {
 
 func (x *DismissImageUpdateRequest) Reset() {
 	*x = DismissImageUpdateRequest{}
-	mi := &file_api_proto_msgTypes[67]
+	mi := &file_api_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3737,7 +3825,7 @@ func (x *DismissImageUpdateRequest) String() string {
 func (*DismissImageUpdateRequest) ProtoMessage() {}
 
 func (x *DismissImageUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[67]
+	mi := &file_api_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3750,7 +3838,7 @@ func (x *DismissImageUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DismissImageUpdateRequest.ProtoReflect.Descriptor instead.
 func (*DismissImageUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{67}
+	return file_api_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *DismissImageUpdateRequest) GetId() int64 {
@@ -3769,7 +3857,7 @@ type DismissImageUpdateResponse struct {
 
 func (x *DismissImageUpdateResponse) Reset() {
 	*x = DismissImageUpdateResponse{}
-	mi := &file_api_proto_msgTypes[68]
+	mi := &file_api_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3781,7 +3869,7 @@ func (x *DismissImageUpdateResponse) String() string {
 func (*DismissImageUpdateResponse) ProtoMessage() {}
 
 func (x *DismissImageUpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_msgTypes[68]
+	mi := &file_api_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3794,7 +3882,7 @@ func (x *DismissImageUpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DismissImageUpdateResponse.ProtoReflect.Descriptor instead.
 func (*DismissImageUpdateResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_rawDescGZIP(), []int{68}
+	return file_api_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *DismissImageUpdateResponse) GetSuccess() bool {
@@ -3921,13 +4009,17 @@ const file_api_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\"5\n" +
 	"\x19DeleteAuthProfileResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x1c\n" +
-	"\x1aGetOnboardingStatusRequest\"\xba\x01\n" +
+	"\x1aGetOnboardingStatusRequest\"\xed\x01\n" +
 	"\x1bGetOnboardingStatusResponse\x12#\n" +
 	"\radmin_created\x18\x01 \x01(\bR\fadminCreated\x12.\n" +
 	"\x13auth_profile_exists\x18\x02 \x01(\bR\x11authProfileExists\x12\x1f\n" +
 	"\vpool_exists\x18\x03 \x01(\bR\n" +
 	"poolExists\x12%\n" +
-	"\x0esetup_complete\x18\x04 \x01(\bR\rsetupComplete\"\x17\n" +
+	"\x0esetup_complete\x18\x04 \x01(\bR\rsetupComplete\x121\n" +
+	"\x14onboarding_completed\x18\x05 \x01(\bR\x13onboardingCompleted\"\x1b\n" +
+	"\x19CompleteOnboardingRequest\"6\n" +
+	"\x1aCompleteOnboardingResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x17\n" +
 	"\x15GetAppSettingsRequest\"X\n" +
 	"\x0fAppSettingEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
@@ -4083,11 +4175,12 @@ const file_api_proto_rawDesc = "" +
 	"\x12AuthProfileService\x12c\n" +
 	"\x10ListAuthProfiles\x12&.supervisor.v1.ListAuthProfilesRequest\x1a'.supervisor.v1.ListAuthProfilesResponse\x12f\n" +
 	"\x11CreateAuthProfile\x12'.supervisor.v1.CreateAuthProfileRequest\x1a(.supervisor.v1.CreateAuthProfileResponse\x12f\n" +
-	"\x11DeleteAuthProfile\x12'.supervisor.v1.DeleteAuthProfileRequest\x1a(.supervisor.v1.DeleteAuthProfileResponse2\xbc\x02\n" +
+	"\x11DeleteAuthProfile\x12'.supervisor.v1.DeleteAuthProfileRequest\x1a(.supervisor.v1.DeleteAuthProfileResponse2\xa7\x03\n" +
 	"\x11OnboardingService\x12l\n" +
 	"\x13GetOnboardingStatus\x12).supervisor.v1.GetOnboardingStatusRequest\x1a*.supervisor.v1.GetOnboardingStatusResponse\x12]\n" +
 	"\x0eGetAppSettings\x12$.supervisor.v1.GetAppSettingsRequest\x1a%.supervisor.v1.GetAppSettingsResponse\x12Z\n" +
-	"\rSetAppSetting\x12#.supervisor.v1.SetAppSettingRequest\x1a$.supervisor.v1.SetAppSettingResponse2\x87\x03\n" +
+	"\rSetAppSetting\x12#.supervisor.v1.SetAppSettingRequest\x1a$.supervisor.v1.SetAppSettingResponse\x12i\n" +
+	"\x12CompleteOnboarding\x12(.supervisor.v1.CompleteOnboardingRequest\x1a).supervisor.v1.CompleteOnboardingResponse2\x87\x03\n" +
 	"\x10AnalyticsService\x12Z\n" +
 	"\rGetJobHistory\x12#.supervisor.v1.GetJobHistoryRequest\x1a$.supervisor.v1.GetJobHistoryResponse\x12W\n" +
 	"\fGetJobRecord\x12\".supervisor.v1.GetJobRecordRequest\x1a#.supervisor.v1.GetJobRecordResponse\x12]\n" +
@@ -4119,7 +4212,7 @@ func file_api_proto_rawDescGZIP() []byte {
 	return file_api_proto_rawDescData
 }
 
-var file_api_proto_msgTypes = make([]protoimpl.MessageInfo, 69)
+var file_api_proto_msgTypes = make([]protoimpl.MessageInfo, 71)
 var file_api_proto_goTypes = []any{
 	(*SetupAdminRequest)(nil),           // 0: supervisor.v1.SetupAdminRequest
 	(*SetupAdminResponse)(nil),          // 1: supervisor.v1.SetupAdminResponse
@@ -4155,41 +4248,43 @@ var file_api_proto_goTypes = []any{
 	(*DeleteAuthProfileResponse)(nil),   // 31: supervisor.v1.DeleteAuthProfileResponse
 	(*GetOnboardingStatusRequest)(nil),  // 32: supervisor.v1.GetOnboardingStatusRequest
 	(*GetOnboardingStatusResponse)(nil), // 33: supervisor.v1.GetOnboardingStatusResponse
-	(*GetAppSettingsRequest)(nil),       // 34: supervisor.v1.GetAppSettingsRequest
-	(*AppSettingEntry)(nil),             // 35: supervisor.v1.AppSettingEntry
-	(*GetAppSettingsResponse)(nil),      // 36: supervisor.v1.GetAppSettingsResponse
-	(*SetAppSettingRequest)(nil),        // 37: supervisor.v1.SetAppSettingRequest
-	(*SetAppSettingResponse)(nil),       // 38: supervisor.v1.SetAppSettingResponse
-	(*JobRecord)(nil),                   // 39: supervisor.v1.JobRecord
-	(*GetJobHistoryRequest)(nil),        // 40: supervisor.v1.GetJobHistoryRequest
-	(*GetJobHistoryResponse)(nil),       // 41: supervisor.v1.GetJobHistoryResponse
-	(*GetJobRecordRequest)(nil),         // 42: supervisor.v1.GetJobRecordRequest
-	(*GetJobRecordResponse)(nil),        // 43: supervisor.v1.GetJobRecordResponse
-	(*LatencyBucket)(nil),               // 44: supervisor.v1.LatencyBucket
-	(*GetSystemStatsRequest)(nil),       // 45: supervisor.v1.GetSystemStatsRequest
-	(*GetSystemStatsResponse)(nil),      // 46: supervisor.v1.GetSystemStatsResponse
-	(*WatchDashboardRequest)(nil),       // 47: supervisor.v1.WatchDashboardRequest
-	(*WatchDashboardResponse)(nil),      // 48: supervisor.v1.WatchDashboardResponse
-	(*StreamRunnerLogsRequest)(nil),     // 49: supervisor.v1.StreamRunnerLogsRequest
-	(*LogChunk)(nil),                    // 50: supervisor.v1.LogChunk
-	(*GetRunnerLogsRequest)(nil),        // 51: supervisor.v1.GetRunnerLogsRequest
-	(*GetRunnerLogsResponse)(nil),       // 52: supervisor.v1.GetRunnerLogsResponse
-	(*RenovateRun)(nil),                 // 53: supervisor.v1.RenovateRun
-	(*TriggerRenovateRunRequest)(nil),   // 54: supervisor.v1.TriggerRenovateRunRequest
-	(*TriggerRenovateRunResponse)(nil),  // 55: supervisor.v1.TriggerRenovateRunResponse
-	(*GetRenovateStatusRequest)(nil),    // 56: supervisor.v1.GetRenovateStatusRequest
-	(*GetRenovateStatusResponse)(nil),   // 57: supervisor.v1.GetRenovateStatusResponse
-	(*ListRenovateHistoryRequest)(nil),  // 58: supervisor.v1.ListRenovateHistoryRequest
-	(*ListRenovateHistoryResponse)(nil), // 59: supervisor.v1.ListRenovateHistoryResponse
-	(*ImageUpdate)(nil),                 // 60: supervisor.v1.ImageUpdate
-	(*CheckImageUpdateRequest)(nil),     // 61: supervisor.v1.CheckImageUpdateRequest
-	(*CheckImageUpdateResponse)(nil),    // 62: supervisor.v1.CheckImageUpdateResponse
-	(*PullImageRequest)(nil),            // 63: supervisor.v1.PullImageRequest
-	(*PullImageResponse)(nil),           // 64: supervisor.v1.PullImageResponse
-	(*ListImageUpdatesRequest)(nil),     // 65: supervisor.v1.ListImageUpdatesRequest
-	(*ListImageUpdatesResponse)(nil),    // 66: supervisor.v1.ListImageUpdatesResponse
-	(*DismissImageUpdateRequest)(nil),   // 67: supervisor.v1.DismissImageUpdateRequest
-	(*DismissImageUpdateResponse)(nil),  // 68: supervisor.v1.DismissImageUpdateResponse
+	(*CompleteOnboardingRequest)(nil),   // 34: supervisor.v1.CompleteOnboardingRequest
+	(*CompleteOnboardingResponse)(nil),  // 35: supervisor.v1.CompleteOnboardingResponse
+	(*GetAppSettingsRequest)(nil),       // 36: supervisor.v1.GetAppSettingsRequest
+	(*AppSettingEntry)(nil),             // 37: supervisor.v1.AppSettingEntry
+	(*GetAppSettingsResponse)(nil),      // 38: supervisor.v1.GetAppSettingsResponse
+	(*SetAppSettingRequest)(nil),        // 39: supervisor.v1.SetAppSettingRequest
+	(*SetAppSettingResponse)(nil),       // 40: supervisor.v1.SetAppSettingResponse
+	(*JobRecord)(nil),                   // 41: supervisor.v1.JobRecord
+	(*GetJobHistoryRequest)(nil),        // 42: supervisor.v1.GetJobHistoryRequest
+	(*GetJobHistoryResponse)(nil),       // 43: supervisor.v1.GetJobHistoryResponse
+	(*GetJobRecordRequest)(nil),         // 44: supervisor.v1.GetJobRecordRequest
+	(*GetJobRecordResponse)(nil),        // 45: supervisor.v1.GetJobRecordResponse
+	(*LatencyBucket)(nil),               // 46: supervisor.v1.LatencyBucket
+	(*GetSystemStatsRequest)(nil),       // 47: supervisor.v1.GetSystemStatsRequest
+	(*GetSystemStatsResponse)(nil),      // 48: supervisor.v1.GetSystemStatsResponse
+	(*WatchDashboardRequest)(nil),       // 49: supervisor.v1.WatchDashboardRequest
+	(*WatchDashboardResponse)(nil),      // 50: supervisor.v1.WatchDashboardResponse
+	(*StreamRunnerLogsRequest)(nil),     // 51: supervisor.v1.StreamRunnerLogsRequest
+	(*LogChunk)(nil),                    // 52: supervisor.v1.LogChunk
+	(*GetRunnerLogsRequest)(nil),        // 53: supervisor.v1.GetRunnerLogsRequest
+	(*GetRunnerLogsResponse)(nil),       // 54: supervisor.v1.GetRunnerLogsResponse
+	(*RenovateRun)(nil),                 // 55: supervisor.v1.RenovateRun
+	(*TriggerRenovateRunRequest)(nil),   // 56: supervisor.v1.TriggerRenovateRunRequest
+	(*TriggerRenovateRunResponse)(nil),  // 57: supervisor.v1.TriggerRenovateRunResponse
+	(*GetRenovateStatusRequest)(nil),    // 58: supervisor.v1.GetRenovateStatusRequest
+	(*GetRenovateStatusResponse)(nil),   // 59: supervisor.v1.GetRenovateStatusResponse
+	(*ListRenovateHistoryRequest)(nil),  // 60: supervisor.v1.ListRenovateHistoryRequest
+	(*ListRenovateHistoryResponse)(nil), // 61: supervisor.v1.ListRenovateHistoryResponse
+	(*ImageUpdate)(nil),                 // 62: supervisor.v1.ImageUpdate
+	(*CheckImageUpdateRequest)(nil),     // 63: supervisor.v1.CheckImageUpdateRequest
+	(*CheckImageUpdateResponse)(nil),    // 64: supervisor.v1.CheckImageUpdateResponse
+	(*PullImageRequest)(nil),            // 65: supervisor.v1.PullImageRequest
+	(*PullImageResponse)(nil),           // 66: supervisor.v1.PullImageResponse
+	(*ListImageUpdatesRequest)(nil),     // 67: supervisor.v1.ListImageUpdatesRequest
+	(*ListImageUpdatesResponse)(nil),    // 68: supervisor.v1.ListImageUpdatesResponse
+	(*DismissImageUpdateRequest)(nil),   // 69: supervisor.v1.DismissImageUpdateRequest
+	(*DismissImageUpdateResponse)(nil),  // 70: supervisor.v1.DismissImageUpdateResponse
 }
 var file_api_proto_depIdxs = []int32{
 	7,  // 0: supervisor.v1.Pool.renovate:type_name -> supervisor.v1.RenovateConfig
@@ -4203,18 +4298,18 @@ var file_api_proto_depIdxs = []int32{
 	18, // 8: supervisor.v1.WatchRunnersResponse.runners:type_name -> supervisor.v1.RunnerInstance
 	25, // 9: supervisor.v1.ListAuthProfilesResponse.profiles:type_name -> supervisor.v1.AuthProfile
 	25, // 10: supervisor.v1.CreateAuthProfileResponse.profile:type_name -> supervisor.v1.AuthProfile
-	35, // 11: supervisor.v1.GetAppSettingsResponse.settings:type_name -> supervisor.v1.AppSettingEntry
-	39, // 12: supervisor.v1.GetJobHistoryResponse.jobs:type_name -> supervisor.v1.JobRecord
-	39, // 13: supervisor.v1.GetJobRecordResponse.job:type_name -> supervisor.v1.JobRecord
-	44, // 14: supervisor.v1.GetSystemStatsResponse.queue_latency_trend:type_name -> supervisor.v1.LatencyBucket
-	46, // 15: supervisor.v1.WatchDashboardResponse.stats:type_name -> supervisor.v1.GetSystemStatsResponse
+	37, // 11: supervisor.v1.GetAppSettingsResponse.settings:type_name -> supervisor.v1.AppSettingEntry
+	41, // 12: supervisor.v1.GetJobHistoryResponse.jobs:type_name -> supervisor.v1.JobRecord
+	41, // 13: supervisor.v1.GetJobRecordResponse.job:type_name -> supervisor.v1.JobRecord
+	46, // 14: supervisor.v1.GetSystemStatsResponse.queue_latency_trend:type_name -> supervisor.v1.LatencyBucket
+	48, // 15: supervisor.v1.WatchDashboardResponse.stats:type_name -> supervisor.v1.GetSystemStatsResponse
 	6,  // 16: supervisor.v1.WatchDashboardResponse.pools:type_name -> supervisor.v1.Pool
-	39, // 17: supervisor.v1.WatchDashboardResponse.recent_jobs:type_name -> supervisor.v1.JobRecord
-	50, // 18: supervisor.v1.GetRunnerLogsResponse.lines:type_name -> supervisor.v1.LogChunk
-	53, // 19: supervisor.v1.GetRenovateStatusResponse.last_run:type_name -> supervisor.v1.RenovateRun
-	53, // 20: supervisor.v1.ListRenovateHistoryResponse.runs:type_name -> supervisor.v1.RenovateRun
-	60, // 21: supervisor.v1.CheckImageUpdateResponse.update:type_name -> supervisor.v1.ImageUpdate
-	60, // 22: supervisor.v1.ListImageUpdatesResponse.updates:type_name -> supervisor.v1.ImageUpdate
+	41, // 17: supervisor.v1.WatchDashboardResponse.recent_jobs:type_name -> supervisor.v1.JobRecord
+	52, // 18: supervisor.v1.GetRunnerLogsResponse.lines:type_name -> supervisor.v1.LogChunk
+	55, // 19: supervisor.v1.GetRenovateStatusResponse.last_run:type_name -> supervisor.v1.RenovateRun
+	55, // 20: supervisor.v1.ListRenovateHistoryResponse.runs:type_name -> supervisor.v1.RenovateRun
+	62, // 21: supervisor.v1.CheckImageUpdateResponse.update:type_name -> supervisor.v1.ImageUpdate
+	62, // 22: supervisor.v1.ListImageUpdatesResponse.updates:type_name -> supervisor.v1.ImageUpdate
 	0,  // 23: supervisor.v1.AuthService.SetupAdmin:input_type -> supervisor.v1.SetupAdminRequest
 	2,  // 24: supervisor.v1.AuthService.Login:input_type -> supervisor.v1.LoginRequest
 	4,  // 25: supervisor.v1.AuthService.GetSession:input_type -> supervisor.v1.GetSessionRequest
@@ -4230,53 +4325,55 @@ var file_api_proto_depIdxs = []int32{
 	28, // 35: supervisor.v1.AuthProfileService.CreateAuthProfile:input_type -> supervisor.v1.CreateAuthProfileRequest
 	30, // 36: supervisor.v1.AuthProfileService.DeleteAuthProfile:input_type -> supervisor.v1.DeleteAuthProfileRequest
 	32, // 37: supervisor.v1.OnboardingService.GetOnboardingStatus:input_type -> supervisor.v1.GetOnboardingStatusRequest
-	34, // 38: supervisor.v1.OnboardingService.GetAppSettings:input_type -> supervisor.v1.GetAppSettingsRequest
-	37, // 39: supervisor.v1.OnboardingService.SetAppSetting:input_type -> supervisor.v1.SetAppSettingRequest
-	40, // 40: supervisor.v1.AnalyticsService.GetJobHistory:input_type -> supervisor.v1.GetJobHistoryRequest
-	42, // 41: supervisor.v1.AnalyticsService.GetJobRecord:input_type -> supervisor.v1.GetJobRecordRequest
-	45, // 42: supervisor.v1.AnalyticsService.GetSystemStats:input_type -> supervisor.v1.GetSystemStatsRequest
-	47, // 43: supervisor.v1.AnalyticsService.WatchDashboard:input_type -> supervisor.v1.WatchDashboardRequest
-	49, // 44: supervisor.v1.LogService.StreamRunnerLogs:input_type -> supervisor.v1.StreamRunnerLogsRequest
-	51, // 45: supervisor.v1.LogService.GetRunnerLogs:input_type -> supervisor.v1.GetRunnerLogsRequest
-	54, // 46: supervisor.v1.RenovateService.TriggerRenovateRun:input_type -> supervisor.v1.TriggerRenovateRunRequest
-	56, // 47: supervisor.v1.RenovateService.GetRenovateStatus:input_type -> supervisor.v1.GetRenovateStatusRequest
-	58, // 48: supervisor.v1.RenovateService.ListRenovateHistory:input_type -> supervisor.v1.ListRenovateHistoryRequest
-	61, // 49: supervisor.v1.ImageUpdateService.CheckImageUpdate:input_type -> supervisor.v1.CheckImageUpdateRequest
-	63, // 50: supervisor.v1.ImageUpdateService.PullImage:input_type -> supervisor.v1.PullImageRequest
-	65, // 51: supervisor.v1.ImageUpdateService.ListImageUpdates:input_type -> supervisor.v1.ListImageUpdatesRequest
-	67, // 52: supervisor.v1.ImageUpdateService.DismissImageUpdate:input_type -> supervisor.v1.DismissImageUpdateRequest
-	1,  // 53: supervisor.v1.AuthService.SetupAdmin:output_type -> supervisor.v1.SetupAdminResponse
-	3,  // 54: supervisor.v1.AuthService.Login:output_type -> supervisor.v1.LoginResponse
-	5,  // 55: supervisor.v1.AuthService.GetSession:output_type -> supervisor.v1.GetSessionResponse
-	9,  // 56: supervisor.v1.PoolService.ListPools:output_type -> supervisor.v1.ListPoolsResponse
-	11, // 57: supervisor.v1.PoolService.CreatePool:output_type -> supervisor.v1.CreatePoolResponse
-	13, // 58: supervisor.v1.PoolService.UpdatePool:output_type -> supervisor.v1.UpdatePoolResponse
-	15, // 59: supervisor.v1.PoolService.DeletePool:output_type -> supervisor.v1.DeletePoolResponse
-	17, // 60: supervisor.v1.PoolService.WatchPools:output_type -> supervisor.v1.WatchPoolsResponse
-	20, // 61: supervisor.v1.PoolService.ListRunners:output_type -> supervisor.v1.ListRunnersResponse
-	22, // 62: supervisor.v1.PoolService.TerminateRunner:output_type -> supervisor.v1.TerminateRunnerResponse
-	24, // 63: supervisor.v1.PoolService.WatchRunners:output_type -> supervisor.v1.WatchRunnersResponse
-	27, // 64: supervisor.v1.AuthProfileService.ListAuthProfiles:output_type -> supervisor.v1.ListAuthProfilesResponse
-	29, // 65: supervisor.v1.AuthProfileService.CreateAuthProfile:output_type -> supervisor.v1.CreateAuthProfileResponse
-	31, // 66: supervisor.v1.AuthProfileService.DeleteAuthProfile:output_type -> supervisor.v1.DeleteAuthProfileResponse
-	33, // 67: supervisor.v1.OnboardingService.GetOnboardingStatus:output_type -> supervisor.v1.GetOnboardingStatusResponse
-	36, // 68: supervisor.v1.OnboardingService.GetAppSettings:output_type -> supervisor.v1.GetAppSettingsResponse
-	38, // 69: supervisor.v1.OnboardingService.SetAppSetting:output_type -> supervisor.v1.SetAppSettingResponse
-	41, // 70: supervisor.v1.AnalyticsService.GetJobHistory:output_type -> supervisor.v1.GetJobHistoryResponse
-	43, // 71: supervisor.v1.AnalyticsService.GetJobRecord:output_type -> supervisor.v1.GetJobRecordResponse
-	46, // 72: supervisor.v1.AnalyticsService.GetSystemStats:output_type -> supervisor.v1.GetSystemStatsResponse
-	48, // 73: supervisor.v1.AnalyticsService.WatchDashboard:output_type -> supervisor.v1.WatchDashboardResponse
-	50, // 74: supervisor.v1.LogService.StreamRunnerLogs:output_type -> supervisor.v1.LogChunk
-	52, // 75: supervisor.v1.LogService.GetRunnerLogs:output_type -> supervisor.v1.GetRunnerLogsResponse
-	55, // 76: supervisor.v1.RenovateService.TriggerRenovateRun:output_type -> supervisor.v1.TriggerRenovateRunResponse
-	57, // 77: supervisor.v1.RenovateService.GetRenovateStatus:output_type -> supervisor.v1.GetRenovateStatusResponse
-	59, // 78: supervisor.v1.RenovateService.ListRenovateHistory:output_type -> supervisor.v1.ListRenovateHistoryResponse
-	62, // 79: supervisor.v1.ImageUpdateService.CheckImageUpdate:output_type -> supervisor.v1.CheckImageUpdateResponse
-	64, // 80: supervisor.v1.ImageUpdateService.PullImage:output_type -> supervisor.v1.PullImageResponse
-	66, // 81: supervisor.v1.ImageUpdateService.ListImageUpdates:output_type -> supervisor.v1.ListImageUpdatesResponse
-	68, // 82: supervisor.v1.ImageUpdateService.DismissImageUpdate:output_type -> supervisor.v1.DismissImageUpdateResponse
-	53, // [53:83] is the sub-list for method output_type
-	23, // [23:53] is the sub-list for method input_type
+	36, // 38: supervisor.v1.OnboardingService.GetAppSettings:input_type -> supervisor.v1.GetAppSettingsRequest
+	39, // 39: supervisor.v1.OnboardingService.SetAppSetting:input_type -> supervisor.v1.SetAppSettingRequest
+	34, // 40: supervisor.v1.OnboardingService.CompleteOnboarding:input_type -> supervisor.v1.CompleteOnboardingRequest
+	42, // 41: supervisor.v1.AnalyticsService.GetJobHistory:input_type -> supervisor.v1.GetJobHistoryRequest
+	44, // 42: supervisor.v1.AnalyticsService.GetJobRecord:input_type -> supervisor.v1.GetJobRecordRequest
+	47, // 43: supervisor.v1.AnalyticsService.GetSystemStats:input_type -> supervisor.v1.GetSystemStatsRequest
+	49, // 44: supervisor.v1.AnalyticsService.WatchDashboard:input_type -> supervisor.v1.WatchDashboardRequest
+	51, // 45: supervisor.v1.LogService.StreamRunnerLogs:input_type -> supervisor.v1.StreamRunnerLogsRequest
+	53, // 46: supervisor.v1.LogService.GetRunnerLogs:input_type -> supervisor.v1.GetRunnerLogsRequest
+	56, // 47: supervisor.v1.RenovateService.TriggerRenovateRun:input_type -> supervisor.v1.TriggerRenovateRunRequest
+	58, // 48: supervisor.v1.RenovateService.GetRenovateStatus:input_type -> supervisor.v1.GetRenovateStatusRequest
+	60, // 49: supervisor.v1.RenovateService.ListRenovateHistory:input_type -> supervisor.v1.ListRenovateHistoryRequest
+	63, // 50: supervisor.v1.ImageUpdateService.CheckImageUpdate:input_type -> supervisor.v1.CheckImageUpdateRequest
+	65, // 51: supervisor.v1.ImageUpdateService.PullImage:input_type -> supervisor.v1.PullImageRequest
+	67, // 52: supervisor.v1.ImageUpdateService.ListImageUpdates:input_type -> supervisor.v1.ListImageUpdatesRequest
+	69, // 53: supervisor.v1.ImageUpdateService.DismissImageUpdate:input_type -> supervisor.v1.DismissImageUpdateRequest
+	1,  // 54: supervisor.v1.AuthService.SetupAdmin:output_type -> supervisor.v1.SetupAdminResponse
+	3,  // 55: supervisor.v1.AuthService.Login:output_type -> supervisor.v1.LoginResponse
+	5,  // 56: supervisor.v1.AuthService.GetSession:output_type -> supervisor.v1.GetSessionResponse
+	9,  // 57: supervisor.v1.PoolService.ListPools:output_type -> supervisor.v1.ListPoolsResponse
+	11, // 58: supervisor.v1.PoolService.CreatePool:output_type -> supervisor.v1.CreatePoolResponse
+	13, // 59: supervisor.v1.PoolService.UpdatePool:output_type -> supervisor.v1.UpdatePoolResponse
+	15, // 60: supervisor.v1.PoolService.DeletePool:output_type -> supervisor.v1.DeletePoolResponse
+	17, // 61: supervisor.v1.PoolService.WatchPools:output_type -> supervisor.v1.WatchPoolsResponse
+	20, // 62: supervisor.v1.PoolService.ListRunners:output_type -> supervisor.v1.ListRunnersResponse
+	22, // 63: supervisor.v1.PoolService.TerminateRunner:output_type -> supervisor.v1.TerminateRunnerResponse
+	24, // 64: supervisor.v1.PoolService.WatchRunners:output_type -> supervisor.v1.WatchRunnersResponse
+	27, // 65: supervisor.v1.AuthProfileService.ListAuthProfiles:output_type -> supervisor.v1.ListAuthProfilesResponse
+	29, // 66: supervisor.v1.AuthProfileService.CreateAuthProfile:output_type -> supervisor.v1.CreateAuthProfileResponse
+	31, // 67: supervisor.v1.AuthProfileService.DeleteAuthProfile:output_type -> supervisor.v1.DeleteAuthProfileResponse
+	33, // 68: supervisor.v1.OnboardingService.GetOnboardingStatus:output_type -> supervisor.v1.GetOnboardingStatusResponse
+	38, // 69: supervisor.v1.OnboardingService.GetAppSettings:output_type -> supervisor.v1.GetAppSettingsResponse
+	40, // 70: supervisor.v1.OnboardingService.SetAppSetting:output_type -> supervisor.v1.SetAppSettingResponse
+	35, // 71: supervisor.v1.OnboardingService.CompleteOnboarding:output_type -> supervisor.v1.CompleteOnboardingResponse
+	43, // 72: supervisor.v1.AnalyticsService.GetJobHistory:output_type -> supervisor.v1.GetJobHistoryResponse
+	45, // 73: supervisor.v1.AnalyticsService.GetJobRecord:output_type -> supervisor.v1.GetJobRecordResponse
+	48, // 74: supervisor.v1.AnalyticsService.GetSystemStats:output_type -> supervisor.v1.GetSystemStatsResponse
+	50, // 75: supervisor.v1.AnalyticsService.WatchDashboard:output_type -> supervisor.v1.WatchDashboardResponse
+	52, // 76: supervisor.v1.LogService.StreamRunnerLogs:output_type -> supervisor.v1.LogChunk
+	54, // 77: supervisor.v1.LogService.GetRunnerLogs:output_type -> supervisor.v1.GetRunnerLogsResponse
+	57, // 78: supervisor.v1.RenovateService.TriggerRenovateRun:output_type -> supervisor.v1.TriggerRenovateRunResponse
+	59, // 79: supervisor.v1.RenovateService.GetRenovateStatus:output_type -> supervisor.v1.GetRenovateStatusResponse
+	61, // 80: supervisor.v1.RenovateService.ListRenovateHistory:output_type -> supervisor.v1.ListRenovateHistoryResponse
+	64, // 81: supervisor.v1.ImageUpdateService.CheckImageUpdate:output_type -> supervisor.v1.CheckImageUpdateResponse
+	66, // 82: supervisor.v1.ImageUpdateService.PullImage:output_type -> supervisor.v1.PullImageResponse
+	68, // 83: supervisor.v1.ImageUpdateService.ListImageUpdates:output_type -> supervisor.v1.ListImageUpdatesResponse
+	70, // 84: supervisor.v1.ImageUpdateService.DismissImageUpdate:output_type -> supervisor.v1.DismissImageUpdateResponse
+	54, // [54:85] is the sub-list for method output_type
+	23, // [23:54] is the sub-list for method input_type
 	23, // [23:23] is the sub-list for extension type_name
 	23, // [23:23] is the sub-list for extension extendee
 	0,  // [0:23] is the sub-list for field type_name
@@ -4293,7 +4390,7 @@ func file_api_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_rawDesc), len(file_api_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   69,
+			NumMessages:   71,
 			NumExtensions: 0,
 			NumServices:   8,
 		},
