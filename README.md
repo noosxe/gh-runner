@@ -173,6 +173,7 @@ For comprehensive pipeline architecture, gatekeeper filtering rules, and cross-s
 
 ## 🗺️ Roadmap & Future Enhancements
 
+- **Playwright End-to-End (E2E) Testing Suite (M17):** Hermetic, containerized Playwright test harness testing all human-usable web supervisor flows (authentication, onboarding wizard, pools management, streaming logs, Renovate, and maintenance) with local mock Git provider and Docker engine servers. Manual/local trigger only. Consult **[docs/13-playwright-e2e-testing.md](docs/13-playwright-e2e-testing.md)**. *[Design Phase]*
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.
