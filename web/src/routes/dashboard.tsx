@@ -204,7 +204,7 @@ export function DashboardPage() {
             </p>
             <div className="mt-4 flex items-center justify-center gap-3">
               <Link
-                to={hasAuthProfiles ? "/pools" : "/onboarding"}
+                to={hasAuthProfiles ? "/pools" : "/profiles"}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-blue-500"
               >
                 <span>{hasAuthProfiles ? "Create First Pool" : "Connect Git Provider"}</span>

@@ -49,6 +49,10 @@ vi.mock("../lib/api/query-hooks", () => ({
     data: mockAuthProfilesData,
     isLoading: false,
   }),
+  useCreatePool: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({ pool: { id: 999n } }),
+    isPending: false,
+  }),
 }));
 
 vi.mock("../lib/api/streaming-hooks", () => ({
@@ -127,7 +131,7 @@ describe("PoolsPage", () => {
     expect(
       screen.getByText(/No Git authentication profiles are configured yet/i),
     ).toBeInTheDocument();
-    expect(screen.getByText("Launch Setup Wizard")).toBeInTheDocument();
+    expect(screen.getByText("Configure Git Profile")).toBeInTheDocument();
   });
 
   it("displays add pool CTA when zero pools and auth profiles exist", () => {
