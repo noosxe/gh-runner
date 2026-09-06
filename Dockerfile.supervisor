@@ -4,7 +4,7 @@
 # Stage 1: Frontend Build
 # Compiles the Vite/React/TypeScript SPA into static production assets
 # ------------------------------------------------------------------------------
-FROM node:24-alpine AS frontend-builder
+FROM node:26-alpine AS frontend-builder
 WORKDIR /build/web
 
 ENV PNPM_HOME="/pnpm"
