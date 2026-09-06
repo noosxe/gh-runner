@@ -32,9 +32,9 @@ build-web:
 build: build-web
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/$(BINARY) ./cmd/$(BINARY)
 
-## build-image-runner: build local runner-aio container image
+## build-image-runner: build local runner container image
 build-image-runner:
-	docker build -f Dockerfile -t runner-aio:local .
+	docker build -f Dockerfile -t ghcr.io/noosxe/runnero:local .
 
 ## build-image-supervisor: build local supervisor container image
 build-image-supervisor:
