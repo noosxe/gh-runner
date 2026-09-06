@@ -157,3 +157,15 @@ Before proceeding with the implementation of the AIO Supervisor, the following a
 > - An explicit `CompleteOnboarding` RPC marks `onboarding_completed = "true"` in `app_settings` and logs an `onboarding.complete` audit event.
 > - `GetOnboardingStatus` evaluates `setup_complete` to `true` whenever `admin_created` is true AND either (`onboarding_completed` is true OR `pool_exists` is true).
 > - Route guards allow immediate access to the authenticated app shell once `setup_complete` is true, with the Dashboard and Pools pages presenting clear empty-state guides when zero pools are provisioned.
+
+---
+
+## CI/CD & DevOps
+
+## 33. Path-Based CI Workflow Filtering & Status Reporting
+- All CI workflows in `.github/workflows/` (`go.yml`, `web.yml`, `lint.yml`, `build.yml`, `supervisor-build.yml`) currently execute either with top-level `paths:` filters or ad-hoc gate checks. Top-level `paths:` causes GitHub to skip entire workflows, leading to missing status check reports on PRs, while un-gated jobs waste expensive native runner minutes on docs-only or isolated changes. How should path-based filtering be standardized across all workflows?
+> **✅ Resolved**: Adopt the standardized gatekeeper pattern using `dorny/paths-filter@v3` across all 5 workflows:
+> - Every workflow implements an initial cheap `changes` gate job (~4s) running on `ubuntu-latest`.
+> - Downstream test, lint, and build jobs specify `needs: changes` and evaluate `if: ${{ always() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || needs.changes.outputs.<subsystem> == 'true') }}`.
+> - Monitored path patterns are strictly mapped to subsystem boundaries: `cmd/**`, `internal/**`, `proto/**` for Go CI; `web/**`, `proto/**` for Web CI; `src/**`, `tests/**`, `Dockerfile*` for Lint CI.
+> - Pull requests always trigger the gatekeeper jobs and cleanly report green without hanging status checks, while release tags (`v*`) and manual dispatches run downstream builds unconditionally. Comprehensive design documented in [docs/11-ci-cd-pipelines.md](11-ci-cd-pipelines.md).
