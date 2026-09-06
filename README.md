@@ -24,6 +24,7 @@ A lightweight, secure, and self-contained self-hosted runner and orchestrator st
 - **Reverse-Proxy TLS & Hardened Cookies:** Designed for TLS termination via external reverse proxies (Caddy, Traefik, Nginx) with unbuffered HTTP/2 streaming support and configurable `SUPERVISOR_SECURE_COOKIE` enforcing `Secure; HttpOnly; SameSite=Strict` attributes.
 - **Intelligent Gatekeeper CI/CD Filtering:** Unified path-based filtering architecture (`dorny/paths-filter@v3`) across all 5 GitHub Actions workflows (`go.yml`, `web.yml`, `lint.yml`, `build.yml`, `supervisor-build.yml`), diffing PR file changes in ~4s and skipping unimpacted heavy test, lint, and build matrices without dropping required branch status checks.
 - **Automated Dependabot Ecosystem Maintenance:** Automated weekly dependency updates via GitHub Dependabot across `github-actions`, `gomod`, `npm` (`/web`), and `docker` ecosystems, featuring grouped minor/patch updates and an enforced 1-day supply chain cool-off period on frontend npm packages to defend against zero-day registry compromises.
+- **Modular Moby Engine SDK (M16):** Decoupled container orchestration engine utilizing `github.com/moby/moby/client` and `github.com/moby/moby/api`, eliminating monolithic Docker daemon transitive dependencies, removing legacy `replace` directives, and resolving upstream daemon CVE alerts.
 - **Comprehensive Automated Test Suites:** Extensive test coverage across Go unit, race detection (`go test -race`), and testify test suites (`mockery`-backed Docker and GitProvider clients), runner script test harnesses, and 20 frontend Vitest test suites.
 
 ---
@@ -172,7 +173,6 @@ For comprehensive pipeline architecture, gatekeeper filtering rules, and cross-s
 
 ## 🗺️ Roadmap & Future Enhancements
 
-- **Modular Moby Client SDK Migration (M16):** Migrate container orchestration from monolithic `github.com/docker/docker` to lightweight `github.com/moby/moby/client` and `api`, eliminating legacy `replace` directives and resolving 4 upstream daemon CVE alerts. Consult **[docs/12-moby-client-migration.md](docs/12-moby-client-migration.md)**. *[Design Phase]*
 - **Multi-Host Clustering:** Support for distributed Docker hosts over mutual-TLS (mTLS) TCP sockets to schedule runner pools across heterogeneous node clusters.
 - **Rootless & Socket-Proxy Isolation:** Alternative supervisor orchestration backends utilizing rootless Podman / Docker or gVisor runtimes to eliminate root socket mounts.
 - **Enterprise SSO / OIDC:** Federated single sign-on integration supporting OpenID Connect (OIDC), Okta, Keycloak, and GitHub OAuth for supervisor administrative access.

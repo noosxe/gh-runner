@@ -6,8 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
+	"github.com/moby/moby/client"
 )
 
 // ContainerEvent represents a container termination or destruction event.
@@ -21,7 +20,7 @@ type ContainerEvent struct {
 
 // EventStreamProvider abstracts Docker event streaming for the orchestrator.
 type EventStreamProvider interface {
-	Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
+	Events(ctx context.Context, options client.EventsListOptions) client.EventsResult
 }
 
 // ReapDeduplicator prevents duplicate runner provisioning races when both the real-time
@@ -101,13 +100,12 @@ func (l *EventListener) SetLogCapturer(capturer func(ctx context.Context, contai
 // container dies or is destroyed. Reconnects automatically with backoff upon stream error
 // without leaking goroutines until ctx is canceled.
 func (l *EventListener) Listen(ctx context.Context, onReap func(ContainerEvent)) error {
-	filterArgs := filters.NewArgs()
-	filterArgs.Add("type", "container")
-	filterArgs.Add("event", "die")
-	filterArgs.Add("event", "destroy")
-	filterArgs.Add("label", LabelManaged+"=true")
+	filterArgs := make(client.Filters).
+		Add("type", "container").
+		Add("event", "die", "destroy").
+		Add("label", LabelManaged+"=true")
 
-	opts := events.ListOptions{
+	opts := client.EventsListOptions{
 		Filters: filterArgs,
 	}
 
@@ -116,7 +114,8 @@ func (l *EventListener) Listen(ctx context.Context, onReap func(ContainerEvent))
 			return ctx.Err()
 		}
 
-		msgCh, errCh := l.provider.Events(ctx, opts)
+		res := l.provider.Events(ctx, opts)
+		msgCh, errCh := res.Messages, res.Err
 		if msgCh == nil && errCh == nil {
 			return nil
 		}

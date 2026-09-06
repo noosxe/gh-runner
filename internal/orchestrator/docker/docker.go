@@ -12,14 +12,10 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
-	dockerimage "github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/events"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 
 	"github.com/noosxe/gh-runner/internal/orchestrator"
 	"github.com/noosxe/gh-runner/internal/server"
@@ -34,21 +30,21 @@ var (
 
 // APIClient abstracts the Docker Engine SDK methods utilized by the orchestrator.
 type APIClient interface {
-	Ping(ctx context.Context) (types.Ping, error)
+	Ping(ctx context.Context, options client.PingOptions) (client.PingResult, error)
 	Close() error
-	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error)
-	ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error
-	ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error
-	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
-	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
-	ContainerLogs(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error)
-	ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
-	Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error)
-	NetworkList(ctx context.Context, options network.ListOptions) ([]network.Summary, error)
-	NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
-	NetworkConnect(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error
-	ImageInspectWithRaw(ctx context.Context, imageID string) (dockerimage.InspectResponse, []byte, error)
-	ImagePull(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error)
+	ContainerCreate(ctx context.Context, options client.ContainerCreateOptions) (client.ContainerCreateResult, error)
+	ContainerStart(ctx context.Context, containerID string, options client.ContainerStartOptions) (client.ContainerStartResult, error)
+	ContainerStop(ctx context.Context, containerID string, options client.ContainerStopOptions) (client.ContainerStopResult, error)
+	ContainerRemove(ctx context.Context, containerID string, options client.ContainerRemoveOptions) (client.ContainerRemoveResult, error)
+	ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error)
+	ContainerLogs(ctx context.Context, containerID string, options client.ContainerLogsOptions) (client.ContainerLogsResult, error)
+	ContainerPrune(ctx context.Context, opts client.ContainerPruneOptions) (client.ContainerPruneResult, error)
+	Events(ctx context.Context, options client.EventsListOptions) client.EventsResult
+	NetworkList(ctx context.Context, options client.NetworkListOptions) (client.NetworkListResult, error)
+	NetworkCreate(ctx context.Context, name string, options client.NetworkCreateOptions) (client.NetworkCreateResult, error)
+	NetworkConnect(ctx context.Context, networkID string, options client.NetworkConnectOptions) (client.NetworkConnectResult, error)
+	ImageInspect(ctx context.Context, imageID string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	ImagePull(ctx context.Context, refStr string, options client.ImagePullOptions) (client.ImagePullResponse, error)
 }
 
 // Client implements orchestrator.ContainerProvider using the Docker Engine API.
@@ -158,7 +154,7 @@ func NewClient(ctx context.Context, opts ...Option) (*Client, error) {
 		clientOpts = append(clientOpts, client.WithTLSClientConfig(caCert, cert, key))
 	}
 
-	cli, err := client.NewClientWithOpts(clientOpts...)
+	cli, err := client.New(clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("initializing Docker SDK client: %w", err)
 	}
@@ -181,7 +177,7 @@ func (c *Client) Ping(ctx context.Context) error {
 		return ErrNilClient
 	}
 
-	_, err := docker.Ping(ctx)
+	_, err := docker.Ping(ctx, client.PingOptions{})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDaemonUnreachable, err)
 	}
@@ -318,13 +314,18 @@ func (c *Client) spawn(ctx context.Context, config orchestrator.RunnerConfig, ta
 		}
 	}
 
-	createResp, err := docker.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, containerName)
+	createResp, err := docker.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config:           containerConfig,
+		HostConfig:       hostConfig,
+		NetworkingConfig: networkingConfig,
+		Name:             containerName,
+	})
 	if err != nil {
 		return "", fmt.Errorf("creating container %q: %w", containerName, err)
 	}
 
-	if err := docker.ContainerStart(ctx, createResp.ID, container.StartOptions{}); err != nil {
-		_ = docker.ContainerRemove(ctx, createResp.ID, container.RemoveOptions{Force: true})
+	if _, err := docker.ContainerStart(ctx, createResp.ID, client.ContainerStartOptions{}); err != nil {
+		_, _ = docker.ContainerRemove(ctx, createResp.ID, client.ContainerRemoveOptions{Force: true})
 		return "", fmt.Errorf("starting container %q (%s): %w", containerName, createResp.ID, err)
 	}
 
@@ -389,20 +390,20 @@ func (c *Client) TerminateRunner(ctx context.Context, containerID string) error 
 	}
 
 	timeoutSec := 10
-	stopOpts := container.StopOptions{
+	stopOpts := client.ContainerStopOptions{
 		Timeout: &timeoutSec,
 	}
 
 	// Graceful stop with fallback
-	if err := docker.ContainerStop(ctx, containerID, stopOpts); err != nil {
+	if _, err := docker.ContainerStop(ctx, containerID, stopOpts); err != nil {
 		if !cerrdefs.IsNotFound(err) {
-			_ = docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+			_, _ = docker.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true})
 			return fmt.Errorf("stopping container %s: %w", containerID, err)
 		}
 	}
 
 	// Remove container
-	if err := docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil {
+	if _, err := docker.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true}); err != nil {
 		if !cerrdefs.IsNotFound(err) {
 			return fmt.Errorf("removing container %s: %w", containerID, err)
 		}
@@ -422,10 +423,9 @@ func (c *Client) AuditRunners(ctx context.Context) ([]orchestrator.RunnerStatus,
 		return nil, ErrNilClient
 	}
 
-	filterArgs := filters.NewArgs()
-	filterArgs.Add("label", orchestrator.LabelManaged+"=true")
+	filterArgs := make(client.Filters).Add("label", orchestrator.LabelManaged+"=true")
 
-	containers, err := docker.ContainerList(ctx, container.ListOptions{
+	res, err := docker.ContainerList(ctx, client.ContainerListOptions{
 		All:     true,
 		Filters: filterArgs,
 	})
@@ -433,8 +433,8 @@ func (c *Client) AuditRunners(ctx context.Context) ([]orchestrator.RunnerStatus,
 		return nil, fmt.Errorf("listing supervisor containers: %w", err)
 	}
 
-	statuses := make([]orchestrator.RunnerStatus, 0, len(containers))
-	for _, cnt := range containers {
+	statuses := make([]orchestrator.RunnerStatus, 0, len(res.Items))
+	for _, cnt := range res.Items {
 		name := ""
 		if len(cnt.Names) > 0 {
 			name = strings.TrimPrefix(cnt.Names[0], "/")
@@ -455,8 +455,8 @@ func (c *Client) AuditRunners(ctx context.Context) ([]orchestrator.RunnerStatus,
 		ipAddress := ""
 		if cnt.NetworkSettings != nil && len(cnt.NetworkSettings.Networks) > 0 {
 			for _, net := range cnt.NetworkSettings.Networks {
-				if net.IPAddress != "" {
-					ipAddress = net.IPAddress
+				if net.IPAddress.IsValid() {
+					ipAddress = net.IPAddress.String()
 					break
 				}
 			}
@@ -466,7 +466,7 @@ func (c *Client) AuditRunners(ctx context.Context) ([]orchestrator.RunnerStatus,
 			ID:        cnt.ID,
 			Name:      name,
 			PoolName:  poolName,
-			State:     cnt.State,
+			State:     string(cnt.State),
 			IPAddress: ipAddress,
 			SpawnedAt: spawnedAt,
 		})
@@ -485,10 +485,9 @@ func (c *Client) PruneExitedContainers(ctx context.Context) error {
 		return ErrNilClient
 	}
 
-	filterArgs := filters.NewArgs()
-	filterArgs.Add("label", orchestrator.LabelManaged+"=true")
+	filterArgs := make(client.Filters).Add("label", orchestrator.LabelManaged+"=true")
 
-	_, err := docker.ContainersPrune(ctx, filterArgs)
+	_, err := docker.ContainerPrune(ctx, client.ContainerPruneOptions{Filters: filterArgs})
 	if err != nil {
 		return fmt.Errorf("pruning exited containers: %w", err)
 	}
@@ -496,7 +495,7 @@ func (c *Client) PruneExitedContainers(ctx context.Context) error {
 }
 
 // Events streams events from the Docker daemon matching the supplied options.
-func (c *Client) Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error) {
+func (c *Client) Events(ctx context.Context, options client.EventsListOptions) client.EventsResult {
 	c.mu.RLock()
 	docker := c.docker
 	c.mu.RUnlock()
@@ -507,7 +506,7 @@ func (c *Client) Events(ctx context.Context, options events.ListOptions) (<-chan
 		close(errCh)
 		msgCh := make(chan events.Message)
 		close(msgCh)
-		return msgCh, errCh
+		return client.EventsResult{Messages: msgCh, Err: errCh}
 	}
 
 	return docker.Events(ctx, options)
@@ -528,21 +527,20 @@ func (c *Client) EnsureNetwork(ctx context.Context, name string) (string, error)
 		name = orchestrator.DefaultNetworkName
 	}
 
-	filterArgs := filters.NewArgs()
-	filterArgs.Add("name", "^"+name+"$")
+	filterArgs := make(client.Filters).Add("name", "^"+name+"$")
 
-	networks, err := docker.NetworkList(ctx, network.ListOptions{
+	res, err := docker.NetworkList(ctx, client.NetworkListOptions{
 		Filters: filterArgs,
 	})
 	if err == nil {
-		for _, net := range networks {
+		for _, net := range res.Items {
 			if net.Name == name {
 				return net.ID, nil
 			}
 		}
 	}
 
-	createOpts := network.CreateOptions{
+	createOpts := client.NetworkCreateOptions{
 		Driver: "bridge",
 		Labels: map[string]string{
 			orchestrator.LabelManaged: "true",
@@ -551,8 +549,8 @@ func (c *Client) EnsureNetwork(ctx context.Context, name string) (string, error)
 
 	resp, err := docker.NetworkCreate(ctx, name, createOpts)
 	if err != nil {
-		if networks, listErr := docker.NetworkList(ctx, network.ListOptions{Filters: filterArgs}); listErr == nil {
-			for _, net := range networks {
+		if listRes, listErr := docker.NetworkList(ctx, client.NetworkListOptions{Filters: filterArgs}); listErr == nil {
+			for _, net := range listRes.Items {
 				if net.Name == name {
 					return net.ID, nil
 				}
@@ -647,7 +645,7 @@ func (c *Client) CaptureLogs(ctx context.Context, containerID, dataDir string) (
 		return "", ErrNilClient
 	}
 
-	opts := container.LogsOptions{
+	opts := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Timestamps: true,
@@ -677,7 +675,7 @@ func (c *Client) StreamLogs(ctx context.Context, containerID string) (io.ReadClo
 		return nil, ErrNilClient
 	}
 
-	opts := container.LogsOptions{
+	opts := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
@@ -701,7 +699,7 @@ func (c *Client) PullImage(ctx context.Context, img string) error {
 		return ErrNilClient
 	}
 
-	rc, err := docker.ImagePull(ctx, img, dockerimage.PullOptions{})
+	rc, err := docker.ImagePull(ctx, img, client.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("pulling image %s: %w", img, err)
 	}
@@ -721,7 +719,7 @@ func (c *Client) GetLocalImageDigest(ctx context.Context, img string) (string, e
 		return "", ErrNilClient
 	}
 
-	resp, _, err := docker.ImageInspectWithRaw(ctx, img)
+	resp, err := docker.ImageInspect(ctx, img)
 	if err != nil {
 		return "", fmt.Errorf("inspecting local image %s: %w", img, err)
 	}

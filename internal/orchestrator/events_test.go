@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/events"
+	"github.com/moby/moby/api/types/events"
+	"github.com/moby/moby/client"
 
 	"github.com/noosxe/gh-runner/internal/orchestrator"
 )
@@ -17,8 +18,11 @@ type mockEventStreamProvider struct {
 	errCh chan error
 }
 
-func (m *mockEventStreamProvider) Events(ctx context.Context, options events.ListOptions) (<-chan events.Message, <-chan error) {
-	return m.msgCh, m.errCh
+func (m *mockEventStreamProvider) Events(ctx context.Context, options client.EventsListOptions) client.EventsResult {
+	return client.EventsResult{
+		Messages: m.msgCh,
+		Err:      m.errCh,
+	}
 }
 
 func TestReapDeduplicator(t *testing.T) {

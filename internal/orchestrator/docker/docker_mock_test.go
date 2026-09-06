@@ -3,13 +3,13 @@ package docker_test
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/network"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,7 +23,7 @@ func TestDockerClient_WithMockDockerAPIClient(t *testing.T) {
 
 	t.Run("Bootstrap and Ping Success", func(t *testing.T) {
 		mockAPI := docker.NewMockDockerAPIClient()
-		mockAPI.On("Ping", mock.Anything).Return(types.Ping{APIVersion: "1.47"}, nil).Once()
+		mockAPI.On("Ping", mock.Anything, mock.AnythingOfType("client.PingOptions")).Return(client.PingResult{APIVersion: "1.47"}, nil).Once()
 
 		client, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
 		require.NoError(t, err)
@@ -38,29 +38,29 @@ func TestDockerClient_WithMockDockerAPIClient(t *testing.T) {
 
 	t.Run("SpawnRunner Success and Label Verification", func(t *testing.T) {
 		mockAPI := docker.NewMockDockerAPIClient()
-		mockAPI.On("NetworkList", mock.Anything, mock.AnythingOfType("network.ListOptions")).Return([]network.Summary{
-			{ID: "net-default-id", Name: orchestrator.DefaultNetworkName},
+		mockAPI.On("NetworkList", mock.Anything, mock.AnythingOfType("client.NetworkListOptions")).Return(client.NetworkListResult{
+			Items: []network.Summary{
+				{Network: network.Network{ID: "net-default-id", Name: orchestrator.DefaultNetworkName}},
+			},
 		}, nil).Once()
 
 		expectedContainerID := "cnt-testify-123456"
 		mockAPI.On("ContainerCreate",
 			mock.Anything,
-			mock.MatchedBy(func(cfg *container.Config) bool {
-				return cfg.Labels[orchestrator.LabelManaged] == "true" &&
+			mock.MatchedBy(func(opts client.ContainerCreateOptions) bool {
+				cfg := opts.Config
+				return cfg != nil &&
+					cfg.Labels[orchestrator.LabelManaged] == "true" &&
 					cfg.Labels[orchestrator.LabelPoolName] == "ci-pool" &&
 					cfg.Image == "ghcr.io/actions/runner:latest"
 			}),
-			mock.Anything,
-			mock.Anything,
-			mock.Anything,
-			mock.AnythingOfType("string"),
-		).Return(container.CreateResponse{ID: expectedContainerID}, nil).Once()
+		).Return(client.ContainerCreateResult{ID: expectedContainerID}, nil).Once()
 
 		mockAPI.On("ContainerStart",
 			mock.Anything,
 			expectedContainerID,
-			mock.AnythingOfType("container.StartOptions"),
-		).Return(nil).Once()
+			mock.AnythingOfType("client.ContainerStartOptions"),
+		).Return(client.ContainerStartResult{}, nil).Once()
 
 		client, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
 		require.NoError(t, err)
@@ -82,14 +82,17 @@ func TestDockerClient_WithMockDockerAPIClient(t *testing.T) {
 
 	t.Run("SpawnRunner Create Failure Cleans Up", func(t *testing.T) {
 		mockAPI := docker.NewMockDockerAPIClient()
-		mockAPI.On("NetworkList", mock.Anything, mock.AnythingOfType("network.ListOptions")).Return([]network.Summary{
-			{ID: "net-default-id", Name: orchestrator.DefaultNetworkName},
+		mockAPI.On("NetworkList", mock.Anything, mock.AnythingOfType("client.NetworkListOptions")).Return(client.NetworkListResult{
+			Items: []network.Summary{
+				{Network: network.Network{ID: "net-default-id", Name: orchestrator.DefaultNetworkName}},
+			},
 		}, nil).Once()
 
 		createErr := errors.New("out of disk space")
 		mockAPI.On("ContainerCreate",
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		).Return(container.CreateResponse{}, createErr).Once()
+			mock.Anything,
+			mock.AnythingOfType("client.ContainerCreateOptions"),
+		).Return(client.ContainerCreateResult{}, createErr).Once()
 
 		client, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
 		require.NoError(t, err)
@@ -98,6 +101,8 @@ func TestDockerClient_WithMockDockerAPIClient(t *testing.T) {
 			Name:     "ghrs-ci-pool-fail",
 			PoolName: "ci-pool",
 			Image:    "ghcr.io/actions/runner:latest",
+			RepoURL:  "https://github.com/org/repo",
+			Token:    "mock-runner-token",
 		}
 
 		id, err := client.SpawnRunner(ctx, cfg)
@@ -111,10 +116,10 @@ func TestDockerClient_WithMockDockerAPIClient(t *testing.T) {
 	t.Run("TerminateRunner Stops and Removes Container", func(t *testing.T) {
 		mockAPI := docker.NewMockDockerAPIClient()
 		targetID := "cnt-terminate-999"
-		mockAPI.On("ContainerStop", mock.Anything, targetID, mock.AnythingOfType("container.StopOptions")).Return(nil).Once()
-		mockAPI.On("ContainerRemove", mock.Anything, targetID, mock.MatchedBy(func(opts container.RemoveOptions) bool {
+		mockAPI.On("ContainerStop", mock.Anything, targetID, mock.AnythingOfType("client.ContainerStopOptions")).Return(client.ContainerStopResult{}, nil).Once()
+		mockAPI.On("ContainerRemove", mock.Anything, targetID, mock.MatchedBy(func(opts client.ContainerRemoveOptions) bool {
 			return opts.Force
-		})).Return(nil).Once()
+		})).Return(client.ContainerRemoveResult{}, nil).Once()
 
 		client, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
 		require.NoError(t, err)
@@ -127,11 +132,13 @@ func TestDockerClient_WithMockDockerAPIClient(t *testing.T) {
 
 	t.Run("PruneExitedContainers Calls Prune", func(t *testing.T) {
 		mockAPI := docker.NewMockDockerAPIClient()
-		mockAPI.On("ContainersPrune", mock.Anything, mock.MatchedBy(func(args filters.Args) bool {
-			return args.ExactMatch("label", orchestrator.LabelManaged+"=true")
-		})).Return(container.PruneReport{
-			ContainersDeleted: []string{"dead-c1", "dead-c2"},
-			SpaceReclaimed:    1024 * 1024 * 50,
+		mockAPI.On("ContainerPrune", mock.Anything, mock.MatchedBy(func(opts client.ContainerPruneOptions) bool {
+			return opts.Filters != nil && opts.Filters["label"][orchestrator.LabelManaged+"=true"]
+		})).Return(client.ContainerPruneResult{
+			Report: container.PruneReport{
+				ContainersDeleted: []string{"dead-c1", "dead-c2"},
+				SpaceReclaimed:    1024 * 1024 * 50,
+			},
 		}, nil).Once()
 
 		client, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
@@ -146,8 +153,10 @@ func TestDockerClient_WithMockDockerAPIClient(t *testing.T) {
 	t.Run("EnsureNetwork Idempotency", func(t *testing.T) {
 		mockAPI := docker.NewMockDockerAPIClient()
 		// Case 1: Network already exists
-		mockAPI.On("NetworkList", mock.Anything, mock.AnythingOfType("network.ListOptions")).Return([]network.Summary{
-			{ID: "net-existing-id", Name: "gh-runner-net"},
+		mockAPI.On("NetworkList", mock.Anything, mock.AnythingOfType("client.NetworkListOptions")).Return(client.NetworkListResult{
+			Items: []network.Summary{
+				{Network: network.Network{ID: "net-existing-id", Name: "gh-runner-net"}},
+			},
 		}, nil).Once()
 
 		client, err := docker.NewClient(ctx, docker.WithAPIClient(mockAPI))
@@ -163,19 +172,21 @@ func TestDockerClient_WithMockDockerAPIClient(t *testing.T) {
 	t.Run("AuditRunners Parses Status Correctly", func(t *testing.T) {
 		mockAPI := docker.NewMockDockerAPIClient()
 		spawnedTime := time.Now().Add(-10 * time.Minute).Format(time.RFC3339)
-		mockAPI.On("ContainerList", mock.Anything, mock.AnythingOfType("container.ListOptions")).Return([]container.Summary{
-			{
-				ID:    "cnt-audited-1",
-				Names: []string{"/ghrs-pool1-0001"},
-				State: "running",
-				Labels: map[string]string{
-					orchestrator.LabelManaged:   "true",
-					orchestrator.LabelPoolName:  "pool1",
-					orchestrator.LabelSpawnedAt: spawnedTime,
-				},
-				NetworkSettings: &container.NetworkSettingsSummary{
-					Networks: map[string]*network.EndpointSettings{
-						"bridge": {IPAddress: "172.17.0.2"},
+		mockAPI.On("ContainerList", mock.Anything, mock.AnythingOfType("client.ContainerListOptions")).Return(client.ContainerListResult{
+			Items: []container.Summary{
+				{
+					ID:    "cnt-audited-1",
+					Names: []string{"/ghrs-pool1-0001"},
+					State: "running",
+					Labels: map[string]string{
+						orchestrator.LabelManaged:   "true",
+						orchestrator.LabelPoolName:  "pool1",
+						orchestrator.LabelSpawnedAt: spawnedTime,
+					},
+					NetworkSettings: &container.NetworkSettingsSummary{
+						Networks: map[string]*network.EndpointSettings{
+							"bridge": {IPAddress: netip.MustParseAddr("172.17.0.2")},
+						},
 					},
 				},
 			},

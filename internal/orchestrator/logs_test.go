@@ -2,25 +2,32 @@ package orchestrator_test
 
 import (
 	"bytes"
+	"encoding/binary"
+	"io"
 	"path/filepath"
 	"testing"
 
-	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/noosxe/gh-runner/internal/orchestrator"
 )
+
+func writeFrame(w io.Writer, stream stdcopy.StdType, data []byte) {
+	var header [8]byte
+	header[0] = byte(stream)
+	binary.BigEndian.PutUint32(header[4:], uint32(len(data)))
+	_, _ = w.Write(header[:])
+	_, _ = w.Write(data)
+}
 
 func TestCaptureAndCompressLogs_MultiplexedStream(t *testing.T) {
 	tempDir := t.TempDir()
 	destPath := orchestrator.LogPath(tempDir, "runner-test-123")
 
-	// Construct multiplexed stream using Docker StdWriter
+	// Construct multiplexed stream using Docker frame format
 	var rawBuffer bytes.Buffer
-	stdoutWriter := stdcopy.NewStdWriter(&rawBuffer, stdcopy.Stdout)
-	stderrWriter := stdcopy.NewStdWriter(&rawBuffer, stdcopy.Stderr)
-
-	_, _ = stdoutWriter.Write([]byte("2026-09-03T10:00:01.000000000Z Starting runner process\n"))
-	_, _ = stderrWriter.Write([]byte("2026-09-03T10:00:02.000000000Z Warning: high memory usage\n"))
-	_, _ = stdoutWriter.Write([]byte("2026-09-03T10:00:03.000000000Z Job succeeded\n"))
+	writeFrame(&rawBuffer, stdcopy.Stdout, []byte("2026-09-03T10:00:01.000000000Z Starting runner process\n"))
+	writeFrame(&rawBuffer, stdcopy.Stderr, []byte("2026-09-03T10:00:02.000000000Z Warning: high memory usage\n"))
+	writeFrame(&rawBuffer, stdcopy.Stdout, []byte("2026-09-03T10:00:03.000000000Z Job succeeded\n"))
 
 	count, err := orchestrator.CaptureAndCompressLogs(&rawBuffer, destPath)
 	if err != nil {
