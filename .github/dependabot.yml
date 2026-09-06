@@ -60,6 +60,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Pin @types/node strictly to Node 24 matching active LTS and development environment
+      - dependency-name: "@types/node"
+        versions:
+          - ">= 25.0.0"
 
   # Container base images (Root Dockerfile)
   - package-ecosystem: "docker"
@@ -81,3 +86,9 @@ updates:
       - dependency-name: "ubuntu"
         versions:
           - "> 24.04"
+      # Pin strictly to Node 24-alpine matching Nix development shell and active LTS; ignore all versions > 24-alpine
+      - dependency-name: "node"
+        versions:
+          - ">= 25"
+          - "> 24-alpine"
+
