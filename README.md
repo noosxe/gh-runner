@@ -79,6 +79,153 @@ Navigate to `http://localhost:8090` in your browser. The system will automatical
 
 ---
 
+## 🔑 Git Provider Setup & App Creation
+
+The supervisor daemon manages authentication profiles to dynamically fetch short-lived runner registration tokens from your upstream Git providers. Follow these verified instructions to configure credentials for **GitHub**, **Gitea**, and **Forgejo**.
+
+### 1. GitHub Configuration
+
+GitHub supports two authentication methods: **GitHub App** (recommended for production) and **Personal Access Token (PAT)**.
+
+#### Option A: GitHub App (Recommended)
+
+GitHub Apps provide fine-grained, least-privilege permissions, automatic credential rotation via RSA private keys, and eliminate dependency on personal user accounts.
+
+##### Step 1: Create the GitHub App
+1. Navigate to **Developer settings** in GitHub:
+   - **For an Organization:** Go to `https://github.com/organizations/<org>/settings/apps` (Organization **Settings** → **Developer settings** → **GitHub Apps**).
+   - **For a Personal Account:** Go to `https://github.com/settings/apps` (User **Settings** → **Developer settings** → **GitHub Apps**).
+2. Click **New GitHub App**.
+3. Fill in basic details:
+   - **GitHub App name:** Enter a unique name (e.g., `my-org-runner-supervisor`).
+   - **Homepage URL:** Your supervisor URL (e.g., `https://runner.example.com`) or repository URL.
+4. Configure **Webhook** (optional, enables real-time autoscaling):
+   - Check **Active**.
+   - **Webhook URL:** `https://<supervisor-domain>/hooks/github`
+   - **Webhook secret:** Enter a high-entropy secret string (configure the same secret in the supervisor).
+
+##### Step 2: Configure App Permissions
+Select the exact permissions required for runner orchestration:
+
+| Category | Permission | Access Level | Purpose |
+| :--- | :--- | :---: | :--- |
+| **Repository permissions** | **Administration** | **Read and write** | Request runner registration tokens for repository pools (`POST /repos/{owner}/{repo}/actions/runners/registration-token`). |
+| **Repository permissions** | **Metadata** | **Read-only** | Mandatory default read access to basic repository metadata. |
+| **Repository permissions** | **Actions** | **Read-only** | Monitor workflow job runs and scale runners based on job queuing. |
+| **Repository permissions** *(Optional)* | **Contents** | **Read and write** | Required only if using built-in Renovate automated dependency updates. |
+| **Repository permissions** *(Optional)* | **Pull requests** | **Read and write** | Required only if using built-in Renovate automated dependency updates. |
+| **Repository permissions** *(Optional)* | **Workflows** | **Read and write** | Required only if Renovate updates Actions workflow files. |
+| **Organization permissions** | **Self-hosted runners** | **Read and write** | Required if registering organization-wide runner pools (`POST /orgs/{org}/actions/runners/registration-token`). |
+
+##### Step 3: Subscribe to Events
+Under **Subscribe to events**, check:
+- **Workflow job** (notifies the supervisor immediately when jobs are queued, in progress, or completed).
+
+Click **Create GitHub App**.
+
+##### Step 4: Generate Private Key and Note App ID
+1. On the app's **General** settings page, locate and copy the numeric **App ID** (e.g., `123456`).
+2. Scroll down to the **Private keys** section and click **Generate a private key**.
+3. An RSA private key file (`.pem`) will download to your computer. Keep this file secure.
+
+##### Step 5: Install the App
+1. In the app settings sidebar, click **Install App**.
+2. Click **Install** next to the target organization or account.
+3. Choose **All repositories** or select specific repositories that will use the runner pools.
+
+##### Step 6: Add to `gh-runner`
+1. In the `gh-runner` Web UI, navigate to **Git Auth Profiles** → click **+ Add Git Auth Profile**.
+2. Select **GitHub App**.
+3. Provide:
+   - **Profile Name:** Descriptive label (e.g., `github-production`).
+   - **GitHub App ID:** Numeric App ID copied from Step 4.
+   - **Private Key (.pem):** Paste the full contents of the downloaded `.pem` file (including `-----BEGIN RSA PRIVATE KEY-----` and `-----END RSA PRIVATE KEY-----`).
+4. Click **Save Profile**.
+
+---
+
+#### Option B: Personal Access Token (PAT)
+
+If you prefer using a Personal Access Token instead of a GitHub App:
+
+- **Fine-grained PAT:**
+  1. Navigate to **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens** → **Generate new token**.
+  2. Select the repository resource owner and target repositories.
+  3. Under **Repository permissions**, set **Administration** to **Read and write**.
+- **Classic PAT:**
+  1. Navigate to **Settings** → **Developer settings** → **Personal access tokens** → **Tokens (classic)** → **Generate new token (classic)**.
+  2. Select the `repo` scope (for repository-level runners) and `admin:org` scope (for organization-level runners).
+- **Add to `gh-runner`:** In **Git Auth Profiles**, select **GitHub PAT**, enter a profile name, and paste the token.
+
+---
+
+### 2. Gitea Configuration
+
+Gitea Actions uses `act_runner`. The supervisor requests short-lived runner registration tokens on-demand from the Gitea API using a Personal Access Token (PAT).
+
+#### Step 1: Create a Personal Access Token in Gitea
+1. Log in to your Gitea instance.
+2. Click your user avatar in the top right → select **Settings** → navigate to the **Applications** tab.
+3. Under **Manage Access Tokens**:
+   - **Token Name:** Enter a descriptive identifier (e.g., `gh-runner-supervisor`).
+   - **Select Scopes:**
+     | Scope | Access Level | Purpose |
+     | :--- | :---: | :--- |
+     | `repo` (or `write:repository`) | Read / Write | Generate registration tokens for repository runner pools. |
+     | `write:organization` / `admin:organization` | Read / Write | Generate registration tokens for organization runner pools. |
+     | `admin` (or `admin:actions`) | Admin | Generate registration tokens for site-wide / instance-level runner pools. |
+4. Click **Generate Token** and copy the resulting token string immediately (Gitea will not display it again).
+
+#### Step 2: Configure Webhooks for Autoscaling (Optional)
+To enable real-time, event-driven runner provisioning for Gitea Actions:
+1. In your Gitea repository or organization, go to **Settings** → **Webhooks** → click **Add Webhook** → select **Gitea**.
+2. Configure webhook parameters:
+   - **Target URL:** `https://<supervisor-domain>/hooks/gitea`
+   - **HTTP Method:** `POST`
+   - **POST Content Type:** `application/json`
+   - **Secret:** Enter the shared HMAC secret matching your supervisor configuration.
+   - **Trigger On:** Select **Custom Events** → check **Actions** (or `Workflow Job`).
+3. Click **Add Webhook**.
+
+#### Step 3: Add to `gh-runner`
+1. In the `gh-runner` Web UI, navigate to **Git Auth Profiles** → click **+ Add Git Auth Profile**.
+2. Select **Gitea PAT**.
+3. Enter a **Profile Name** (e.g., `gitea-main`) and paste the generated token into **Personal Access Token (PAT)**.
+4. Click **Save Profile**.
+5. When creating a runner pool, provide the target repository URL (e.g., `https://gitea.example.com/org/repo`).
+
+---
+
+### 3. Forgejo Configuration
+
+Forgejo Actions uses `forgejo-runner`. The supervisor communicates with Forgejo's API to dynamically fetch registration tokens.
+
+#### Step 1: Create a Personal Access Token in Forgejo
+1. Log in to your Forgejo instance.
+2. Click your user avatar in the top right → select **Settings** → navigate to the **Applications** tab.
+3. Under **Manage Access Tokens**:
+   - **Token Name:** Enter a descriptive identifier (e.g., `forgejo-supervisor`).
+   - **Select Scopes:**
+     | Scope | Access Level | Purpose |
+     | :--- | :---: | :--- |
+     | `repo` (or `write:repository`) | Read / Write | Request runner registration tokens for repository pools. |
+     | `write:organization` / `admin:organization` | Read / Write | Request runner registration tokens for organization pools. |
+     | `admin` | Admin | Request runner registration tokens for system-wide pools. |
+4. Click **Generate Token** and copy the generated token string.
+
+#### Step 2: Autoscaling Mechanism (API Polling)
+> [!NOTE]
+> **Forgejo Event Handling:** Forgejo does not currently support `workflow_job` webhooks. The supervisor automatically detects Forgejo targets and falls back to **API Polling mode** (`ScalingPolling`), querying `/api/v1/repos/{owner}/{repo}/actions/tasks` on the periodic ~10s audit loop to detect queued jobs. No manual webhook configuration is needed on Forgejo.
+
+#### Step 3: Add to `gh-runner`
+1. In the `gh-runner` Web UI, navigate to **Git Auth Profiles** → click **+ Add Git Auth Profile**.
+2. Select **Forgejo PAT**.
+3. Enter a **Profile Name** (e.g., `forgejo-corp`) and paste the generated token into **Personal Access Token (PAT)**.
+4. Click **Save Profile**.
+5. When creating a runner pool, provide the target repository URL (e.g., `https://forgejo.example.com/org/repo`).
+
+---
+
 ## 📦 Standalone Runner Deployment (Optional)
 
 If you only need a single static runner for a specific GitHub repository without the supervisor daemon or dynamic autoscaling:
