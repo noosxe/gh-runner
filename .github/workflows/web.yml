@@ -7,13 +7,9 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'web/**'
-      - '.github/workflows/web.yml'
   pull_request:
-    paths:
-      - 'web/**'
-      - '.github/workflows/web.yml'
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -25,8 +21,37 @@ permissions:
   contents: read
 
 jobs:
+  # Cheap gate job: detects whether Web frontend source, schemas, or workflow definitions changed.
+  changes:
+    name: Detect Web Changes
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          # Full history so paths-filter can diff against the previous push
+          fetch-depth: 0
+
+      - name: Filter Changed Paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'web/**'
+              - 'proto/**'
+              - '.github/workflows/web.yml'
+
   web-ci:
     name: Lint, Test & Build (Web UI)
+    needs: changes
+    if: ${{ always() && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
