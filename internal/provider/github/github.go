@@ -387,24 +387,6 @@ func (c *Client) GetAppMetadata(ctx context.Context) (string, []provider.AppInst
 		installURL = fmt.Sprintf("%s/apps/%s/installations/new", webBase, slug)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/app/installations?per_page=100", nil)
-	if err != nil {
-		return installURL, nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+jwt)
-	c.setCommonHeaders(req)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return installURL, nil, fmt.Errorf("listing app installations: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return installURL, nil, fmt.Errorf("listing app installations (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
 	var rawInstallations []struct {
 		ID                  int64  `json:"id"`
 		HTMLURL             string `json:"html_url"`
@@ -415,8 +397,46 @@ func (c *Client) GetAppMetadata(ctx context.Context) (string, []provider.AppInst
 			HTMLURL string `json:"html_url"`
 		} `json:"account"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&rawInstallations); err != nil {
-		return installURL, nil, fmt.Errorf("decoding installations: %w", err)
+
+	for page := 1; page <= 50; page++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/app/installations?per_page=100&page=%d", c.baseURL, page), nil)
+		if err != nil {
+			return installURL, nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+jwt)
+		c.setCommonHeaders(req)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return installURL, nil, fmt.Errorf("listing app installations: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			return installURL, nil, fmt.Errorf("listing app installations (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var pageInsts []struct {
+			ID                  int64  `json:"id"`
+			HTMLURL             string `json:"html_url"`
+			RepositorySelection string `json:"repository_selection"`
+			Account             struct {
+				Login   string `json:"login"`
+				Type    string `json:"type"`
+				HTMLURL string `json:"html_url"`
+			} `json:"account"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&pageInsts)
+		_ = resp.Body.Close()
+		if decodeErr != nil {
+			return installURL, nil, fmt.Errorf("decoding installations: %w", decodeErr)
+		}
+
+		rawInstallations = append(rawInstallations, pageInsts...)
+		if len(pageInsts) < 100 {
+			break
+		}
 	}
 
 	installations := make([]provider.AppInstallation, 0, len(rawInstallations))
@@ -449,98 +469,130 @@ func (c *Client) DiscoverOrganizations(ctx context.Context) ([]provider.Discover
 			return nil, fmt.Errorf("generating app JWT: %w", err)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/app/installations?per_page=100", nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Authorization", "Bearer "+jwt)
-		c.setCommonHeaders(req)
+		var targets []provider.DiscoveredTarget
+		seen := make(map[string]bool)
 
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("listing app installations: %w", err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("listing app installations (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
-		}
-
-		var installations []struct {
-			ID      int64 `json:"id"`
-			Account struct {
-				Login       string `json:"login"`
-				HTMLURL     string `json:"html_url"`
-				AvatarURL   string `json:"avatar_url"`
-				Type        string `json:"type"`
-				Description string `json:"description"`
-			} `json:"account"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&installations); err != nil {
-			return nil, fmt.Errorf("decoding installations: %w", err)
-		}
-
-		targets := make([]provider.DiscoveredTarget, 0, len(installations))
-		for _, inst := range installations {
-			htmlURL := inst.Account.HTMLURL
-			if htmlURL == "" {
-				htmlURL = "https://github.com/" + inst.Account.Login
+		for page := 1; page <= 50; page++ {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/app/installations?per_page=100&page=%d", c.baseURL, page), nil)
+			if err != nil {
+				return nil, err
 			}
-			targets = append(targets, provider.DiscoveredTarget{
-				Name:        inst.Account.Login,
-				FullName:    inst.Account.Login,
-				HTMLURL:     htmlURL,
-				Description: inst.Account.Description,
-				AvatarURL:   inst.Account.AvatarURL,
-			})
+			req.Header.Set("Authorization", "Bearer "+jwt)
+			c.setCommonHeaders(req)
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				return nil, fmt.Errorf("listing app installations: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				return nil, fmt.Errorf("listing app installations (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			}
+
+			var installations []struct {
+				ID      int64 `json:"id"`
+				Account struct {
+					Login       string `json:"login"`
+					HTMLURL     string `json:"html_url"`
+					AvatarURL   string `json:"avatar_url"`
+					Type        string `json:"type"`
+					Description string `json:"description"`
+				} `json:"account"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&installations); err != nil {
+				_ = resp.Body.Close()
+				return nil, fmt.Errorf("decoding installations: %w", err)
+			}
+			_ = resp.Body.Close()
+
+			for _, inst := range installations {
+				if seen[inst.Account.Login] {
+					continue
+				}
+				seen[inst.Account.Login] = true
+
+				htmlURL := inst.Account.HTMLURL
+				if htmlURL == "" {
+					htmlURL = "https://github.com/" + inst.Account.Login
+				}
+				targets = append(targets, provider.DiscoveredTarget{
+					Name:        inst.Account.Login,
+					FullName:    inst.Account.Login,
+					HTMLURL:     htmlURL,
+					Description: inst.Account.Description,
+					AvatarURL:   inst.Account.AvatarURL,
+				})
+			}
+
+			if len(installations) < 100 {
+				break
+			}
 		}
+
 		return targets, nil
 	}
 
 	// PAT mode
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/user/orgs?per_page=100", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.pat)
-	c.setCommonHeaders(req)
+	var targets []provider.DiscoveredTarget
+	seen := make(map[string]bool)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("listing user orgs: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("listing user orgs (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	var orgs []struct {
-		Login       string `json:"login"`
-		Description string `json:"description"`
-		AvatarURL   string `json:"avatar_url"`
-		HTMLURL     string `json:"html_url"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&orgs); err != nil {
-		return nil, fmt.Errorf("decoding user orgs: %w", err)
-	}
-
-	targets := make([]provider.DiscoveredTarget, 0, len(orgs))
-	for _, o := range orgs {
-		htmlURL := o.HTMLURL
-		if htmlURL == "" {
-			htmlURL = "https://github.com/" + o.Login
+	for page := 1; page <= 50; page++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/user/orgs?per_page=100&page=%d", c.baseURL, page), nil)
+		if err != nil {
+			return nil, err
 		}
-		targets = append(targets, provider.DiscoveredTarget{
-			Name:        o.Login,
-			FullName:    o.Login,
-			HTMLURL:     htmlURL,
-			Description: o.Description,
-			AvatarURL:   o.AvatarURL,
-		})
+		req.Header.Set("Authorization", "Bearer "+c.pat)
+		c.setCommonHeaders(req)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("listing user orgs: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("listing user orgs (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var orgs []struct {
+			Login       string `json:"login"`
+			Description string `json:"description"`
+			AvatarURL   string `json:"avatar_url"`
+			HTMLURL     string `json:"html_url"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&orgs); err != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("decoding user orgs: %w", err)
+		}
+		_ = resp.Body.Close()
+
+		for _, o := range orgs {
+			if seen[o.Login] {
+				continue
+			}
+			seen[o.Login] = true
+
+			htmlURL := o.HTMLURL
+			if htmlURL == "" {
+				htmlURL = "https://github.com/" + o.Login
+			}
+			targets = append(targets, provider.DiscoveredTarget{
+				Name:        o.Login,
+				FullName:    o.Login,
+				HTMLURL:     htmlURL,
+				Description: o.Description,
+				AvatarURL:   o.AvatarURL,
+			})
+		}
+
+		if len(orgs) < 100 {
+			break
+		}
 	}
+
 	return targets, nil
 }
 
@@ -552,29 +604,41 @@ func (c *Client) DiscoverRepositories(ctx context.Context) ([]provider.Discovere
 			return nil, fmt.Errorf("generating app JWT: %w", err)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/app/installations?per_page=100", nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Authorization", "Bearer "+jwt)
-		c.setCommonHeaders(req)
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("listing app installations: %w", err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("listing app installations (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
-		}
-
 		var installations []struct {
 			ID int64 `json:"id"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&installations); err != nil {
-			return nil, fmt.Errorf("decoding installations: %w", err)
+		for page := 1; page <= 50; page++ {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/app/installations?per_page=100&page=%d", c.baseURL, page), nil)
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Authorization", "Bearer "+jwt)
+			c.setCommonHeaders(req)
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				return nil, fmt.Errorf("listing app installations: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				return nil, fmt.Errorf("listing app installations (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			}
+
+			var pageInsts []struct {
+				ID int64 `json:"id"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&pageInsts); err != nil {
+				_ = resp.Body.Close()
+				return nil, fmt.Errorf("decoding installations: %w", err)
+			}
+			_ = resp.Body.Close()
+
+			installations = append(installations, pageInsts...)
+			if len(pageInsts) < 100 {
+				break
+			}
 		}
 
 		var targets []provider.DiscoveredTarget
@@ -585,100 +649,121 @@ func (c *Client) DiscoverRepositories(ctx context.Context) ([]provider.Discovere
 				continue
 			}
 
-			reposReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/installation/repositories?per_page=100", nil)
-			if err != nil {
-				continue
-			}
-			reposReq.Header.Set("Authorization", "Bearer "+tok)
-			c.setCommonHeaders(reposReq)
-
-			reposResp, err := c.httpClient.Do(reposReq)
-			if err != nil {
-				continue
-			}
-
-			if reposResp.StatusCode != http.StatusOK {
-				_ = reposResp.Body.Close()
-				continue
-			}
-
-			var reposData struct {
-				Repositories []struct {
-					Name        string `json:"name"`
-					FullName    string `json:"full_name"`
-					HTMLURL     string `json:"html_url"`
-					Description string `json:"description"`
-					Private     bool   `json:"private"`
-					Owner       struct {
-						AvatarURL string `json:"avatar_url"`
-					} `json:"owner"`
-				} `json:"repositories"`
-			}
-			_ = json.NewDecoder(reposResp.Body).Decode(&reposData)
-			_ = reposResp.Body.Close()
-
-			for _, r := range reposData.Repositories {
-				if seen[r.HTMLURL] {
-					continue
+			for repoPage := 1; repoPage <= 50; repoPage++ {
+				reposReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/installation/repositories?per_page=100&page=%d", c.baseURL, repoPage), nil)
+				if err != nil {
+					break
 				}
-				seen[r.HTMLURL] = true
-				targets = append(targets, provider.DiscoveredTarget{
-					Name:        r.Name,
-					FullName:    r.FullName,
-					HTMLURL:     r.HTMLURL,
-					Description: r.Description,
-					IsPrivate:   r.Private,
-					AvatarURL:   r.Owner.AvatarURL,
-				})
+				reposReq.Header.Set("Authorization", "Bearer "+tok)
+				c.setCommonHeaders(reposReq)
+
+				reposResp, err := c.httpClient.Do(reposReq)
+				if err != nil {
+					break
+				}
+
+				if reposResp.StatusCode != http.StatusOK {
+					_ = reposResp.Body.Close()
+					break
+				}
+
+				var reposData struct {
+					Repositories []struct {
+						Name        string `json:"name"`
+						FullName    string `json:"full_name"`
+						HTMLURL     string `json:"html_url"`
+						Description string `json:"description"`
+						Private     bool   `json:"private"`
+						Owner       struct {
+							AvatarURL string `json:"avatar_url"`
+						} `json:"owner"`
+					} `json:"repositories"`
+				}
+				_ = json.NewDecoder(reposResp.Body).Decode(&reposData)
+				_ = reposResp.Body.Close()
+
+				for _, r := range reposData.Repositories {
+					if seen[r.HTMLURL] {
+						continue
+					}
+					seen[r.HTMLURL] = true
+					targets = append(targets, provider.DiscoveredTarget{
+						Name:        r.Name,
+						FullName:    r.FullName,
+						HTMLURL:     r.HTMLURL,
+						Description: r.Description,
+						IsPrivate:   r.Private,
+						AvatarURL:   r.Owner.AvatarURL,
+					})
+				}
+
+				if len(reposData.Repositories) < 100 {
+					break
+				}
 			}
 		}
 		return targets, nil
 	}
 
 	// PAT mode
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/user/repos?per_page=100&sort=updated", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.pat)
-	c.setCommonHeaders(req)
+	var targets []provider.DiscoveredTarget
+	seen := make(map[string]bool)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("listing user repos: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
+	for page := 1; page <= 50; page++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/user/repos?per_page=100&sort=updated&page=%d", c.baseURL, page), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+c.pat)
+		c.setCommonHeaders(req)
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("listing user repos (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("listing user repos: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("listing user repos (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		var repos []struct {
+			Name        string `json:"name"`
+			FullName    string `json:"full_name"`
+			HTMLURL     string `json:"html_url"`
+			Description string `json:"description"`
+			Private     bool   `json:"private"`
+			Owner       struct {
+				AvatarURL string `json:"avatar_url"`
+			} `json:"owner"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("decoding user repos: %w", err)
+		}
+		_ = resp.Body.Close()
+
+		for _, r := range repos {
+			if seen[r.HTMLURL] {
+				continue
+			}
+			seen[r.HTMLURL] = true
+			targets = append(targets, provider.DiscoveredTarget{
+				Name:        r.Name,
+				FullName:    r.FullName,
+				HTMLURL:     r.HTMLURL,
+				Description: r.Description,
+				IsPrivate:   r.Private,
+				AvatarURL:   r.Owner.AvatarURL,
+			})
+		}
+
+		if len(repos) < 100 {
+			break
+		}
 	}
 
-	var repos []struct {
-		Name        string `json:"name"`
-		FullName    string `json:"full_name"`
-		HTMLURL     string `json:"html_url"`
-		Description string `json:"description"`
-		Private     bool   `json:"private"`
-		Owner       struct {
-			AvatarURL string `json:"avatar_url"`
-		} `json:"owner"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&repos); err != nil {
-		return nil, fmt.Errorf("decoding user repos: %w", err)
-	}
-
-	targets := make([]provider.DiscoveredTarget, 0, len(repos))
-	for _, r := range repos {
-		targets = append(targets, provider.DiscoveredTarget{
-			Name:        r.Name,
-			FullName:    r.FullName,
-			HTMLURL:     r.HTMLURL,
-			Description: r.Description,
-			IsPrivate:   r.Private,
-			AvatarURL:   r.Owner.AvatarURL,
-		})
-	}
 	return targets, nil
 }
 

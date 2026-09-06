@@ -2,6 +2,8 @@ package forgejo_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -191,5 +193,94 @@ func TestForgejoRegistryIntegration(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "token is required") {
 		t.Fatalf("expected missing credentials error, got %v", err)
+	}
+}
+
+func TestForgejoDiscoveryPagination(t *testing.T) {
+	mux := http.NewServeMux()
+
+	// 1. /api/v1/user/repos
+	mux.HandleFunc("/api/v1/user/repos", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		if page == "1" || page == "" {
+			var repos []map[string]any
+			for i := 1; i <= 100; i++ {
+				repos = append(repos, map[string]any{
+					"name":      fmt.Sprintf("repo-%d", i),
+					"full_name": fmt.Sprintf("org/repo-%d", i),
+					"html_url":  fmt.Sprintf("https://forgejo.example.com/org/repo-%d", i),
+					"private":   false,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(repos)
+			return
+		}
+		if page == "2" {
+			var repos []map[string]any
+			for i := 101; i <= 122; i++ {
+				repos = append(repos, map[string]any{
+					"name":      fmt.Sprintf("repo-%d", i),
+					"full_name": fmt.Sprintf("org/repo-%d", i),
+					"html_url":  fmt.Sprintf("https://forgejo.example.com/org/repo-%d", i),
+					"private":   false,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(repos)
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]any{})
+	})
+
+	// 2. /api/v1/user/orgs
+	mux.HandleFunc("/api/v1/user/orgs", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		w.Header().Set("Content-Type", "application/json")
+		if page == "1" || page == "" {
+			var orgs []map[string]any
+			for i := 1; i <= 100; i++ {
+				orgs = append(orgs, map[string]any{
+					"username": fmt.Sprintf("org-%d", i),
+				})
+			}
+			_ = json.NewEncoder(w).Encode(orgs)
+			return
+		}
+		if page == "2" {
+			var orgs []map[string]any
+			for i := 101; i <= 114; i++ {
+				orgs = append(orgs, map[string]any{
+					"username": fmt.Sprintf("org-%d", i),
+				})
+			}
+			_ = json.NewEncoder(w).Encode(orgs)
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]any{})
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	ctx := context.Background()
+	client, err := forgejo.NewClient("valid-forgejo-pat", forgejo.WithBaseURL(server.URL))
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	repos, err := client.DiscoverRepositories(ctx)
+	if err != nil {
+		t.Fatalf("DiscoverRepositories failed: %v", err)
+	}
+	if len(repos) != 122 {
+		t.Fatalf("expected 122 repos, got %d", len(repos))
+	}
+
+	orgs, err := client.DiscoverOrganizations(ctx)
+	if err != nil {
+		t.Fatalf("DiscoverOrganizations failed: %v", err)
+	}
+	if len(orgs) != 114 {
+		t.Fatalf("expected 114 orgs, got %d", len(orgs))
 	}
 }
